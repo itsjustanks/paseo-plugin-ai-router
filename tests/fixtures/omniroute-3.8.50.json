@@ -1,0 +1,881 @@
+{
+ "_note": "Real OmniRoute 3.8.50 responses (read-scope token), redacted at capture: arrays cut to 3 items, token counts and emails replaced with placeholders. For AI Router tests, UUIDs are replaced with fakes and providerSpecificData is dropped.",
+ "responses": {
+  "/api/monitoring/health": {
+   "status": 200,
+   "body": {
+    "status": "healthy",
+    "timestamp": "2026-09-23T01:48:36.520Z",
+    "system": {
+     "version": "3.8.50",
+     "nodeVersion": "v26.7.0",
+     "uptime": 2184.39057162,
+     "memoryUsage": {
+      "rss": 741781504,
+      "heapTotal": 439996416,
+      "heapUsed": 428882240,
+      "external": 47513654,
+      "arrayBuffers": 19394078
+     },
+     "pid": 20,
+     "platform": "linux"
+    },
+    "version": "3.8.50",
+    "uptime": 2184.39057162,
+    "memoryUsage": {
+     "rss": 741781504,
+     "heapTotal": 439996416,
+     "heapUsed": 428882240,
+     "external": 47513654,
+     "arrayBuffers": 19394078
+    },
+    "activeConnections": 4,
+    "circuitBreakers": {
+     "open": 0,
+     "halfOpen": 0,
+     "degraded": 0,
+     "closed": 0,
+     "total": 0
+    },
+    "providerBreakers": [],
+    "providerHealth": {},
+    "connectionHealth": {},
+    "codexAccountPools": {
+     "total": 2,
+     "available": 2,
+     "partiallyLimited": 0,
+     "fullyLimited": 0,
+     "quotaObserved": 0,
+     "soonestRetryAfterMs": 0
+    },
+    "providerSummary": {
+     "catalogCount": 352,
+     "configuredCount": 2,
+     "activeCount": 2,
+     "monitoredCount": 0
+    },
+    "localProviders": {},
+    "rateLimitStatus": {},
+    "learnedLimits": {},
+    "lockouts": [],
+    "quotaMonitor": {
+     "active": 0,
+     "alerting": 0,
+     "exhausted": 0,
+     "errors": 0,
+     "statusCounts": {
+      "starting": 0,
+      "idle": 0,
+      "healthy": 0,
+      "warning": 0,
+      "exhausted": 0,
+      "error": 0
+     },
+     "byProvider": {},
+     "monitors": []
+    },
+    "sessions": {
+     "activeCount": 1,
+     "stickyBoundCount": 1,
+     "byApiKey": "<redacted>",
+     "top": [
+      {
+       "sessionId": "0000000000000001",
+       "requestCount": 2,
+       "connectionId": "00000000-0000-4000-8000-000000000001",
+       "ageMs": 631180,
+       "idleMs": 631156,
+       "createdAt": "2026-09-23T01:38:05.340Z",
+       "lastActiveAt": "2026-09-23T01:38:05.365Z"
+      }
+     ]
+    },
+    "credentialHealth": {
+     "total": 4,
+     "healthy": 4,
+     "failed": 0,
+     "unknown": 0,
+     "stale": 0
+    },
+    "adaptiveAdmission": {
+     "mode": "shadow",
+     "currentLimit": 64,
+     "minLimit": 8,
+     "maxLimit": 1000,
+     "activeCost": 0,
+     "activeCount": 0,
+     "queuedCost": 0,
+     "queuedCount": 0,
+     "admittedCount": 4,
+     "rejectedCount": 0,
+     "wouldAdmitCount": 3,
+     "wouldQueueCount": 0,
+     "wouldRejectCount": 1,
+     "utilization": 0,
+     "pressure": "normal",
+     "resourceSeverity": "normal",
+     "resourceReason": "none",
+     "resourceObservedAtMs": 1790126970045,
+     "pressureGuardRejectCount": 0,
+     "shutdown": false
+    },
+    "chatAdmission": {
+     "activeHeavy": 0,
+     "activeHealthyHeadroom": 0,
+     "waiting": 0,
+     "queuedBytes": 0,
+     "shedTotal": 0,
+     "shedsByReason": {},
+     "lanes": []
+    },
+    "dedup": {
+     "inflightRequests": 0
+    },
+    "cryptography": {
+     "status": "healthy",
+     "provider": "aes-256-gcm"
+    },
+    "setupComplete": true
+   }
+  },
+  "/api/usage/analytics": {
+   "status": 200,
+   "body": {
+    "summary": {
+     "totalRequests": 4,
+     "promptTokens": "<redacted>",
+     "completionTokens": "<redacted>",
+     "totalTokens": "<redacted>",
+     "uniqueModels": 2,
+     "uniqueAccounts": 2,
+     "uniqueApiKeys": "<redacted>",
+     "successfulRequests": 4,
+     "successRatePct": 100,
+     "avgLatencyMs": 4184,
+     "totalCost": 0.00013,
+     "firstRequest": "2026-09-23T01:18:43.890Z",
+     "lastRequest": "2026-09-23T01:38:14.963Z",
+     "fallbackCount": 0,
+     "fastRequests": 0,
+     "standardRequests": 4,
+     "flexRequests": 0,
+     "fastCost": 0,
+     "standardCost": 0.00013,
+     "flexCost": 0,
+     "flexSavings": 0,
+     "flexUsageSavingsTokens": "<redacted>",
+     "fastRequestSharePct": 0,
+     "fallbackRatePct": 0,
+     "requestedModelCoveragePct": 12.5,
+     "streak": 1
+    },
+    "dailyTrend": [
+     {
+      "date": "2026-09-23",
+      "requests": 4,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "cost": 0.00013
+     }
+    ],
+    "activityMap": {
+     "2026-09-23": 64141
+    },
+    "byModel": [
+     {
+      "model": "claude-sonnet-5",
+      "provider": "claude",
+      "rawModel": "claude-sonnet-5",
+      "requests": 3,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4147,
+      "successRatePct": "100.00",
+      "lastUsed": "2026-09-23T01:38:14.963Z",
+      "cost": 0
+     },
+     {
+      "model": "gpt-5.6-terra",
+      "provider": "codex",
+      "rawModel": "gpt-5.6-terra",
+      "requests": 1,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4294,
+      "successRatePct": "100.00",
+      "lastUsed": "2026-09-23T01:18:48.268Z",
+      "cost": 0.00013
+     }
+    ],
+    "byProvider": [
+     {
+      "provider": "Claude Code",
+      "requests": 3,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4147,
+      "successRatePct": "100.00",
+      "cost": 0
+     },
+     {
+      "provider": "OpenAI Codex",
+      "requests": 1,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4294,
+      "successRatePct": "100.00",
+      "cost": 0.00013
+     }
+    ],
+    "byApiKey": "<redacted>",
+    "byAccount": [
+     {
+      "account": "<email>",
+      "requests": 3,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4147,
+      "lastUsed": "2026-09-23T01:38:14.963Z",
+      "cost": 0
+     },
+     {
+      "account": "<email>",
+      "requests": 1,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4294,
+      "lastUsed": "2026-09-23T01:18:48.268Z",
+      "cost": 0.00013
+     }
+    ],
+    "byServiceTier": [
+     {
+      "serviceTier": "standard",
+      "label": "standard",
+      "requests": 4,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "cost": 0.00013,
+      "savings": 0,
+      "usageSavingsTokens": "<redacted>"
+     }
+    ],
+    "weeklyPattern": [
+     {
+      "day": "Sun",
+      "avgTokens": "<redacted>",
+      "totalTokens": "<redacted>"
+     },
+     {
+      "day": "Mon",
+      "avgTokens": "<redacted>",
+      "totalTokens": "<redacted>"
+     },
+     {
+      "day": "Tue",
+      "avgTokens": "<redacted>",
+      "totalTokens": "<redacted>"
+     }
+    ],
+    "weeklyTokens": "<redacted>",
+    "weeklyCounts": [
+     0,
+     0,
+     0
+    ],
+    "dailyByModel": [
+     {
+      "date": "2026-09-23",
+      "claude-sonnet-5": 64114,
+      "gpt-5.6-terra": 27
+     }
+    ],
+    "modelNames": [
+     "claude-sonnet-5",
+     "gpt-5.6-terra"
+    ],
+    "errorBreakdown": [],
+    "range": "30d"
+   }
+  },
+  "/api/providers/quota-windows": {
+   "status": 200,
+   "body": {
+    "windows": {
+     "v0-vercel": [
+      "credits",
+      "dailyOps"
+     ],
+     "freemodel-dev": [
+      "window5h",
+      "window7d"
+     ],
+     "xai-oauth": [
+      "weekly"
+     ],
+     "xao": [
+      "weekly"
+     ],
+     "codex": [
+      "session",
+      "weekly",
+      "gpt_5_3_codex_spark_session"
+     ],
+     "bailian-coding-plan": [
+      "window_5h",
+      "window_weekly",
+      "window_monthly"
+     ],
+     "qwen-cloud-token-plan": "<redacted>",
+     "opencode-go": [
+      "window_5h",
+      "window_weekly",
+      "window_monthly"
+     ],
+     "opencode": [
+      "window_5h",
+      "window_weekly",
+      "window_monthly"
+     ],
+     "opencode-zen": [
+      "window_5h",
+      "window_weekly",
+      "window_monthly"
+     ],
+     "grok-web": [
+      "weekly"
+     ]
+    },
+    "defaults": {
+     "globalThresholdPercent": 2,
+     "providerWindowDefaults": {}
+    }
+   }
+  },
+  "/api/quota/plans": {
+   "status": 200,
+   "body": {
+    "plans": [
+     {
+      "connectionId": null,
+      "provider": "codex",
+      "dimensions": [
+       {
+        "unit": "percent",
+        "window": "5h",
+        "limit": 100
+       },
+       {
+        "unit": "percent",
+        "window": "weekly",
+        "limit": 100
+       }
+      ],
+      "source": "auto"
+     },
+     {
+      "connectionId": null,
+      "provider": "claude",
+      "dimensions": [
+       {
+        "unit": "percent",
+        "window": "5h",
+        "limit": 100
+       },
+       {
+        "unit": "percent",
+        "window": "weekly",
+        "limit": 100
+       }
+      ],
+      "source": "auto"
+     },
+     {
+      "connectionId": null,
+      "provider": "glm",
+      "dimensions": [
+       {
+        "unit": "tokens",
+        "window": "5h",
+        "limit": 2.220446049250313e-16
+       },
+       {
+        "unit": "tokens",
+        "window": "weekly",
+        "limit": 2.220446049250313e-16
+       }
+      ],
+      "source": "auto"
+     }
+    ]
+   }
+  },
+  "/api/provider-stats": {
+   "status": 200,
+   "body": {
+    "providers": [
+     {
+      "provider": "OpenAI Codex",
+      "nodeName": null,
+      "totalRequests": 16,
+      "successfulRequests": 16,
+      "avgLatencyMs": 728,
+      "totalTokensIn": "<redacted>",
+      "totalTokensOut": "<redacted>"
+     },
+     {
+      "provider": "Claude Code",
+      "nodeName": null,
+      "totalRequests": 16,
+      "successfulRequests": 16,
+      "avgLatencyMs": 781,
+      "totalTokensIn": "<redacted>",
+      "totalTokensOut": "<redacted>"
+     }
+    ],
+    "models": [
+     {
+      "provider": "Claude Code",
+      "nodeName": null,
+      "model": "connection-test",
+      "requests": 13,
+      "avgLatencyMs": 3,
+      "successfulRequests": 13
+     },
+     {
+      "provider": "Claude Code",
+      "nodeName": null,
+      "model": "claude-sonnet-5",
+      "requests": 3,
+      "avgLatencyMs": 4155,
+      "successfulRequests": 3
+     },
+     {
+      "provider": "OpenAI Codex",
+      "nodeName": null,
+      "model": "connection-test",
+      "requests": 15,
+      "avgLatencyMs": 490,
+      "successfulRequests": 15
+     }
+    ],
+    "comboMetrics": {},
+    "telemetry": {
+     "count": 0,
+     "avg": 0,
+     "p50": 0,
+     "p95": 0,
+     "p99": 0,
+     "phaseBreakdown": {}
+    },
+    "toolLatency": {}
+   }
+  },
+  "/api/rate-limits": {
+   "status": 200,
+   "body": {
+    "connections": [
+     {
+      "connectionId": "00000000-0000-4000-8000-000000000002",
+      "provider": "codex",
+      "name": "<email>",
+      "rateLimitProtection": false,
+      "enabled": false,
+      "active": false,
+      "queued": 0,
+      "running": 0
+     },
+     {
+      "connectionId": "00000000-0000-4000-8000-000000000001",
+      "provider": "claude",
+      "name": "<email>",
+      "rateLimitProtection": false,
+      "enabled": false,
+      "active": false,
+      "queued": 0,
+      "running": 0
+     },
+     {
+      "connectionId": "00000000-0000-4000-8000-000000000003",
+      "provider": "codex",
+      "name": "<email>",
+      "rateLimitProtection": false,
+      "enabled": false,
+      "active": false,
+      "queued": 0,
+      "running": 0
+     }
+    ],
+    "overview": {},
+    "lockouts": [],
+    "cacheStats": {
+     "tool": {
+      "entries": 0,
+      "patterns": 0
+     },
+     "family": {
+      "entries": 0,
+      "patterns": 0
+     },
+     "session": {
+      "entries": 0,
+      "patterns": 0
+     },
+     "defaultCount": 6
+    }
+   }
+  },
+  "/api/providers": {
+   "status": 200,
+   "body": {
+    "connections": [
+     {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "provider": "codex",
+      "authType": "oauth",
+      "name": "<email>",
+      "email": "<redacted>",
+      "priority": 1,
+      "isActive": true,
+      "expiresAt": "2026-10-03T01:15:42.649Z",
+      "testStatus": "active",
+      "backoffLevel": 0,
+      "lastTested": "2026-09-23T01:47:47.764Z",
+      "expiresIn": 864000,
+      "consecutiveUseCount": 0,
+      "rateLimitProtection": false,
+      "proxyEnabled": true,
+      "perKeyProxyEnabled": false,
+      "quotaVisible": true,
+      "createdAt": "2026-09-23T01:15:42.650Z",
+      "updatedAt": "2026-09-23T01:47:47.764Z",
+      "maxConcurrent": null,
+      "quotaWindowThresholds": null,
+      "rateLimitOverrides": null,
+      "codexAccountPool": {
+       "parentConnectionId": "00000000-0000-4000-8000-000000000002",
+       "aggregate": {
+        "status": "available",
+        "limitedChildCount": 0
+       },
+       "children": [
+        {
+         "key": {
+          "parentConnectionId": "00000000-0000-4000-8000-000000000002",
+          "scope": "codex"
+         },
+         "unavailable": false,
+         "cooldown": {
+          "active": false,
+          "rateLimitedUntil": null
+         },
+         "quota": {
+          "exhaustedWindow": null,
+          "observedAt": null,
+          "windows": {
+           "5h": null,
+           "7d": null
+          }
+         }
+        },
+        {
+         "key": {
+          "parentConnectionId": "00000000-0000-4000-8000-000000000002",
+          "scope": "spark"
+         },
+         "unavailable": false,
+         "cooldown": {
+          "active": false,
+          "rateLimitedUntil": null
+         },
+         "quota": {
+          "exhaustedWindow": null,
+          "observedAt": null,
+          "windows": {
+           "5h": null,
+           "7d": null
+          }
+         }
+        }
+       ]
+      }
+     },
+     {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "provider": "claude",
+      "authType": "oauth",
+      "name": "<email>",
+      "email": "<redacted>",
+      "priority": 1,
+      "isActive": true,
+      "expiresAt": "2026-09-23T09:17:39.915Z",
+      "scope": "user:inferen\u2026",
+      "testStatus": "active",
+      "backoffLevel": 0,
+      "lastTested": "2026-09-23T01:47:47.212Z",
+      "expiresIn": 28800,
+      "displayName": "<email>",
+      "consecutiveUseCount": 0,
+      "rateLimitProtection": false,
+      "proxyEnabled": true,
+      "perKeyProxyEnabled": false,
+      "quotaVisible": true,
+      "createdAt": "2026-09-23T01:17:39.915Z",
+      "updatedAt": "2026-09-23T01:47:47.212Z",
+      "maxConcurrent": null,
+      "quotaWindowThresholds": null,
+      "rateLimitOverrides": null
+     },
+     {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "provider": "codex",
+      "authType": "oauth",
+      "name": "<email>",
+      "email": "<redacted>",
+      "priority": 2,
+      "isActive": true,
+      "expiresAt": "2026-10-03T01:16:09.414Z",
+      "testStatus": "active",
+      "backoffLevel": 0,
+      "lastTested": "2026-09-23T01:47:47.864Z",
+      "expiresIn": 864000,
+      "consecutiveUseCount": 0,
+      "rateLimitProtection": false,
+      "proxyEnabled": true,
+      "perKeyProxyEnabled": false,
+      "quotaVisible": true,
+      "createdAt": "2026-09-23T01:16:09.415Z",
+      "updatedAt": "2026-09-23T01:47:47.864Z",
+      "maxConcurrent": null,
+      "quotaWindowThresholds": null,
+      "rateLimitOverrides": null,
+      "codexAccountPool": {
+       "parentConnectionId": "00000000-0000-4000-8000-000000000003",
+       "aggregate": {
+        "status": "available",
+        "limitedChildCount": 0
+       },
+       "children": [
+        {
+         "key": {
+          "parentConnectionId": "00000000-0000-4000-8000-000000000003",
+          "scope": "codex"
+         },
+         "unavailable": false,
+         "cooldown": {
+          "active": false,
+          "rateLimitedUntil": null
+         },
+         "quota": {
+          "exhaustedWindow": null,
+          "observedAt": null,
+          "windows": {
+           "5h": null,
+           "7d": null
+          }
+         }
+        },
+        {
+         "key": {
+          "parentConnectionId": "00000000-0000-4000-8000-000000000003",
+          "scope": "spark"
+         },
+         "unavailable": false,
+         "cooldown": {
+          "active": false,
+          "rateLimitedUntil": null
+         },
+         "quota": {
+          "exhaustedWindow": null,
+          "observedAt": null,
+          "windows": {
+           "5h": null,
+           "7d": null
+          }
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "total": 4
+   }
+  },
+  "/api/usage/analytics?range=7d": {
+   "status": 200,
+   "body": {
+    "summary": {
+     "totalRequests": 4,
+     "promptTokens": "<redacted>",
+     "completionTokens": "<redacted>",
+     "totalTokens": "<redacted>",
+     "uniqueModels": 2,
+     "uniqueAccounts": 2,
+     "uniqueApiKeys": "<redacted>",
+     "successfulRequests": 4,
+     "successRatePct": 100,
+     "avgLatencyMs": 4184,
+     "totalCost": 0.00013,
+     "firstRequest": "2026-09-23T01:18:43.890Z",
+     "lastRequest": "2026-09-23T01:38:14.963Z",
+     "fallbackCount": 0,
+     "fastRequests": 0,
+     "standardRequests": 4,
+     "flexRequests": 0,
+     "fastCost": 0,
+     "standardCost": 0.00013,
+     "flexCost": 0,
+     "flexSavings": 0,
+     "flexUsageSavingsTokens": "<redacted>",
+     "fastRequestSharePct": 0,
+     "fallbackRatePct": 0,
+     "requestedModelCoveragePct": 12.5,
+     "streak": 1
+    },
+    "dailyTrend": [
+     {
+      "date": "2026-09-23",
+      "requests": 4,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "cost": 0.00013
+     }
+    ],
+    "activityMap": {
+     "2026-09-23": 64141
+    },
+    "byModel": [
+     {
+      "model": "claude-sonnet-5",
+      "provider": "claude",
+      "rawModel": "claude-sonnet-5",
+      "requests": 3,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4147,
+      "successRatePct": "100.00",
+      "lastUsed": "2026-09-23T01:38:14.963Z",
+      "cost": 0
+     },
+     {
+      "model": "gpt-5.6-terra",
+      "provider": "codex",
+      "rawModel": "gpt-5.6-terra",
+      "requests": 1,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4294,
+      "successRatePct": "100.00",
+      "lastUsed": "2026-09-23T01:18:48.268Z",
+      "cost": 0.00013
+     }
+    ],
+    "byProvider": [
+     {
+      "provider": "Claude Code",
+      "requests": 3,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4147,
+      "successRatePct": "100.00",
+      "cost": 0
+     },
+     {
+      "provider": "OpenAI Codex",
+      "requests": 1,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4294,
+      "successRatePct": "100.00",
+      "cost": 0.00013
+     }
+    ],
+    "byApiKey": "<redacted>",
+    "byAccount": [
+     {
+      "account": "<email>",
+      "requests": 3,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4147,
+      "lastUsed": "2026-09-23T01:38:14.963Z",
+      "cost": 0
+     },
+     {
+      "account": "<email>",
+      "requests": 1,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "avgLatencyMs": 4294,
+      "lastUsed": "2026-09-23T01:18:48.268Z",
+      "cost": 0.00013
+     }
+    ],
+    "byServiceTier": [
+     {
+      "serviceTier": "standard",
+      "label": "standard",
+      "requests": 4,
+      "promptTokens": "<redacted>",
+      "completionTokens": "<redacted>",
+      "totalTokens": "<redacted>",
+      "cost": 0.00013,
+      "savings": 0,
+      "usageSavingsTokens": "<redacted>"
+     }
+    ],
+    "weeklyPattern": [
+     {
+      "day": "Sun",
+      "avgTokens": "<redacted>",
+      "totalTokens": "<redacted>"
+     },
+     {
+      "day": "Mon",
+      "avgTokens": "<redacted>",
+      "totalTokens": "<redacted>"
+     },
+     {
+      "day": "Tue",
+      "avgTokens": "<redacted>",
+      "totalTokens": "<redacted>"
+     }
+    ],
+    "weeklyTokens": "<redacted>",
+    "weeklyCounts": [
+     0,
+     0,
+     0
+    ],
+    "dailyByModel": [
+     {
+      "date": "2026-09-23",
+      "claude-sonnet-5": 64114,
+      "gpt-5.6-terra": 27
+     }
+    ],
+    "modelNames": [
+     "claude-sonnet-5",
+     "gpt-5.6-terra"
+    ],
+    "errorBreakdown": [],
+    "range": "7d"
+   }
+  }
+ }
+}

@@ -1,0 +1,8 @@
+{
+  "id": "paseo",
+  "title": "AI Router",
+  "summary": "Route Paseo's agents through OmniRoute, with accounts, usage and every connected model in one provider",
+  "requires": "paseo",
+  "kind": "paseo-plugin",
+  "pluginId": "ai-router"
+}

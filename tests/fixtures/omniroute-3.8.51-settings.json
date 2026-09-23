@@ -1,0 +1,456 @@
+{
+ "_note": "Real OmniRoute 3.8.51 responses (read-scope token), redacted at capture: arrays cut to 3 items, token counts replaced with placeholders. For AI Router tests, UUIDs and the machine id are replaced.",
+ "responses": {
+  "/api/settings": {
+   "status": 200,
+   "body": {
+    "cloudEnabled": true,
+    "tailscaleEnabled": false,
+    "tailscaleUrl": "",
+    "stickyRoundRobinLimit": 3,
+    "disableSessionStickiness": false,
+    "connectionAwareExpansion": false,
+    "promptCacheAffinityEnabled": true,
+    "comboStrategy": "fallback",
+    "comboStickyRoundRobinLimit": null,
+    "providerStrategies": {},
+    "quotaVisibility": {},
+    "requestRetry": 3,
+    "maxRetryIntervalSec": 30,
+    "antigravitySignatureCacheMode": "enabled",
+    "requireLogin": true,
+    "oidcEnabled": "<redacted>",
+    "oidcDisablePasswordLogin": "<redacted>",
+    "oidcIssuer": "<redacted>",
+    "oidcClientId": "<redacted>",
+    "oidcClientSecret": "<redacted>",
+    "oidcScopes": "<redacted>",
+    "oidcRedirectPath": "<redacted>",
+    "oidcAllowedSubjects": "<redacted>",
+    "mcpEnabled": false,
+    "a2aEnabled": false,
+    "hiddenSidebarItems": [],
+    "hiddenSidebarGroupLabels": [],
+    "sidebarSectionOrder": [],
+    "sidebarItemOrder": {},
+    "sidebarActivePreset": null,
+    "hideEndpointCloudflaredTunnel": false,
+    "hideEndpointTailscaleFunnel": false,
+    "hideEndpointNgrokTunnel": false,
+    "preferClaudeCodeForUnprefixedClaudeModels": true,
+    "claudeClassifierCompat": "off",
+    "autoRefreshProviderQuota": "<redacted>",
+    "credentialRedactionEnabled": false,
+    "autoRefreshProviderQuotaInterval": "<redacted>",
+    "comboConfigMode": "guided",
+    "comboAutoPromoteEnabled": false,
+    "codexServiceTier": {
+     "enabled": false
+    },
+    "claudeFastMode": {
+     "enabled": false,
+     "supportedModels": [
+      "claude-fable-5",
+      "claude-opus-5",
+      "claude-opus-4-8"
+     ]
+    },
+    "responsesPreviousResponseIdMode": "auto",
+    "alwaysPreserveClientCache": "auto",
+    "idempotencyWindowMs": 5000,
+    "wsAuth": false,
+    "maxBodySizeMb": 10,
+    "debugMode": false,
+    "logToolSources": false,
+    "localOnlyManageScopeBypassEnabled": true,
+    "localOnlyManageScopeBypassPrefixes": [
+     "/api/mcp/"
+    ],
+    "customBannedSignals": [],
+    "autoDisableBannedScope": "all",
+    "proxyEnabled": true,
+    "perKeyProxyEnabled": false,
+    "customSystemPromptEnabled": false,
+    "customSystemPrompt": "",
+    "hidePaidModels": false,
+    "freeAccessPolicy": "off",
+    "excludeTosAvoid": false,
+    "hideAutoCombos": false,
+    "hideNoThinkVariants": false,
+    "modelVisibilityAllowlist": [],
+    "modelVisibilityDenylist": [],
+    "codexAutoPing": {
+     "connections": {
+      "00000000-0000-4000-8000-000000000001": true,
+      "00000000-0000-4000-8000-000000000002": true
+     }
+    },
+    "claudeWarmup": {
+     "connections": {}
+    },
+    "call_log_pipeline_enabled": 0,
+    "codexConnectionDefaultsMigrationV1": {
+     "completedAt": "2026-09-23T01:02:03.492Z",
+     "updatedConnectionIds": [],
+     "legacyFastEnabled": false
+    },
+    "codex_catalog_revalidated_version": "next:redacted",
+    "memoryBackendConfigs": {},
+    "memoryEmbeddingCustomBaseUrl": null,
+    "memoryEmbeddingCustomModelId": null,
+    "memoryEmbeddingProviderModel": null,
+    "memoryEmbeddingSource": "auto",
+    "memoryEnabled": false,
+    "memoryFallbackBackends": [],
+    "memoryMaxTokens": "<redacted>",
+    "memoryPrimaryBackend": "sqlite",
+    "memoryRerankEnabled": false,
+    "memoryRerankProviderModel": null,
+    "memoryRetentionDays": 30,
+    "memoryStaticEnabled": false,
+    "memoryStrategy": "hybrid",
+    "memoryTransformersEnabled": false,
+    "memoryVectorStore": "auto",
+    "provider_limits_auto_sync_last_run": "2026-09-23T02:12:14.293Z",
+    "setupComplete": true,
+    "skillsEnabled": true,
+    "sessionAffinityTtlMs": 0,
+    "settingsRevision": 15,
+    "hasPassword": "<redacted>",
+    "runtimePorts": {
+     "port": 20128,
+     "apiPort": 20128,
+     "dashboardPort": 20128,
+     "apiPortExplicit": true,
+     "dashboardPortExplicit": true
+    },
+    "apiPort": 20128,
+    "dashboardPort": 20128,
+    "cloudConfigured": false,
+    "cloudUrl": null,
+    "machineId": "0000000000000000",
+    "radarEnabled": false,
+    "radarAdminUrl": null
+   }
+  },
+  "/api/context/combos/default": {
+   "status": 200,
+   "body": {
+    "mode": "off",
+    "pipeline": [],
+    "derived": true
+   }
+  },
+  "/api/analytics/compression": {
+   "status": 200,
+   "body": {
+    "totalRequests": 0,
+    "totalTokensSaved": "<redacted>",
+    "avgSavingsPct": 0,
+    "avgDurationMs": 0,
+    "byMode": {},
+    "byEngine": {},
+    "byCompressionCombo": {},
+    "byProvider": {},
+    "last24h": [
+     {
+      "hour": "2026-09-22T03:00:00Z",
+      "count": 0,
+      "tokensSaved": "<redacted>"
+     },
+     {
+      "hour": "2026-09-22T04:00:00Z",
+      "count": 0,
+      "tokensSaved": "<redacted>"
+     },
+     {
+      "hour": "2026-09-22T05:00:00Z",
+      "count": 0,
+      "tokensSaved": "<redacted>"
+     }
+    ],
+    "totalSkipped": 0,
+    "bySkipReason": {},
+    "validationFallbacks": 0,
+    "realUsage": {
+     "requestsWithReceipts": 0,
+     "promptTokens": "<redacted>",
+     "completionTokens": "<redacted>",
+     "totalTokens": "<redacted>",
+     "cacheReadTokens": "<redacted>",
+     "cacheWriteTokens": "<redacted>",
+     "estimatedUsdSaved": 0,
+     "bySource": {}
+    },
+    "mcpDescriptionCompression": {
+     "snapshots": 0,
+     "estimatedTokensSaved": "<redacted>"
+    }
+   }
+  },
+  "/api/monitoring/compression": {
+   "status": 200,
+   "body": {
+    "compression": {
+     "memo": {
+      "size": 0,
+      "capacity": 5000,
+      "hits": 0,
+      "misses": 0,
+      "hitRate": 0,
+      "windows": {
+       "1m": {
+        "hits": 0,
+        "misses": 0,
+        "hitRate": 0
+       },
+       "5m": {
+        "hits": 0,
+        "misses": 0,
+        "hitRate": 0
+       },
+       "15m": {
+        "hits": 0,
+        "misses": 0,
+        "hitRate": 0
+       },
+       "1h": {
+        "hits": 0,
+        "misses": 0,
+        "hitRate": 0
+       }
+      }
+     }
+    },
+    "timestamp": "2026-09-23T02:17:28.703Z"
+   }
+  },
+  "/api/resilience": {
+   "status": 200,
+   "body": {
+    "requestQueue": {
+     "autoEnableApiKeyProviders": "<redacted>",
+     "requestsPerMinute": 60,
+     "minTimeBetweenRequestsMs": 350,
+     "concurrentRequests": 6,
+     "globalConcurrentRequests": 0,
+     "maxWaitMs": 30000,
+     "executionMaxWaitMs": 600000,
+     "maxQueueDepth": 0
+    },
+    "connectionCooldown": {
+     "oauth": {
+      "baseCooldownMs": 5000,
+      "useUpstreamRetryHints": false,
+      "maxBackoffSteps": 8
+     },
+     "apikey": "<redacted>"
+    },
+    "providerBreaker": {
+     "oauth": {
+      "failureThreshold": 8,
+      "degradationThreshold": 5,
+      "resetTimeoutMs": 60000
+     },
+     "apikey": "<redacted>"
+    },
+    "waitForCooldown": {
+     "enabled": true,
+     "maxRetries": 3,
+     "maxRetryWaitSec": 30
+    },
+    "comboCooldownWait": {
+     "enabled": true,
+     "maxWaitMs": 90000,
+     "maxAttempts": 5,
+     "budgetMs": 300000
+    },
+    "quotaShareConcurrencyLimit": {
+     "enabled": true
+    },
+    "providerCooldown": {
+     "enabled": false,
+     "minRetryCooldownMs": 5000,
+     "maxRetryCooldownMs": 300000
+    },
+    "quotaPreflight": {
+     "enabled": false,
+     "defaultThresholdPercent": 2,
+     "warnThresholdPercent": 20,
+     "providerWindowDefaults": {}
+    },
+    "providerQuotaOverrides": {},
+    "credentialHealthCheck": {
+     "intervalMinutes": 60
+    },
+    "legacy": {
+     "profiles": {
+      "oauth": {
+       "transientCooldown": 5000,
+       "rateLimitCooldown": 5000,
+       "maxBackoffLevel": 8,
+       "circuitBreakerThreshold": 8,
+       "degradationThreshold": 5,
+       "circuitBreakerReset": 60000
+      },
+      "apikey": "<redacted>"
+     },
+     "defaults": {
+      "requestsPerMinute": 60,
+      "minTimeBetweenRequests": 350,
+      "concurrentRequests": 6
+     }
+    }
+   }
+  },
+  "/api/resilience/model-cooldowns": {
+   "status": 200,
+   "body": {
+    "items": []
+   }
+  },
+  "/api/combos/auto": {
+   "status": 200,
+   "body": {
+    "combos": [
+     {
+      "id": "auto",
+      "name": "Auto",
+      "variant": null,
+      "type": "auto",
+      "isHidden": false,
+      "candidatePool": [
+       "codex",
+       "claude",
+       "opencode"
+      ],
+      "candidateCount": 3,
+      "context_length": 1048576,
+      "max_output_tokens": "<redacted>",
+      "config": {
+       "auto": {
+        "candidatePool": [
+         "codex",
+         "claude",
+         "opencode"
+        ],
+        "weights": {
+         "quota": 0.1429,
+         "health": 0.1605,
+         "costInv": 0.1429,
+         "latencyInv": 0.1143,
+         "taskFit": 0.0762,
+         "stability": 0.0476,
+         "tierPriority": 0.0476,
+         "tierAffinity": 0.0476,
+         "specificityMatch": 0.0476,
+         "contextAffinity": 0.0476,
+         "cacheAffinity": 0,
+         "sessionAvailability": 0.0476,
+         "resetWindowAffinity": 0,
+         "connectionDensity": 0.0476,
+         "quality": 0.03,
+         "reliability": 0
+        },
+        "explorationRate": 0.05,
+        "routerStrategy": "lkgp"
+       }
+      }
+     },
+     {
+      "id": "auto/coding",
+      "name": "Auto Coding",
+      "variant": "coding",
+      "type": "auto",
+      "isHidden": false,
+      "candidatePool": [
+       "codex",
+       "claude",
+       "opencode"
+      ],
+      "candidateCount": 3,
+      "context_length": 1048576,
+      "max_output_tokens": "<redacted>",
+      "config": {
+       "auto": {
+        "candidatePool": [
+         "codex",
+         "claude",
+         "opencode"
+        ],
+        "weights": {
+         "quota": 0.0752,
+         "health": 0.1714,
+         "costInv": 0.0276,
+         "latencyInv": 0.0476,
+         "taskFit": 0.3524,
+         "stability": 0.1429,
+         "tierPriority": 0.0276,
+         "tierAffinity": 0,
+         "specificityMatch": 0,
+         "contextAffinity": 0,
+         "sessionAvailability": 0.0476,
+         "resetWindowAffinity": 0,
+         "connectionDensity": 0.0476,
+         "quality": 0.03,
+         "reliability": 0.03
+        },
+        "explorationRate": 0.05,
+        "routerStrategy": "lkgp"
+       }
+      }
+     },
+     {
+      "id": "auto/fast",
+      "name": "Auto Fast",
+      "variant": "fast",
+      "type": "auto",
+      "isHidden": false,
+      "candidatePool": [
+       "codex",
+       "claude",
+       "opencode"
+      ],
+      "candidateCount": 3,
+      "context_length": 1048576,
+      "max_output_tokens": "<redacted>",
+      "config": {
+       "auto": {
+        "candidatePool": [
+         "codex",
+         "claude",
+         "opencode"
+        ],
+        "weights": {
+         "quota": 0.1133,
+         "health": 0.2667,
+         "costInv": 0.0276,
+         "latencyInv": 0.3048,
+         "taskFit": 0.0952,
+         "stability": 0,
+         "tierPriority": 0.0376,
+         "tierAffinity": 0,
+         "specificityMatch": 0,
+         "contextAffinity": 0.0095,
+         "sessionAvailability": 0.0476,
+         "resetWindowAffinity": 0,
+         "connectionDensity": 0.0476,
+         "quality": 0.02,
+         "reliability": 0.03
+        },
+        "explorationRate": 0.05,
+        "routerStrategy": "lkgp"
+       }
+      }
+     }
+    ]
+   }
+  },
+  "/api/cache": {
+   "status": 401,
+   "body": {
+    "error": "Unauthorized"
+   }
+  }
+ }
+}
