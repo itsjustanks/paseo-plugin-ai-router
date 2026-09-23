@@ -57,7 +57,11 @@ function catalogueFor(connection: Connection, fresh = false) {
   const key = `${connection.endpoint}\n${connection.apiKey}\n${connection.token}`;
   if (!fresh && catalogueCache?.key === key && Date.now() - catalogueCache.at <= CATALOGUE_MAX_AGE_MS) return catalogueCache.value;
   const value = fetchCatalogue(connection);
-  catalogueCache = { key, at: Date.now(), value };
+  const entry = { key, at: Date.now(), value };
+  catalogueCache = entry;
+  // Only a good answer is reused: a failure (router blip, rate limit) is retried on the very next check.
+  const forget = () => { if (catalogueCache === entry) catalogueCache = null; };
+  value.then((result) => { if (!result.ok) forget(); }, forget);
   return value;
 }
 

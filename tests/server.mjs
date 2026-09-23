@@ -661,6 +661,16 @@ try {
     const auto = t.box.profiles.find((p) => p.id === "ai-router:auto");
     assert.deepEqual([auto.icon, auto.thinkingOptionId], ["rocket", "high"], "an icon or effort a person set on ours survives");
 
+    // OmniRoute's combo list can't be read for a moment: keep models and profiles exactly as they are.
+    const savedAuto = managed["/api/combos/auto"];
+    delete managed["/api/combos/auto"];
+    const idsBefore = t.box.profiles.map((p) => p.id);
+    const modelsBefore = t.box.providers["ai-router"].models.map((m) => m.id);
+    await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
+    managed["/api/combos/auto"] = savedAuto;
+    assert.deepEqual(t.box.profiles.map((p) => p.id), idsBefore, "a failed combo read leaves the profiles alone");
+    assert.deepEqual(t.box.providers["ai-router"].models.map((m) => m.id), modelsBefore, "and the model list");
+
     // The switch off: ours go, the person's stays; back on: they return.
     routingDoc(t.dir, { routeAgents: false, comboProfiles: false });
     const off = await t.mod.handleProfiles({ apply: true }, { paseo: t.api });

@@ -221,6 +221,9 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
     active = activeProviders(providers.body);
   }
   const dashboard = operator ? await dashboardCombos(connection) : { ids: null, auto: null, custom: null };
+  // With a read token the combo list comes from the dashboard. If that read fails for a moment, don't
+  // fall back to the short list: that would drop combos and their profiles until the next sync.
+  if (operator && dashboard.ids === null) return { ok: false, error: "Couldn't read OmniRoute's combo list just now; kept the current models and profiles. Will retry." };
   const list = buildModelList(models.body, active, dashboard.ids);
   if (!list.length) return { ok: false, error: active ? `OmniRoute lists no models for the active accounts (${[...active].join(", ") || "none"}).` : "OmniRoute lists no models this key can use on connected accounts." };
   if (!active && list.length > UNFILTERED_MODELS) {
