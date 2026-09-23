@@ -486,6 +486,14 @@ export type CatalogModel = { id: string; label: string; provider: string };
 /** Without a read token the dashboard's combo list is unknown; the core `auto`, `auto/<name>` combos stand in for it. */
 const CORE_COMBO = /^auto(\/[a-z0-9-]+)?$/;
 const MAX_FALLBACK_COMBOS = 10;
+/** Effort and no-think copies of a model: Paseo's own thinking/effort control covers these. */
+const EFFORT_SUFFIX = /-(low|medium|high|xhigh|max|ultra)$/;
+const NO_THINK_PREFIX = /^no-think\//;
+/** Hide a variant only when its base model is listed too, so nothing becomes unreachable. */
+export function isRedundantVariant(id: string, ids: ReadonlySet<string>): boolean {
+  if (NO_THINK_PREFIX.test(id)) return ids.has(id.replace(NO_THINK_PREFIX, ""));
+  return EFFORT_SUFFIX.test(id) && ids.has(id.replace(EFFORT_SUFFIX, ""));
+}
 
 /**
  * `/v1/models` limited to connected, active providers by `owned_by`. When
@@ -508,7 +516,7 @@ export function buildModelList(modelsBody: unknown, active: ReadonlySet<string> 
   for (const entry of entries) {
     const id = str(entry.id);
     const owner = str(entry.owned_by);
-    if (!id || !owner || owner === "combo" || (active && !active.has(owner)) || seen.has(id)) continue;
+    if (!id || !owner || owner === "combo" || (active && !active.has(owner)) || seen.has(id) || isRedundantVariant(id, ids as Set<string>)) continue;
     const parent = str(entry.parent);
     if (parent && ids.has(parent)) continue;
     seen.add(id);

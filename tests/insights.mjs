@@ -392,6 +392,16 @@ try {
       const fallback = I.buildModelList(body, new Set(["cc"]));
       assert.deepEqual(fallback.map((m) => m.id), ["auto/pro-coding", "auto/coding", "auto", "cc/claude-sonnet-5"], "no read token: core auto combos only (no ':' variants, no custom)");
     }
+    {
+      // Effort and no-think copies are hidden when the base model is listed; orphans stay.
+      const body = { data: [
+        { id: "cc/claude-opus-5-5", owned_by: "cc" }, { id: "cc/claude-opus-5-5-high", owned_by: "cc" },
+        { id: "no-think/cc/claude-opus-5-5", owned_by: "cc" }, { id: "cx/gpt-6-sol", owned_by: "codex" },
+        { id: "cx/gpt-6-sol-xhigh", owned_by: "codex" }, { id: "cx/orphan-model-max", owned_by: "codex" },
+      ] };
+      const ids = I.buildModelList(body, new Set(["cc", "codex"])).map((m) => m.id).sort();
+      assert.deepEqual(ids, ["cc/claude-opus-5-5", "cx/gpt-6-sol", "cx/orphan-model-max"]);
+    }
     const list = I.buildModelList({ data: [
       { id: "cc/claude-sonnet-5", owned_by: "claude", root: "claude-sonnet-5" },
       { id: "claude/claude-sonnet-5", owned_by: "claude", root: "claude-sonnet-5", parent: "cc/claude-sonnet-5" },

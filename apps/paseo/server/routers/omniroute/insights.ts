@@ -182,7 +182,10 @@ async function dashboardCombos(connection: Connection): Promise<{ ids: string[] 
   const autoBody = auto.ok ? auto.body : null;
   const customBody = custom.ok ? custom.body : null;
   if (!auto.ok) return { ids: null, auto: autoBody, custom: customBody };
-  return { ids: [...names(auto.body), ...(custom.ok ? names(custom.body) : [])], auto: autoBody, custom: customBody };
+  // The dashboard's core auto combos, then combos a person made. The built-in "auto/…" variants that
+  // /api/combos returns for admins are left out, so the list (and the combo profiles) stay short.
+  const own = custom.ok ? names(custom.body).filter((name) => name !== "auto" && !name.startsWith("auto/")) : [];
+  return { ids: [...names(auto.body), ...own], auto: autoBody, custom: customBody };
 }
 
 /** More than this after `?configuredOnly=true` means the router ignored the filter (an older OmniRoute). */
