@@ -3,18 +3,19 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { access, aiProvider, connectionClear, connectionTest, modelTest, status, tunnelSet, tunnels, type Status } from "../shared/contracts";
+import { access, aiProvider, connectionClear, connectionTest, modelTest, profiles, status, tunnelSet, tunnels, type AnalyticsRangeId, type Status } from "../shared/contracts";
 import { providerLabel } from "../shared/routers/omniroute/parsers";
 import { CODEX_LOGIN_PORT, TIER_LABELS, lastAgentLine, privateDashboardAccess, tunnelDashboardUrl } from "../shared/logic";
 import { routingSettings } from "../shared/settings";
 import { ROUTERS } from "../shared/routers/copy";
 import { OpenDashboardButton, dashboardTarget, useLinks } from "./dashboard";
-import { AccountsTab, UsageTab } from "./insights";
+import { AccountsTab } from "./insights";
+import { UsageTab } from "./analytics";
 import { SectionHeading, TabBar, visibleTabs, type TabId } from "./navigation";
 import { ProvidersTab } from "./providers";
 import { SettingsTab } from "./settings";
 import { ConnectionForm, KeysCard, STATUS_KEY, errorText, type Message } from "./setup";
-import { Banner, Button, Card, Chip, Fact, Field, Link, Note, Row, StatusLine, type Tone } from "./ui";
+import { Banner, Button, Card, Chip, Fact, Field, Link, Note, Row, StatusLine, Toggle, type Tone } from "./ui";
 
 type Theme = PluginTheme;
 type Go = (tab: TabId) => void;
@@ -184,6 +185,58 @@ function YourAccess({ theme, data }: { theme: Theme; data: Status }) {
   );
 }
 
+const PROFILES_KEY = ["ai-router", "profiles"] as const;
+
+/**
+ * OmniRoute's combos as Paseo agent profiles: one per combo in the model
+ * list, on the AI Router provider, kept current by the same sync as the
+ * models. The switch is host-wide; turning it off removes only these.
+ */
+function ComboProfiles({ theme, say }: { theme: Theme; say: Say }) {
+  const queryClient = useQueryClient();
+  const settings = useSettings(routingSettings);
+  const call = useRpc(profiles);
+  const query = useQuery({ queryKey: PROFILES_KEY, queryFn: () => call({}), refetchInterval: 60_000 });
+  const [showAll, setShowAll] = useState(false);
+  const apply = useMutation({
+    mutationFn: async (next: boolean) => {
+      if (settings.status !== "ready") throw new Error("Settings are still loading.");
+      const saved = await settings.save({ ...settings.values, comboProfiles: next }, settings.revision);
+      if (saved === false) throw new Error("The switch was changed elsewhere; try again.");
+      return call({ apply: true });
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(PROFILES_KEY, result);
+      say(result.message ? { text: result.message, tone: "warning" } : { text: result.enabled ? `${result.profiles.length} combo profile${result.profiles.length === 1 ? "" : "s"} in Paseo.` : "Combo profiles removed from Paseo. Your own profiles are unchanged.", tone: "success" });
+    },
+    onError: (error) => say({ text: errorText(error), tone: "danger" }),
+  });
+  const on = settings.status === "ready" ? settings.values.comboProfiles !== false : query.data?.enabled ?? true;
+  const list = query.data?.profiles ?? [];
+  const shown = showAll ? list : list.slice(0, 6);
+  return (
+    <Card theme={theme} title="Combos as agent profiles">
+      <Row>
+        <Toggle theme={theme} label="Show combos as agent profiles" value={on} busy={apply.isPending} disabled={settings.status !== "ready"} onChange={(next) => apply.mutate(next)} />
+        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>Show combos as agent profiles</Text>
+      </Row>
+      <Note theme={theme}>Each OmniRoute combo becomes a profile in Paseo's agent picker, on the AI Router provider, with OmniRoute's description as its notes (orchestrating agents read them). Kept in step with the model list; your own profiles are never touched.</Note>
+      {query.data?.message ? <Note theme={theme} tone="warning">{query.data.message}</Note> : null}
+      {on && !list.length ? <Note theme={theme}>{query.isLoading ? "Reading Paseo's profiles…" : "No combo profiles yet: they appear with the next sync once OmniRoute lists a combo."}</Note> : null}
+      {shown.map((profile) => (
+        <View key={profile.id} style={{ gap: 2, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 8 }}>
+          <Row>
+            <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600" }}>{profile.name}</Text>
+            {profile.model ? <Text selectable style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{profile.model}</Text> : null}
+          </Row>
+          {profile.notes ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{profile.notes}</Text> : null}
+        </View>
+      ))}
+      {list.length > shown.length || showAll ? <Link theme={theme} label={showAll ? "Show fewer" : `Show all ${list.length}`} onPress={() => setShowAll(!showAll)} /> : null}
+    </Card>
+  );
+}
+
 function ModelsTab({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
   const queryClient = useQueryClient();
   const sync = useSync(say);
@@ -215,6 +268,7 @@ function ModelsTab({ theme, data, say }: { theme: Theme; data: Status; say: Say 
         {lastSync && !lastSync.ok ? <Note theme={theme} tone="danger">{`Sync failed at ${hhmm(lastSync.at)}: ${lastSync.message}`}</Note> : null}
         {legacyCodex ? <Note theme={theme} tone="warning">The old "AI Router Codex" provider is still in Paseo. Syncing removes it.</Note> : null}
       </Card>
+      <ComboProfiles theme={theme} say={say} />
       {models.length ? (
         <Card theme={theme} title="In Paseo's model picker">
           <Note theme={theme}>Test sends one tiny request through the router and shows its answer.</Note>
@@ -226,7 +280,7 @@ function ModelsTab({ theme, data, say }: { theme: Theme; data: Status; say: Say 
                 return (
                   <View key={row.id} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
                     <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{row.name}</Text>
-                    <Text selectable style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{row.id}</Text>
+                    {row.id !== row.name ? <Text selectable style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{row.id}</Text> : null}
                     {result ? <Chip theme={theme} label={result.ok ? "answered" : "failed"} tone={result.ok ? "success" : "danger"} /> : null}
                     <Link theme={theme} label={testing === row.id ? "Testing…" : "Test"} accessibilityLabel={`Test ${row.name}`} onPress={() => { if (!test.isPending) test.mutate(row.id); }} />
                   </View>
@@ -385,8 +439,8 @@ function ConnectionTab({ theme, data, configured, say }: { theme: Theme; data: S
 
 // ------------------------------------------------------------------- surface
 
-/** `initialTab` lets tests and the preview open a tab directly; Paseo does not pass it. */
-export function AiRouterSurface({ theme, layout, initialTab }: PluginSurfaceProps & { initialTab?: TabId }) {
+/** `initialTab` and `initialRange` let tests and the preview open a view directly; Paseo does not pass them. */
+export function AiRouterSurface({ theme, layout, initialTab, initialRange }: PluginSurfaceProps & { initialTab?: TabId; initialRange?: AnalyticsRangeId }) {
   const callStatus = useRpc(status);
   const [message, setMessage] = useState<Message>(null);
   const [chosen, setChosen] = useState<TabId | null>(initialTab ?? null);
@@ -437,7 +491,7 @@ export function AiRouterSurface({ theme, layout, initialTab }: PluginSurfaceProp
       {configured && tab === "overview" ? <OverviewTab theme={theme} data={data} go={go} say={setMessage} /> : null}
       {configured && tab === "models" ? <ModelsTab theme={theme} data={data} say={setMessage} /> : null}
       {configured && tab === "accounts" ? <AccountsTab theme={theme} data={data} say={setMessage} /> : null}
-      {configured && tab === "usage" ? <UsageTab theme={theme} /> : null}
+      {configured && tab === "usage" ? <UsageTab theme={theme} compact={layout.compact} initialRange={initialRange} /> : null}
       {configured && tab === "settings" ? <SettingsTab theme={theme} data={data} say={setMessage} /> : null}
     </ScrollView>
   );

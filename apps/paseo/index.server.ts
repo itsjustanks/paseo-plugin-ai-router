@@ -12,6 +12,7 @@ import {
   access,
   compression,
   compressionApply,
+  profiles,
   providerEnable,
   providersList,
   providersTidy,
@@ -36,6 +37,7 @@ import {
   handleAccess,
   handleCompression,
   handleCompressionApply,
+  handleProfiles,
   handleProviderEnable,
   handleProvidersList,
   handleProvidersTidy,
@@ -79,6 +81,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(tunnels, active(handleTunnels));
   server.handle(tunnelSet, active(handleTunnelSet));
   server.handle(access, active(handleAccess));
+  server.handle(profiles, active(handleProfiles));
   server.handle(compression, active(handleCompression));
   server.handle(compressionApply, active(handleCompressionApply));
   // Also checks the AI Router provider once at load, with no Paseo handle yet (see server/provider.ts).

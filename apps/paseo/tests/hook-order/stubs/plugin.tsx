@@ -6,7 +6,9 @@
  */
 import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { parseSettings } from "../../../shared/routers/omniroute/parsers";
+import { RANGE_DAYS, describeCombos, parseAnalytics, parseByAccount, parseByDaemon, parseSettings, type AnalyticsRange } from "../../../shared/routers/omniroute/parsers";
+import { AUTO_COMBO_DEFAULT, AUTO_COMBO_KINDS, CUSTOM_COMBO_LOOK } from "../../../shared/routers/omniroute/copy";
+import { comboProfile } from "../../../shared/logic";
 
 export function defineRpc<T>(contract: T) { return contract; }
 export function defineSettings<T>(definition: T) { return definition; }
@@ -22,6 +24,7 @@ export function setHostDataReady(value: boolean) {
 const now = new Date().toISOString();
 /** What a sync writes into Paseo's AI Router provider: labels from the real formatter. */
 const SYNCED = [
+  ["auto", "Combo · auto"], ["auto/coding", "Combo · auto/coding"], ["auto/fast", "Combo · auto/fast"], ["auto/best-reasoning", "Combo · auto/best-reasoning"], ["team-review", "Combo · team-review"],
   ["cc/claude-opus-5-5", "Claude · Opus 5.5"], ["cc/claude-sonnet-5", "Claude · Sonnet 5"], ["cc/claude-haiku-4-5", "Claude · Haiku 4.5"], ["cc/claude-fable-5-1", "Claude · Fable 5.1"],
   ["cx/gpt-5.6-sol", "Codex · GPT-5.6 Sol"], ["cx/gpt-5.6-terra", "Codex · GPT-5.6 Terra"], ["cx/gpt-5.1-codex-mini", "Codex · GPT-5.1 Codex Mini"],
 ].map(([id, label]) => ({ id, label }));
@@ -42,7 +45,7 @@ const fixtures: Record<string, unknown> = {
     problem: null, warnings: [],
     health: { checkedAt: now, up: true, latencyMs: 12, error: null, version: "3.8.50", uptimeSeconds: 90061, monitoringError: null, paused: [] },
     routeAgents: true, lastSession: { at: now, agentId: "agent-1", kind: "claude", routed: false, message: "routing skipped for claude session agent-1 (create): http://10.0.0.5:20128 is down: connection refused at http://10.0.0.5:20128/api/health/ping", reason: "http://10.0.0.5:20128 is down: connection refused at http://10.0.0.5:20128/api/health/ping" },
-    aiProvider: { present: true, modelCount: 7, legacyCodex: true, summary: "Claude 4 · Codex 3", models: SYNCED, lastSync: { at: now, ok: true, message: "Synced 7 models to Paseo (Claude 4 · Codex 3)." },
+    aiProvider: { present: true, modelCount: SYNCED.length, legacyCodex: true, summary: "Combo 5 · Claude 4 · Codex 3", models: SYNCED, lastSync: { at: now, ok: true, message: "Synced 12 models to Paseo (Combo 5 · Claude 4 · Codex 3)." },
       tests: [{ model: "cc/claude-opus-5-5", at: now, ok: false, message: "cc/claude-opus-5-5: 400 — /v1/messages failed: Claude Code version 2.1.280 or newer is required" }] },
     settingsDir: "/root/.paseo/plugin-settings/ai-router",
   },
@@ -66,18 +69,92 @@ const accountFixtures: Record<string, unknown> = {
   "no-token": { ...insight, state: "no-token", message: "Add a read-only access token (OmniRoute → Settings → Access Tokens, scope: read) to see accounts and usage.", accounts: [], router: null },
   error: { ...insight, state: "error", message: "Accounts: 401 — read token rejected: Invalid or expired access token", accounts: [], router: null },
 };
-const usageFixtures: Record<string, unknown> = {
-  ok: {
-    ...insight, ownKey: "daemon-a",
-    day: { requests: 0, tokens: 0, cost: 0, successRatePct: null },
-    week: { requests: 13, tokens: 65341, cost: 0.02, successRatePct: 100 },
-    trend: ["17", "18", "19", "20", "21", "22", "23"].map((d, i) => ({ date: `2026-09-${d}`, requests: i * 2, tokens: i * 1000 })),
-    byAccount: [{ label: "so…@example.com", requests: 9, tokens: 1200, cost: 0 }],
-    byDaemon: [{ label: "daemon-b", requests: 9, tokens: 1200, cost: 0.02 }, { label: "daemon-a", requests: 4, tokens: 64141, cost: 0, thisDaemon: true }],
-    topModels: [{ label: "claude-sonnet-5", requests: 3, tokens: 64114, cost: 0, failedPct: 0 }, { label: "claude-opus-5-5", requests: 3, tokens: null, cost: null, failedPct: 100 }],
-  },
-  "no-token": { ...insight, state: "no-token", message: "Add a read-only access token (OmniRoute → Settings → Access Tokens, scope: read) to see accounts and usage.", day: null, week: null, trend: [], byAccount: [], byDaemon: [], topModels: [], ownKey: null },
+/**
+ * A month of plausible router traffic in `/api/usage/analytics`'s own shape,
+ * run through the real parsers, so the analytics view shows what people will
+ * read. Deterministic: the same numbers every run.
+ */
+const MODELS = [
+  { model: "claude-sonnet-5", provider: "claude", share: 0.34, latency: 3900, ok: "99.20" },
+  { model: "gpt-6-sol", provider: "codex", share: 0.24, latency: 2700, ok: "98.70" },
+  { model: "claude-opus-5-5", provider: "claude", share: 0.18, latency: 6100, ok: "96.40" },
+  { model: "gpt-5.6-sol", provider: "codex", share: 0.12, latency: 2400, ok: "100.00" },
+  { model: "claude-haiku-4-5", provider: "claude", share: 0.07, latency: 1300, ok: "100.00" },
+  { model: "glm-5.2", provider: "glm", share: 0.05, latency: 3300, ok: "88.00" },
+];
+const PROVIDER_NAMES: Record<string, string> = { claude: "Claude Code", codex: "OpenAI Codex", glm: "GLM" };
+function analyticsBody(days: number): Record<string, unknown> {
+  const DAY = 86_400_000;
+  const dates = Array.from({ length: days }, (_, i) => new Date(Date.now() - (days - 1 - i) * DAY).toISOString().slice(0, 10));
+  const perDay = dates.map((date, i) => {
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    const requests = weekday === 0 || weekday === 6 ? 6 + (i % 4) : 22 + ((i * 7) % 17);
+    return { date, requests, tokens: requests * (38_000 + ((i * 5_311) % 21_000)) };
+  });
+  const requests = perDay.reduce((sum, d) => sum + d.requests, 0);
+  const tokens = perDay.reduce((sum, d) => sum + d.tokens, 0);
+  const cost = Math.round(tokens * 0.0000011 * 100) / 100;
+  const byModel = MODELS.map((m) => ({ model: m.model, provider: m.provider, requests: Math.round(requests * m.share), totalTokens: Math.round(tokens * m.share), avgLatencyMs: m.latency, successRatePct: m.ok, cost: Math.round(cost * m.share * 100) / 100 }));
+  const providers = ["claude", "codex", "glm"].map((id) => {
+    const rows = byModel.filter((m) => m.provider === id);
+    const n = rows.reduce((sum, r) => sum + r.requests, 0);
+    return { provider: PROVIDER_NAMES[id], requests: n, totalTokens: rows.reduce((sum, r) => sum + r.totalTokens, 0), avgLatencyMs: id === "claude" ? 4300 : id === "codex" ? 2600 : 3300, successRatePct: id === "glm" ? "88.00" : id === "claude" ? "98.60" : "99.30", cost: Math.round(rows.reduce((sum, r) => sum + r.cost, 0) * 100) / 100 };
+  });
+  const activityMap: Record<string, number> = {};
+  for (let i = 0; i < 365; i += 1) {
+    const date = new Date(Date.now() - i * DAY).toISOString().slice(0, 10);
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    if (i > 150 || (weekday === 0 && i % 3 === 0)) continue;
+    activityMap[date] = (weekday === 6 ? 90_000 : 400_000) + ((i * 9_973) % 900_000);
+  }
+  return {
+    summary: { totalRequests: requests, promptTokens: Math.round(tokens * 0.93), completionTokens: Math.round(tokens * 0.07), totalTokens: tokens, totalCost: cost, successRatePct: 98.4, avgLatencyMs: 3820, fallbackRatePct: 1.6, streak: 12 },
+    dailyTrend: perDay.map((d) => ({ date: d.date, requests: d.requests, totalTokens: d.tokens, cost: Math.round(d.tokens * 0.0000011 * 100) / 100 })),
+    dailyByModel: perDay.map((d, i) => Object.fromEntries([["date", d.date], ...MODELS.map((m, j) => [m.model, Math.round(d.tokens * m.share * (1 + (((i + j) % 5) - 2) / 10))])])),
+    byModel,
+    byProvider: providers,
+    byApiKey: [
+      { apiKeyId: "k2", apiKeyName: "daemon-b", requests: Math.round(requests * 0.46), totalTokens: Math.round(tokens * 0.46), cost: Math.round(cost * 0.46 * 100) / 100 },
+      { apiKeyId: "k1", apiKeyName: "daemon-a", requests: Math.round(requests * 0.38), totalTokens: Math.round(tokens * 0.38), cost: Math.round(cost * 0.38 * 100) / 100 },
+      { apiKeyId: "k3", apiKeyName: "daemon-c", requests: Math.round(requests * 0.16), totalTokens: Math.round(tokens * 0.16), cost: Math.round(cost * 0.16 * 100) / 100 },
+    ],
+    byAccount: [
+      { account: "someone@example.com", requests: Math.round(requests * 0.44), totalTokens: Math.round(tokens * 0.44), cost: 0 },
+      { account: "worker@example.com", requests: Math.round(requests * 0.36), totalTokens: Math.round(tokens * 0.36), cost: 0 },
+      { account: "tester@example.com", requests: Math.round(requests * 0.2), totalTokens: Math.round(tokens * 0.2), cost: 0 },
+    ],
+    errorBreakdown: [{ errorType: "rate_limit", count: 9 }, { errorType: "upstream_5xx", count: 4 }, { errorType: "timeout", count: 2 }],
+    weeklyPattern: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, i) => ({ day, avgTokens: [120_000, 900_000, 1_300_000, 1_100_000, 980_000, 860_000, 150_000][i] })),
+    activityMap,
+  };
+}
+function usageAnswer(kind: string, range: AnalyticsRange): unknown {
+  if (kind === "no-token") return { ...insight, state: "no-token", message: "Add a read-only access token (OmniRoute → Settings → Access Tokens, scope: read) to see accounts and usage.", range, totals: null, trend: [], providerTrend: { providers: [], days: [] }, byModel: [], byProvider: [], byAccount: [], byDaemon: [], errors: [], activity: [], busiestWeekday: null, ownKey: null };
+  const body = kind === "empty" ? { summary: { totalRequests: 0, totalTokens: 0, totalCost: 0, successRatePct: null }, dailyTrend: [], activityMap: {} } : analyticsBody(RANGE_DAYS[range]);
+  const answer = { ...insight, range, ...parseAnalytics(body, range, Date.now()), byAccount: parseByAccount(body), byDaemon: parseByDaemon(body, { id: "k1", name: "daemon-a" }), ownKey: "daemon-a" };
+  return kind === "stale" ? { ...answer, checkedAt: new Date(Date.now() - 38 * 60_000).toISOString(), stale: { reason: "Usage: the router is not answering (connection refused at http://10.0.0.5:20128/api/health/ping)" } } : answer;
+}
+const usageFixtures: Record<string, true> = { ok: true, empty: true, stale: true, "no-token": true };
+
+// OmniRoute's combos as Paseo agent profiles, described by the real parser.
+const COMBO_MODELS = { data: [
+  { id: "auto", owned_by: "combo" }, { id: "auto/coding", owned_by: "combo" }, { id: "auto/fast", owned_by: "combo" }, { id: "auto/best-reasoning", owned_by: "combo" },
+  { id: "team-review", owned_by: "combo", display_name: "Team review", description: "Opus 5.5 first, GPT-6 Sol when Claude is busy" },
+] };
+const COMBO_AUTO = { combos: [{ id: "auto", candidatePool: ["codex", "claude"] }, { id: "auto/coding", candidatePool: ["codex", "claude"] }, { id: "auto/fast", candidatePool: ["codex", "claude"] }, { id: "auto/best-reasoning", candidatePool: ["claude", "codex"] }] };
+const COMBO_CUSTOM = { combos: [{ name: "team-review", models: [{}, {}], strategy: "priority" }] };
+const comboList = describeCombos(COMBO_MODELS.data.map((m) => m.id), COMBO_MODELS, COMBO_AUTO, COMBO_CUSTOM, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK })
+  .map(comboProfile)
+  .map((p) => ({ id: p.id, name: p.name, model: p.model ?? null, notes: p.notes ?? null, icon: p.icon ?? null, color: p.color ?? null }));
+const profilesFixtures: Record<string, unknown> = {
+  ok: { enabled: true, profiles: comboList, message: null },
+  off: { enabled: false, profiles: [], message: null },
 };
+let profilesFixture = "ok";
+/** What the switch was last saved as, so the next profiles answer follows it. */
+let savedComboProfiles: boolean | null = null;
+export function setProfilesFixture(name: string) { profilesFixture = name; savedComboProfiles = null; }
+
 // The real parser builds the rows, so the preview shows the copy people will read.
 const withoutCompression = (items: ReturnType<typeof parseSettings>) => items.filter((item) => item.id !== "compression");
 const settingItems = withoutCompression(parseSettings({
@@ -128,7 +205,7 @@ Object.assign(fixtures, {
   misconfigured: {
     connection: { source: "saved", endpoint: null, consoleUrl: null, dashboardUrl: null, sshTarget: null, router: "omniroute", apiKey: { present: true, last4: "abcd" }, token: { present: false, last4: null }, manageKey: { present: false, last4: null } },
     problem: "the saved endpoint in connection.json is not a usable http(s) URL", warnings: ["The saved dashboard URL is invalid; using the default."], health: null, routeAgents: true, lastSession: null,
-    aiProvider: { present: true, modelCount: 7, legacyCodex: false, summary: "Claude 4 · Codex 3", models: SYNCED, lastSync: null, tests: [] }, settingsDir: "/root/.paseo/plugin-settings/ai-router",
+    aiProvider: { present: true, modelCount: SYNCED.length, legacyCodex: false, summary: "Combo 5 · Claude 4 · Codex 3", models: SYNCED, lastSync: null, tests: [] }, settingsDir: "/root/.paseo/plugin-settings/ai-router",
   },
   // A shared user: endpoint and inference key only.
   basic: {
@@ -209,11 +286,11 @@ const tunnelsFixtures: Record<string, unknown> = {
     { id: "tailscale", label: "Tailscale Funnel", installed: true, running: false, url: null, phase: "stopped", error: null },
   ] },
 };
-Object.assign(usageFixtures, {
-  empty: { ...insight, ownKey: "daemon-a", day: { requests: 0, tokens: 0, cost: 0, successRatePct: null }, week: { requests: 0, tokens: 0, cost: 0, successRatePct: null }, trend: ["17", "18", "19", "20", "21", "22", "23"].map((d) => ({ date: `2026-09-${d}`, requests: 0, tokens: 0 })), byAccount: [], byDaemon: [], topModels: [] },
-});
+
 /** Preview: pick every answer at once. */
-export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string }) {
+export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string }) {
+  profilesFixture = state.profiles ?? "ok";
+  savedComboProfiles = null;
   fixture = state.status;
   accountFixture = state.accounts ?? "ok";
   usageFixture = state.usage ?? "ok";
@@ -234,7 +311,7 @@ export function setSettingsFixture(name: string) { settingsFixture = name; }
 export function setUsageFixture(name: string) { usageFixture = name; }
 let accountFixture = "ok";
 let usageFixture = "ok";
-export function setStatusFixture(name: string, insights = "ok") { fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; }
+export function setStatusFixture(name: string, insights = "ok") { fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; savedComboProfiles = null; }
 
 const pendingRpc = new Set<() => void>();
 export function releaseRpc() { for (const release of pendingRpc) release(); pendingRpc.clear(); }
@@ -247,7 +324,8 @@ export function useRpc(contract: any) {
     const answers: Record<string, () => unknown> = {
       status: () => status,
       accounts: () => ({ ...(accountFixtures[accountFixture] as object), canAct: manage }),
-      usage: () => usageFixtures[usageFixture],
+      usage: () => usageAnswer(usageFixture, ((input as { range?: AnalyticsRange })?.range ?? "7d") as AnalyticsRange),
+      profiles: () => profilesFixtures[savedComboProfiles === false ? "off" : savedComboProfiles === true ? "ok" : profilesFixture],
       settings: () => { const answer = settingsFixtures[settingsFixture] as Record<string, unknown>; return { ...answer, canEdit: answer.canEdit === true || manage }; },
       access: () => accessFixtures[accessFixture],
       compression: () => ({ ...(compressionFixtures[compressionFixture] as object), canEdit: manage }),
@@ -268,9 +346,9 @@ export function useSettings(_definition: any) {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
   }, []);
-  const base = { saving: false, saveError: null, save: async () => true, reset: async () => true, reload: async () => {} };
+  const base = { saving: false, saveError: null, save: async (values: { comboProfiles?: boolean }) => { if (typeof values?.comboProfiles === "boolean") savedComboProfiles = values.comboProfiles; return true; }, reset: async () => true, reload: async () => {} };
   const routeAgents = (fixtures[fixture] as { routeAgents?: boolean }).routeAgents !== false;
-  return isReady ? { ...base, status: "ready", values: { routeAgents }, revision: "r1" } : { ...base, status: "loading" };
+  return isReady ? { ...base, status: "ready", values: { routeAgents, comboProfiles: profilesFixture !== "off" }, revision: "r1" } : { ...base, status: "loading" };
 }
 
 const passthrough = ({ children }: any) => <View>{children}</View>;

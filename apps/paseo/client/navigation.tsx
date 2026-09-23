@@ -18,7 +18,7 @@ export const TABS = [
   { id: "models", label: "Models", icon: "Boxes", minTier: "none", heading: "The models this key can use through the router, and a quick test for any of them." },
   { id: "providers", label: "Providers", icon: "Plug", minTier: "none", heading: "Every agent provider on this daemon, and which ones can go through OmniRoute." },
   { id: "accounts", label: "Accounts", icon: "Users", minTier: "operator", heading: "Each connected subscription, how much it has left, and the router's health." },
-  { id: "usage", label: "Usage", icon: "Activity", minTier: "operator", heading: "What went through the router, per daemon, account and model." },
+  { id: "usage", label: "Usage", icon: "Activity", minTier: "operator", heading: "Usage & analytics: requests, tokens, cost and failures across the router, by day, provider, model, daemon and account." },
   { id: "settings", label: "Settings", icon: "SlidersHorizontal", minTier: "operator", heading: "How the router compresses prompts, a few settings worth knowing, and what else it can do." },
   { id: "connection", label: "Connection", icon: "Link", minTier: "none", heading: "Which router this daemon uses, the keys it holds, and how to reach the dashboard." },
 ] as const;

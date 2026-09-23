@@ -10,10 +10,11 @@ import React from "react";
 import { act, create } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiRouterSurface } from "../../client/surface";
-import { RouterSettingsCard, UsageTab } from "../../client/insights";
+import { RouterSettingsCard } from "../../client/insights";
+import { UsageTab } from "../../client/analytics";
 import type { TabId } from "../../client/navigation";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
-import { releaseRpc, setAccessFixture, setCompressionFixture, setHostDataReady, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import { releaseRpc, setAccessFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -23,13 +24,14 @@ const base = { theme: { colors }, host: { id: "test", label: "test" }, navigatio
 
 const wide = { compact: false, platform: "web" } as const;
 const narrow = { compact: true, platform: "ios" } as const;
-type Pick = { tab?: TabId; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string };
+type Pick = { tab?: TabId; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string; profiles?: string };
 const surface = (status: string, layout: { compact: boolean; platform: "web" | "ios" }, pick: Pick = {}) => () => {
   setStatusFixture(status, pick.accounts);
   setUsageFixture(pick.usage ?? "ok");
   if (pick.settings) setSettingsFixture(pick.settings);
   if (pick.access) setAccessFixture(pick.access);
   if (pick.compression) setCompressionFixture(pick.compression);
+  if (pick.profiles) setProfilesFixture(pick.profiles);
   return <AiRouterSurface {...base} layout={layout} initialTab={pick.tab} />;
 };
 
@@ -67,7 +69,13 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "accounts tab (Claude paused)": surface("claude paused", wide, { tab: "accounts", accounts: "paused" }),
   "accounts tab (token rejected)": surface("routing on", wide, { tab: "accounts", accounts: "error" }),
   "usage tab (in the surface)": surface("routing on", wide, { tab: "usage" }),
+  "usage tab (30 days, narrow)": surface("routing on", narrow, { tab: "usage" }),
+  "usage tab (24 hours)": surface("routing on", wide, { tab: "usage" }),
   "usage tab (in the surface, empty)": surface("routing on", narrow, { tab: "usage", usage: "empty" }),
+  "usage tab (router down, last answer)": surface("router down", wide, { tab: "usage", usage: "stale" }),
+  "models tab (combo profiles)": surface("routing on", wide, { tab: "models" }),
+  "models tab (combo profiles off)": surface("routing on", narrow, { tab: "models", profiles: "off" }),
+  "models tab (switch combo profiles)": surface("routing on", narrow, { tab: "models" }),
   // Settings
   "settings tab (operator, stacked compression)": surface("connected", wide, { tab: "settings", settings: "calm" }),
   "settings tab (admin, apply recommended)": surface("claude paused", narrow, { tab: "settings", settings: "editable" }),
@@ -82,8 +90,8 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "router settings (read-only)": () => { setStatusFixture("connected"); return <RouterSettingsCard theme={base.theme} dashboardUrl="http://10.0.0.5:20128/dashboard" onMessage={() => {}} />; },
   "router settings (manage key)": () => { setStatusFixture("connected"); setSettingsFixture("editable"); return <RouterSettingsCard theme={base.theme} dashboardUrl="http://10.0.0.5:20128/dashboard" onMessage={() => {}} />; },
   "router settings (no token)": () => { setStatusFixture("connected"); setSettingsFixture("no-token"); return <RouterSettingsCard theme={base.theme} dashboardUrl={null} onMessage={() => {}} />; },
-  "usage tab": () => { setStatusFixture("connected", "ok"); return <UsageTab theme={base.theme} />; },
-  "usage tab (no token)": () => { setStatusFixture("connected", "no-token"); return <UsageTab theme={base.theme} />; },
+  "usage tab": () => { setStatusFixture("connected", "ok"); return <UsageTab theme={base.theme} compact={false} />; },
+  "usage tab (no token)": () => { setStatusFixture("connected", "no-token"); return <UsageTab theme={base.theme} compact />; },
 };
 
 /** Buttons and links pressed, by accessibility label, once data has arrived. */
@@ -93,6 +101,9 @@ export const presses: Record<string, string[]> = {
   "models tab (testing one)": ["Test Opus 5.5"],
   "providers tab (tidy up preview)": ["Tidy up…"],
   "settings tab (admin, apply recommended)": ["Apply recommended…", "What each engine does"],
+  "usage tab (30 days, narrow)": ["Last 30 days"],
+  "usage tab (24 hours)": ["Last 24 hours"],
+  "models tab (switch combo profiles)": ["Show combos as agent profiles"],
 };
 
 /** Mounts whose every visible tab is pressed in turn, then the first again. */
@@ -114,7 +125,9 @@ export async function renderThroughDataArrival(name: string): Promise<{ before: 
   for (const label of presses[name] ?? []) {
     const target = renderer.root.findAll((node) => node.type === "Pressable" && node.props.accessibilityLabel === label)[0];
     if (!target) throw new Error(`nothing labelled "${label}" to press`);
-    await act(async () => { target.props.onPress(); await flush(); await flush(); });
+    await act(async () => { target.props.onPress(); await flush(); });
+    // The press's update renders when act() exits; a query it starts answers after that.
+    for (let i = 0; i < 4; i += 1) await act(flush);
   }
   const after = describe(renderer.toJSON());
   const tabs: Record<string, string> = {};
@@ -123,7 +136,7 @@ export async function renderThroughDataArrival(name: string): Promise<{ before: 
     const labels = tabNodes().map((node) => node.props.accessibilityLabel as string);
     for (const label of [...labels, labels[0]]) {
       const target = tabNodes().find((node) => node.props.accessibilityLabel === label)!;
-      await act(async () => { target.props.onPress(); await flush(); await flush(); });
+      await act(async () => { target.props.onPress(); for (let i = 0; i < 6; i += 1) await flush(); });
       await act(flush);
       tabs[label] = describe(renderer.toJSON()).text;
     }

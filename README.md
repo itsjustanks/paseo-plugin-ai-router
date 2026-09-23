@@ -38,10 +38,10 @@ manage key would add.
 | Tab | What it holds |
 | --- | --- |
 | **Overview** | Router up, down or paused; Claude routing; models in Paseo; this daemon's access; the last agent; open dashboard, sync models, routing on or off. When the router is unreachable: when it was last seen, the error, and **Open Connection**. |
-| **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use), the synced models by provider with a **Test** on each, and a test for any other model id. |
+| **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
 | **Providers** | Every Paseo provider on this daemon with its status and an enabled switch, and what OmniRoute can do for it: Claude's routing switch, **Codex via OmniRoute**, or "not supported". **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
 | **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. |
-| **Usage** | Last 24 hours and 7 days, a daily trend, and breakdowns by daemon, account and model. |
+| **Usage** | **Usage & analytics** for 24 hours, 7 days or 30 days: requests, tokens, estimated cost and latency; requests per day; tokens per day stacked by provider; the provider split; top models; by daemon and by account; failed requests by kind; a year of activity. |
 | **Settings** | Context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
 | **Connection** | Router, endpoint, key, where they come from; the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
 
@@ -63,7 +63,8 @@ this daemon holds, and a key never sees another key's data.
 | Your access (this key only) | `GET /v1/me/status` (needs the key's `self:usage` scope, which OmniRoute gives new keys) | same | same |
 | Providers tab, Codex via OmniRoute, Tidy up | yes (Paseo's own API; models from the list above) | yes | yes |
 | Accounts: health, quota, cooldowns, expiry | — | `GET /api/providers`, `/api/rate-limits`, `/api/usage/provider-limits`, `/api/providers/health-matrix`, `/api/providers/expiration`, `/api/provider-stats`, `/api/monitoring/health` | same |
-| Usage, all keys | — | `GET /api/usage/analytics?range=1d` and `7d`, `GET /api/keys` | same |
+| Usage & analytics, all keys | — | `GET /api/usage/analytics?range=1d`, `7d` or `30d`, `GET /api/keys` | same |
+| Combo descriptions for profiles | `GET /v1/models` (custom combos' own descriptions) | `GET /api/combos/auto`, `GET /api/combos` | same |
 | Router settings, read | — | `GET /api/settings`, `/api/context/combos/default`, `/api/analytics/compression`, `/api/resilience`, `/api/resilience/model-cooldowns`, `/api/combos/auto` | same |
 | Settings changes, breaker reset | — | — | `PUT /api/settings/compression`, `PATCH /api/settings`, `POST /api/resilience/reset` |
 | Apply recommended compression | — | — | `GET` then `PUT /api/settings/compression` |
@@ -109,6 +110,34 @@ OmniRoute translates the Anthropic Messages API for every provider it serves.
 
 If an older OmniRoute ignores `?configuredOnly=true` for a plain key (hundreds of models come back),
 the sync refuses rather than list them all, and says to add a read token or update OmniRoute.
+
+## Combos as agent profiles
+
+Each OmniRoute combo in the AI Router model list (the dashboard's auto and custom combos with a read
+token; the core auto combos without one) becomes a Paseo agent profile, so it can be picked directly
+when starting an agent:
+
+```json
+{ "id": "ai-router:auto/coding", "name": "Auto · coding", "icon": "code", "color": "blue",
+  "provider": "ai-router", "model": "auto/coding",
+  "notes": "OmniRoute auto combo \"auto/coding\": Quality-first for code. Picks from Codex, Claude. …" }
+```
+
+The notes are OmniRoute's own description: its wording for the auto variants, and a custom combo's
+description, display name, model count and strategy. Paseo's `list_profiles` MCP tool shows them to
+orchestrating agents. Profiles sync through the same channels as the provider: at plugin load (into
+`config.json`, then `paseo daemon reload`), through `config.patch` when the app connects, and every
+5 minutes. Rules:
+
+- Only profiles whose id starts with `ai-router:` are ever added, updated or removed. Everyone else's
+  profiles are passed back exactly as they were. On our own profiles only `name`, `provider`, `model`
+  and `notes` are set, so an icon, colour or effort a person chose in Paseo survives.
+- A combo that disappears takes its profile with it; removing the AI Router provider removes them all.
+- In `config.json` Paseo keeps profiles at **`daemon.agentProfiles`** (Paseo 0.9.1's
+  `persisted-config.js`: `agentProfiles` is a field of the strict `daemon` object). The config API
+  shows the same list as a top-level `agentProfiles`. The plugin writes the file path, never a
+  top-level key, which the strict schema would reject.
+- **Show combos as agent profiles** on the Models tab (host-wide, on by default) turns them off and on.
 
 ## Routing
 
@@ -234,7 +263,7 @@ Adding a router means one more folder under `server/routers/` and its id in `sha
 with the Lucide icons the Paseo app draws. States: `setup`, `overview`, `overview-basic`,
 `overview-admin`, `overview-router-down`, `overview-claude-paused`, `models`, `models-basic`,
 `providers`, `providers-admin`, `accounts-operator`, `accounts-admin`, `accounts-claude-paused`,
-`usage-populated`, `usage-empty`, `settings-operator`, `settings-manage-key`, `settings-recommended`,
+`models-profiles-off`, `usage-populated`, `usage-30-days`, `usage-24-hours`, `usage-empty`, `usage-router-down`, `settings-operator`, `settings-manage-key`, `settings-recommended`,
 `connection`, `connection-basic`, `connection-admin`, `connection-router-down`,
 `connection-misconfigured`. `npm run screenshots` renders every state in light and dark at 1280 px and
 420 px into `docs/screenshots/`, using the installed Google Chrome. `docs/screenshots/before/` holds

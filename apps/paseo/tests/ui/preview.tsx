@@ -6,7 +6,7 @@ import type { TabId } from "../../client/navigation";
 import { setPreview } from "./plugin";
 
 /** Every state the screenshots cover: `?state=<name>&theme=light|dark`. Tiers: basic = key only, operator = read token, admin = manage key. */
-export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string }> = {
+export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; range?: "1d" | "7d" | "30d" }> = {
   setup: { status: "not connected" },
   overview: { status: "routing on", settings: "calm" },
   "overview-basic": { status: "basic" },
@@ -15,13 +15,17 @@ export const STATES: Record<string, { status: string; tab?: TabId; accounts?: st
   "overview-claude-paused": { status: "claude paused" },
   models: { status: "routing on", tab: "models" },
   "models-basic": { status: "basic", tab: "models" },
+  "models-profiles-off": { status: "routing on", tab: "models", profiles: "off" },
   providers: { status: "basic", tab: "providers" },
   "providers-admin": { status: "admin", tab: "providers" },
   "accounts-operator": { status: "routing on", tab: "accounts", accounts: "healthy" },
   "accounts-admin": { status: "manage key", tab: "accounts", accounts: "ok" },
   "accounts-claude-paused": { status: "claude paused", tab: "accounts", accounts: "paused" },
   "usage-populated": { status: "routing on", tab: "usage", usage: "ok" },
+  "usage-30-days": { status: "routing on", tab: "usage", usage: "ok", range: "30d" },
+  "usage-24-hours": { status: "routing on", tab: "usage", usage: "ok", range: "1d" },
   "usage-empty": { status: "routing on", tab: "usage", usage: "empty" },
+  "usage-router-down": { status: "router down", tab: "usage", usage: "stale" },
   "settings-operator": { status: "connected", tab: "settings", settings: "calm", compression: "stacked" },
   "settings-manage-key": { status: "claude paused", tab: "settings", settings: "editable", compression: "stacked" },
   "settings-recommended": { status: "admin", tab: "settings", settings: "calm", compression: "lite" },
@@ -56,7 +60,7 @@ function Preview() {
   const props = { theme: { colors }, host: { id: "preview", label: "daemon-b" }, layout: { compact, platform: "web" as const }, navigation: { openAgent() {}, openWorkspace() {} } } as any;
   return (
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchInterval: false } } })}>
-      <AiRouterSurface {...props} initialTab={state.tab} />
+      <AiRouterSurface {...props} initialTab={state.tab} initialRange={state.range} />
     </QueryClientProvider>
   );
 }

@@ -3,7 +3,7 @@ import type { RpcInput } from "@getpaseo/plugin";
 import type { Status, connectionTest } from "../shared/contracts";
 import { accessTier, connectionProblem, consoleUrlFor, maskSecret, mergeConnection, tunnelDashboardUrl } from "../shared/logic";
 import { getLastSession } from "./hooks";
-import { noteActivity, providerState, setCodexRouter, syncAiProvider, testProviderModel } from "./provider";
+import { checkAutoSync, listOwnProfiles, noteActivity, providerState, setCodexRouter, syncAiProvider, testProviderModel } from "./provider";
 import { listProviders, setProviderEnabled, tidyProviders } from "./providers";
 import { adapterFor } from "./routers";
 import { clearConnection, readConnection, readProviderEntries, readRoutingSettings, settingsDir, writeConnection } from "./store";
@@ -94,7 +94,28 @@ export const handleAiProvider = async ({ enabled }: { enabled: boolean }, { pase
 };
 export const handleModelTest = async ({ model }: { model: string }) => testProviderModel(await current(), model);
 export const handleAccounts = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).accounts(c, refresh === true); };
-export const handleUsage = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).usage(c, refresh === true); };
+export const handleUsage = async ({ refresh, range }: { refresh?: boolean; range?: "1d" | "7d" | "30d" }) => { const c = await current(); return adapterFor(c.router).usage(c, refresh === true, range ?? "7d"); };
+
+/** The combo profiles, as Paseo holds them. `apply`: sync now (the switch just changed), then read. */
+export async function handleProfiles({ apply }: { apply?: boolean }, { paseo }: PluginHandlerContext) {
+  const settings = await readRoutingSettings();
+  let message: string | null = null;
+  if (apply) {
+    try {
+      // A check already running may have read the switch before it changed: let it finish, then check again.
+      await checkAutoSync(paseo);
+      await checkAutoSync(paseo);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+  }
+  try {
+    const { profiles } = await readProviderEntries(paseo);
+    return { enabled: settings.comboProfiles, profiles: listOwnProfiles(profiles), message };
+  } catch (error) {
+    return { enabled: settings.comboProfiles, profiles: [], message: `Could not read Paseo's profiles: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
 export const handleSettings = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).settings(c, refresh === true); };
 export const handleSettingApply = async ({ id, on }: { id: string; on?: boolean }) => { const c = await current(); return adapterFor(c.router).applySetting(c, id, on); };
 

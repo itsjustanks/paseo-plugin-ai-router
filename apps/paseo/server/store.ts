@@ -152,15 +152,19 @@ export type ProviderEntries = {
   codexRouter: { present: boolean; baseUrl: string | null; modelCount: number; entry: unknown };
   /** Every provider entry, as Paseo holds it. */
   all: Record<string, unknown>;
+  /** Every agent profile, as Paseo holds it (ours start with "ai-router:"). */
+  profiles: unknown[];
 };
 
-/** The providers section of config.json, for when there is no Paseo handle. */
-export function providersFromConfigFile(): Record<string, unknown> | null {
+/** Providers (`agents.providers`) and profiles (`daemon.agentProfiles`) from config.json, for when there is no Paseo handle. */
+export function daemonStateFromConfigFile(): { providers: Record<string, unknown>; profiles: unknown[] } | null {
   const file = readDaemonConfig();
   if (!file) return null;
   try {
-    const providers = (JSON.parse(file.text) as { agents?: { providers?: unknown } }).agents?.providers;
-    return providers && typeof providers === "object" ? (providers as Record<string, unknown>) : {};
+    const config = JSON.parse(file.text) as { agents?: { providers?: unknown }; daemon?: { agentProfiles?: unknown } };
+    const providers = config.agents?.providers;
+    const profiles = config.daemon?.agentProfiles;
+    return { providers: providers && typeof providers === "object" ? (providers as Record<string, unknown>) : {}, profiles: Array.isArray(profiles) ? profiles : [] };
   } catch {
     return null;
   }
@@ -169,10 +173,11 @@ export function providersFromConfigFile(): Record<string, unknown> | null {
 /** Our provider entries in Paseo's config. The daemon returns providers flattened. */
 export async function readProviderEntries(paseo: Paseo): Promise<ProviderEntries> {
   const { config } = await paseo.config.get();
-  return describeProviderEntries((config as { providers?: Record<string, Entry> }).providers ?? {});
+  const view = config as { providers?: Record<string, Entry>; agentProfiles?: unknown };
+  return describeProviderEntries(view.providers ?? {}, Array.isArray(view.agentProfiles) ? view.agentProfiles : []);
 }
 
-export function describeProviderEntries(providers: Record<string, Entry | unknown>): ProviderEntries {
+export function describeProviderEntries(providers: Record<string, Entry | unknown>, profiles: unknown[] = []): ProviderEntries {
   const entry = (id: string) => providers[id] as Entry;
   const ai = entry(AI_ROUTER_PROVIDER_ID);
   const codex = entry(CODEX_PROVIDER_ID);
@@ -206,6 +211,7 @@ export function describeProviderEntries(providers: Record<string, Entry | unknow
       entry: codexRouter,
     },
     all: providers as Record<string, unknown>,
+    profiles,
   };
 }
 

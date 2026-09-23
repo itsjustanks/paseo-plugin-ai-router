@@ -162,12 +162,12 @@ try {
 
   // -------------------------------------------------------- settings
   check("routing settings: off unless a known document says on", () => {
-    assert.deepEqual(L.parseRoutingEnvelope(null), { routeAgents: false }, "a fresh install routes nothing");
-    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: true } })), { routeAgents: true });
-    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: {} })), { routeAgents: false });
-    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 2, values: { routeAgents: true } })), { routeAgents: false }, "a newer schema never routes");
-    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: "yes" } })), { routeAgents: false });
-    assert.deepEqual(L.parseRoutingEnvelope("\u0000unreadable"), { routeAgents: false });
+    assert.equal(L.parseRoutingEnvelope(null).routeAgents, false, "a fresh install routes nothing");
+    assert.equal(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: true } })).routeAgents, true);
+    assert.equal(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: {} })).routeAgents, false);
+    assert.equal(L.parseRoutingEnvelope(JSON.stringify({ version: 2, values: { routeAgents: true } })).routeAgents, false, "a newer schema never routes");
+    assert.equal(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: "yes" } })).routeAgents, false);
+    assert.equal(L.parseRoutingEnvelope("\u0000unreadable").routeAgents, false);
   });
 
   // ---------------------------------------------------------- health
@@ -399,6 +399,63 @@ try {
     assert.equal(JSON.stringify(saved).includes("hunter2"), false);
     const merged = L.mergeConnection(saved.connection, { endpoint: REMOTE, dashboardPassword: "hunter2" });
     assert.equal(JSON.stringify(merged).includes("hunter2"), false);
+  });
+
+  check("combo profiles: only ai-router: profiles are added, updated or removed; a person's stay exactly", () => {
+    const mine = { id: "legacy_favorite:codex:gpt-5.6-sol", name: "gpt-5.6-sol", provider: "codex", model: "gpt-5.6-sol" };
+    const other = { id: "review", name: "Reviewer", icon: "eye", provider: "claude", model: "claude-opus-5-5", notes: "mine", extra: { keep: true } };
+    const combo = (id, name, notes = `notes for ${id}`) => L.comboProfile({ id, name, notes, icon: "sparkles", color: "violet" });
+    assert.deepEqual(combo("auto/coding", "Auto · coding"), { id: "ai-router:auto/coding", name: "Auto · coding", icon: "sparkles", color: "violet", provider: "ai-router", model: "auto/coding", notes: "notes for auto/coding" });
+
+    const first = L.mergeAgentProfiles([mine, other], [combo("auto", "Auto"), combo("auto/coding", "Auto · coding")]);
+    assert.equal(first.changed, true);
+    assert.deepEqual(first.next.map((p) => p.id), ["legacy_favorite:codex:gpt-5.6-sol", "review", "ai-router:auto", "ai-router:auto/coding"], "new ones go at the end");
+    assert.equal(first.next[0], mine, "a person's profile is the same object");
+    assert.equal(first.next[1], other);
+
+    // A person moved ours and gave one an icon and an effort: kept. A combo went away: its profile goes.
+    const tweaked = [first.next[3], mine, { ...first.next[2], icon: "rocket", thinkingOptionId: "high" }, other];
+    const second = L.mergeAgentProfiles(tweaked, [combo("auto", "Auto", "new words"), combo("auto/fast", "Auto · fast")]);
+    assert.deepEqual(second.next.map((p) => p.id), ["legacy_favorite:codex:gpt-5.6-sol", "ai-router:auto", "review", "ai-router:auto/fast"]);
+    assert.deepEqual(second.next[1], { id: "ai-router:auto", name: "Auto", icon: "rocket", color: "violet", provider: "ai-router", model: "auto", notes: "new words", thinkingOptionId: "high" }, "we set name, provider, model and notes; the rest is theirs");
+    assert.equal(L.mergeAgentProfiles(second.next, [combo("auto", "Auto", "new words"), combo("auto/fast", "Auto · fast")]).changed, false, "nothing to do: unchanged");
+
+    // Switch off: all of ours go, nobody else's.
+    const off = L.mergeAgentProfiles(second.next, []);
+    assert.deepEqual(off.next, [mine, other]);
+    assert.equal(L.mergeAgentProfiles(undefined, []).changed, false, "no profiles at all is fine");
+    assert.deepEqual(L.mergeAgentProfiles([{ id: "ai-router:x" }, { id: "ai-router:x" }], [combo("x", "X")]).next.length, 1, "a duplicate of ours is dropped");
+    assert.equal(L.isOwnProfile({ id: "ai-routerx" }), false, "the prefix includes the colon");
+  });
+
+  check("config.json: combo profiles go to daemon.agentProfiles, a person's profiles byte for byte", () => {
+    const mine = { id: "legacy_favorite:cursor:grok-4.5", name: "grok-4.5", provider: "cursor", model: "grok-4.5" };
+    const config = { version: 1, daemon: { listen: "127.0.0.1:6767", agentProfiles: [mine] }, agents: { providers: { gemini: { extends: "acp", label: "Gemini", command: ["gemini"] } } } };
+    const raw = JSON.stringify(config, null, 2);
+    const profile = L.comboProfile({ id: "auto", name: "Auto", notes: "n", icon: "sparkles", color: "violet" });
+    const next = L.withProviderEntries(raw, {}, [profile]);
+    assert.equal(next.ok, true);
+    assert.equal(next.changed, true);
+    const written = JSON.parse(next.text);
+    assert.deepEqual(written.daemon.agentProfiles, [mine, profile]);
+    assert.equal("agentProfiles" in written, false, "never at the top level: Paseo's file schema is strict and keeps them under daemon");
+    assert.deepEqual(written.agents, config.agents, "providers untouched when only profiles change");
+    assert.ok(next.text.includes(JSON.stringify(mine, null, 2).split("\n").map((line, i) => (i ? `      ${line}` : line)).join("\n")), "the person's profile keeps its exact text");
+    assert.equal(L.withProviderEntries(next.text, {}, [profile]).changed, false, "an unchanged set is not rewritten");
+    const removed = JSON.parse(L.withProviderEntries(next.text, {}, []).text);
+    assert.deepEqual(removed.daemon.agentProfiles, [mine], "switched off: ours removed, theirs kept");
+    // A fresh daemon has no daemon section yet: one is made just for the profiles.
+    const fresh = JSON.parse(L.withProviderEntries(JSON.stringify({ pluginsEnabled: true }), {}, [profile]).text);
+    assert.deepEqual(fresh, { pluginsEnabled: true, daemon: { agentProfiles: [profile] } });
+    assert.equal(L.withProviderEntries(JSON.stringify({ pluginsEnabled: true }), {}, []).changed, false, "nothing to remove: no daemon section is added");
+    assert.equal(L.withProviderEntries(JSON.stringify({ version: 1, daemon: [] }), {}, [profile]).ok, false);
+    assert.equal(L.withProviderEntries(JSON.stringify({ version: 1, daemon: { agentProfiles: {} } }), {}, [profile]).ok, false);
+  });
+
+  check("the combo profiles switch defaults on and survives old settings documents", () => {
+    assert.deepEqual(L.parseRoutingEnvelope(null), { routeAgents: false, comboProfiles: true });
+    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: true } })), { routeAgents: true, comboProfiles: true });
+    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: false, comboProfiles: false } })), { routeAgents: false, comboProfiles: false });
   });
 
   console.log(`logic: ${passed} checks passed`);

@@ -160,26 +160,60 @@ export const AccountsSchema = z.object({
 });
 export type Accounts = z.infer<typeof AccountsSchema>;
 
-const Totals = z.object({ requests: z.number(), tokens: z.number().nullable(), cost: z.number().nullable(), successRatePct: z.number().nullable() }).nullable();
 const Rows = z.array(
-  z.object({ label: z.string(), requests: z.number(), tokens: z.number().nullable(), cost: z.number().nullable(), thisDaemon: z.boolean().optional(), failedPct: z.number().nullable().optional() }),
+  z.object({
+    label: z.string(),
+    requests: z.number(),
+    tokens: z.number().nullable(),
+    cost: z.number().nullable(),
+    thisDaemon: z.boolean().optional(),
+    failedPct: z.number().nullable().optional(),
+    provider: z.string().nullable().optional(),
+    successRatePct: z.number().nullable().optional(),
+    avgLatencyMs: z.number().nullable().optional(),
+    sharePct: z.number().nullable().optional(),
+  }),
 );
 
+export const ANALYTICS_RANGES = ["1d", "7d", "30d"] as const;
+export type AnalyticsRangeId = (typeof ANALYTICS_RANGES)[number];
+
+/** Usage & analytics for one range, from OmniRoute's `/api/usage/analytics` (read token). */
 export const UsageSchema = z.object({
   ...Insight,
-  day: Totals,
-  week: Totals,
-  trend: z.array(z.object({ date: z.string(), requests: z.number(), tokens: z.number().nullable() })),
+  range: z.enum(ANALYTICS_RANGES),
+  totals: z
+    .object({
+      requests: z.number(),
+      promptTokens: z.number().nullable(),
+      completionTokens: z.number().nullable(),
+      tokens: z.number().nullable(),
+      cost: z.number().nullable(),
+      successRatePct: z.number().nullable(),
+      avgLatencyMs: z.number().nullable(),
+      fallbackRatePct: z.number().nullable(),
+      streak: z.number().nullable(),
+    })
+    .nullable(),
+  /** One entry per UTC day of the range, zero-filled. */
+  trend: z.array(z.object({ date: z.string(), requests: z.number(), tokens: z.number().nullable(), cost: z.number().nullable() })),
+  /** Tokens per day stacked by provider; `values` line up with `providers` (the last may be "Other"). */
+  providerTrend: z.object({ providers: z.array(z.string()), days: z.array(z.object({ date: z.string(), values: z.array(z.number()) })) }),
+  byModel: Rows,
+  byProvider: Rows,
   byAccount: Rows,
   byDaemon: Rows,
-  topModels: Rows,
+  errors: z.array(z.object({ type: z.string(), count: z.number() })),
+  /** Tokens per UTC day over the last year, days with traffic only. */
+  activity: z.array(z.object({ date: z.string(), tokens: z.number() })),
+  busiestWeekday: z.string().nullable(),
   /** This daemon's key name in OmniRoute, when it could be identified. */
   ownKey: z.string().nullable(),
 });
 export type Usage = z.infer<typeof UsageSchema>;
 
 export const accounts = defineRpc({ name: "ai-router.accounts", input: z.object({ refresh: z.boolean().optional() }), output: AccountsSchema });
-export const usage = defineRpc({ name: "ai-router.usage", input: z.object({ refresh: z.boolean().optional() }), output: UsageSchema });
+export const usage = defineRpc({ name: "ai-router.usage", input: z.object({ refresh: z.boolean().optional(), range: z.enum(ANALYTICS_RANGES).optional() }), output: UsageSchema });
 
 export const RouterSettingsSchema = z.object({
   ...Insight,
@@ -297,3 +331,13 @@ export type Compression = z.infer<typeof CompressionSchema>;
 export const compression = defineRpc({ name: "ai-router.compression", input: z.object({ refresh: z.boolean().optional() }), output: CompressionSchema });
 /** Admin only, after a confirmation in the panel. Never run on its own. */
 export const compressionApply = defineRpc({ name: "ai-router.compression.apply", input: z.object({}), output: Result });
+
+/** The agent profiles AI Router keeps for OmniRoute's combos. `apply` checks and syncs now (after the switch changes). */
+export const ProfilesSchema = z.object({
+  enabled: z.boolean(),
+  profiles: z.array(z.object({ id: z.string(), name: z.string(), model: z.string().nullable(), notes: z.string().nullable(), icon: z.string().nullable(), color: z.string().nullable() })),
+  /** Why the list could not be read or synced, in words. */
+  message: z.string().nullable(),
+});
+export type Profiles = z.infer<typeof ProfilesSchema>;
+export const profiles = defineRpc({ name: "ai-router.profiles", input: z.object({ apply: z.boolean().optional() }), output: ProfilesSchema });

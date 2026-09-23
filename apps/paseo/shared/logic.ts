@@ -264,16 +264,17 @@ export function mergeConnection(
 
 // --------------------------------------------------------------- settings
 
-export type RoutingSettingsShape = { routeAgents: boolean };
-export const ROUTING_DEFAULTS: RoutingSettingsShape = { routeAgents: false };
+/** `comboProfiles`: keep one Paseo agent profile per OmniRoute combo. On unless a person turns it off. */
+export type RoutingSettingsShape = { routeAgents: boolean; comboProfiles: boolean };
+export const ROUTING_DEFAULTS: RoutingSettingsShape = { routeAgents: false, comboProfiles: true };
 
-/** Decode the daemon's `{ version, values }` envelope. Missing, malformed or newer = routing off. */
+/** Decode the daemon's `{ version, values }` envelope. Missing, malformed or newer = routing off, combo profiles on. */
 export function parseRoutingEnvelope(raw: string | null): RoutingSettingsShape {
   if (raw === null) return ROUTING_DEFAULTS;
   try {
-    const envelope = JSON.parse(raw) as { version?: unknown; values?: { routeAgents?: unknown } };
+    const envelope = JSON.parse(raw) as { version?: unknown; values?: { routeAgents?: unknown; comboProfiles?: unknown } };
     if (envelope.version !== ROUTING_SETTINGS_VERSION) return ROUTING_DEFAULTS;
-    return { routeAgents: envelope.values?.routeAgents === true };
+    return { routeAgents: envelope.values?.routeAgents === true, comboProfiles: envelope.values?.comboProfiles !== false };
   } catch {
     return ROUTING_DEFAULTS;
   }
@@ -521,11 +522,15 @@ export function sameProviderEntry(current: unknown, desired: { label: string; en
 // ------------------------------------------------------- daemon config.json
 
 /**
- * Put our provider entries into the text of Paseo's config.json, leaving every
- * other key as it is. Refuses anything that does not look like a daemon
- * config, so a surprise never gets written back. `null` removes an entry.
+ * Put our provider entries and agent profiles into the text of Paseo's
+ * config.json, leaving every other key as it is. Providers live at
+ * `agents.providers`, profiles at `daemon.agentProfiles` (Paseo's own layout).
+ * Refuses anything that does not look like a daemon config, so a surprise
+ * never gets written back. A `null` provider entry removes it; `profiles`
+ * (when given) is the full set of AI Router profiles, merged with
+ * mergeAgentProfiles so a person's own profiles are kept exactly.
  */
-export function withProviderEntries(raw: string, entries: Record<string, unknown | null>): { ok: true; text: string; changed: boolean } | { ok: false; error: string } {
+export function withProviderEntries(raw: string, entries: Record<string, unknown | null>, profiles: readonly AgentProfile[] | null = null): { ok: true; text: string; changed: boolean } | { ok: false; error: string } {
   let config: unknown;
   try {
     config = JSON.parse(raw);
@@ -540,22 +545,77 @@ export function withProviderEntries(raw: string, entries: Record<string, unknown
   if (config.agents !== undefined && !isObject(config.agents)) return { ok: false, error: "config.json has an unexpected agents section" };
   const agents = (config.agents ?? {}) as Record<string, unknown>;
   if (agents.providers !== undefined && !isObject(agents.providers)) return { ok: false, error: "config.json has an unexpected agents.providers section" };
+  if (config.daemon !== undefined && !isObject(config.daemon)) return { ok: false, error: "config.json has an unexpected daemon section" };
+  const daemon = (config.daemon ?? {}) as Record<string, unknown>;
+  if (daemon.agentProfiles !== undefined && !Array.isArray(daemon.agentProfiles)) return { ok: false, error: "config.json has an unexpected daemon.agentProfiles section" };
   const providers = { ...((agents.providers ?? {}) as Record<string, unknown>) };
-  let changed = false;
+  let providersChanged = false;
   for (const [id, entry] of Object.entries(entries)) {
     if (!/^[a-z][a-z0-9-]*$/.test(id)) return { ok: false, error: `"${id}" is not a Paseo provider id` };
     if (entry === null) {
       if (id in providers) {
         delete providers[id];
-        changed = true;
+        providersChanged = true;
       }
     } else if (JSON.stringify(providers[id]) !== JSON.stringify(entry)) {
       providers[id] = entry;
-      changed = true;
+      providersChanged = true;
     }
   }
-  const next = { ...config, agents: { ...agents, providers } };
-  return { ok: true, text: `${JSON.stringify(next, null, 2)}\n`, changed };
+  const merged = profiles ? mergeAgentProfiles(daemon.agentProfiles, profiles) : null;
+  const next: Record<string, unknown> = { ...config };
+  if (providersChanged) next.agents = { ...agents, providers };
+  if (merged?.changed) next.daemon = { ...daemon, agentProfiles: merged.next };
+  const changed = providersChanged || !!merged?.changed;
+  return { ok: true, text: `${JSON.stringify(changed ? next : config, null, 2)}\n`, changed };
+}
+
+// ------------------------------------------------------- combos as profiles
+
+/** Every agent profile AI Router manages starts with this; nothing else is ever touched. */
+export const PROFILE_PREFIX = "ai-router:";
+export type AgentProfile = { id: string; name: string; provider: string; model?: string; notes?: string; icon?: string; color?: string; [field: string]: unknown };
+/** What AI Router sets on its own profiles every time; anything else (icon, colour, effort a person picked) is kept. */
+const PROFILE_OWNED_FIELDS = ["name", "provider", "model", "notes"] as const;
+
+export const isOwnProfile = (entry: unknown): entry is AgentProfile =>
+  !!entry && typeof entry === "object" && !Array.isArray(entry) && typeof (entry as { id?: unknown }).id === "string" && (entry as { id: string }).id.startsWith(PROFILE_PREFIX);
+
+/** One combo as a Paseo agent profile on the AI Router provider. */
+export function comboProfile(combo: { id: string; name: string; notes: string; icon: string; color: string }): AgentProfile {
+  return { id: `${PROFILE_PREFIX}${combo.id}`, name: combo.name, icon: combo.icon, color: combo.color, provider: AI_ROUTER_PROVIDER_ID, model: combo.id, notes: combo.notes };
+}
+
+/**
+ * The profile list with AI Router's profiles brought up to date and nobody
+ * else's touched: a person's profiles stay the same objects in the same
+ * places; ours are updated where they are, new ones are added at the end,
+ * and ones whose combo is gone are removed. On our profiles we set only
+ * name, provider, model and notes, so an icon, colour or effort a person
+ * chose in Paseo survives.
+ */
+export function mergeAgentProfiles(current: unknown, desired: readonly AgentProfile[]): { next: unknown[]; changed: boolean } {
+  const existing = Array.isArray(current) ? current : [];
+  const wanted = new Map(desired.map((profile) => [profile.id, profile]));
+  const placed = new Set<string>();
+  const next: unknown[] = [];
+  for (const entry of existing) {
+    if (!isOwnProfile(entry)) {
+      next.push(entry);
+      continue;
+    }
+    const want = wanted.get(entry.id);
+    if (!want || placed.has(entry.id)) continue;
+    placed.add(entry.id);
+    const updated: AgentProfile = { ...entry };
+    for (const field of PROFILE_OWNED_FIELDS) {
+      if (want[field] === undefined) delete updated[field];
+      else updated[field] = want[field];
+    }
+    next.push(updated);
+  }
+  for (const want of desired) if (!placed.has(want.id)) next.push(want);
+  return { next, changed: JSON.stringify(next) !== JSON.stringify(existing) };
 }
 
 // --------------------------------------------------------- Paseo providers

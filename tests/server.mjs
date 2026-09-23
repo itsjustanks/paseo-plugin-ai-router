@@ -46,6 +46,7 @@ const managed = {
   "/api/provider-stats": fixtures["/api/provider-stats"].body,
   "/api/usage/analytics?range=7d": week,
   "/api/usage/analytics?range=1d": fixtures["/api/usage/analytics?range=7d"].body,
+  "/api/usage/analytics?range=30d": week,
   "/api/keys": { keys: [{ id: "k1", name: "daemon-a", key: `${KEY.slice(0, 8)}****${KEY.slice(-4)}` }, { id: "k2", name: "daemon-b", key: "sk-zzzzz****0000" }] },
   "/api/usage/call-logs?status=error&limit=1&provider=claude": [{ status: 400, provider: "claude", error: "[400] messages.1.output_config: Extra inputs are not permitted" }],
 };
@@ -59,15 +60,24 @@ const tunnelStatus = { cloudflared: { installed: true, running: false, publicUrl
 const meStatus = { apiKey: { id: "k1", name: "daemon-a" }, usage: { cost: { period: "monthly", currency: "USD", usedUsd: 3.42, limitUsd: 50, remainingUsd: 46.58, usedPercent: 6.84, resetAt: "2026-10-01T00:00:00.000Z" }, tokens: { totalTokens: 1234567 } } };
 /** Flip to make the fake router drop every connection, as a dead or unreachable one would. */
 let routerDown = false;
+/** Flip to list OmniRoute combos in /v1/models (and describe them to a read token). */
+let withCombos = false;
+const COMBO_ENTRIES = [
+  { id: "auto", owned_by: "combo", root: "auto" }, { id: "auto/coding", owned_by: "combo", root: "auto/coding" }, { id: "auto/fast", owned_by: "combo", root: "auto/fast" },
+  { id: "team-review", owned_by: "combo", root: "team-review", display_name: "Team review", description: "Opus 5.5 first, GPT-6 Sol when Claude is busy" },
+];
+managed["/api/combos/auto"] = { combos: [{ id: "auto", name: "Auto", candidatePool: ["codex", "claude"] }, { id: "auto/coding", name: "Auto Coding", candidatePool: ["codex", "claude"] }, { id: "auto/fast", name: "Auto Fast", candidatePool: ["codex", "claude"] }] };
+managed["/api/combos"] = { combos: [{ name: "team-review", models: [{}, {}], strategy: "priority" }], total: 1 };
 
 const router = createServer((req, res) => {
   if (routerDown) return req.socket.destroy();
   const auth = req.headers.authorization ?? "";
   const send = (status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
   if (req.url === "/api/health/ping") return send(200, { status: "ok", timestamp: "t", latencyMs: 1 });
-  if (req.url === "/v1/models") return auth === `Bearer ${KEY}` ? send(200, catalogue) : send(401, { error: { message: "Invalid API key" } });
+  const listed = withCombos ? { ...catalogue, data: [...COMBO_ENTRIES, ...catalogue.data] } : catalogue;
+  if (req.url === "/v1/models") return auth === `Bearer ${KEY}` ? send(200, listed) : send(401, { error: { message: "Invalid API key" } });
   // OmniRoute narrows the list itself for a plain key: only models with an active account.
-  if (req.url === "/v1/models?configuredOnly=true") return auth === `Bearer ${KEY}` ? send(200, { ...catalogue, data: catalogue.data.filter((m) => m.owned_by !== "glm") }) : send(401, { error: { message: "Invalid API key" } });
+  if (req.url === "/v1/models?configuredOnly=true") return auth === `Bearer ${KEY}` ? send(200, { ...listed, data: listed.data.filter((m) => m.owned_by !== "glm") }) : send(401, { error: { message: "Invalid API key" } });
   if (req.url === "/v1/me/status") return auth === `Bearer ${KEY}` ? send(200, meStatus) : auth === `Bearer ${MANAGE}` ? send(403, { error: "Forbidden" }) : send(401, { error: "Unauthorized" });
   if (req.url === "/v1/messages" && req.method === "POST") {
     let raw = "";
@@ -213,7 +223,13 @@ try {
   assert.equal(accounts.router.breakers.text, "No provider paused");
   const usage = await server.handleUsage({ refresh: true });
   assert.equal(usage.state, "ok");
-  assert.equal(usage.week.requests, 4);
+  assert.equal(usage.range, "7d", "a week unless asked");
+  assert.equal(usage.totals.requests, 4);
+  assert.deepEqual(usage.providerTrend.providers, ["Claude", "Codex"]);
+  assert.equal(usage.trend.length, 7);
+  const day = await server.handleUsage({ refresh: true, range: "1d" });
+  assert.deepEqual([day.range, day.trend.length], ["1d", 2], "each range is its own call and cache");
+  server.UsageSchema.parse(day);
   assert.equal(usage.ownKey, "daemon-a");
   assert.deepEqual(usage.byDaemon.map((r) => [r.label, !!r.thisDaemon]), [["daemon-b", false], ["daemon-a", true]]);
   passed += 1;
@@ -321,16 +337,18 @@ try {
     writeFileSync(join(settings, "connection.json"), JSON.stringify(connection));
     if (state) writeFileSync(join(settings, "sync-state.json"), JSON.stringify(state));
     const logs = [];
-    const box = { providers: {}, patches: [] };
+    const box = { providers: {}, profiles: [], patches: [] };
     const api = {
       config: {
-        get: async () => ({ config: { providers: box.providers } }),
+        get: async () => ({ config: { providers: box.providers, agentProfiles: box.profiles } }),
         patch: async (patch) => {
           box.patches.push(patch);
           const next = { ...box.providers };
           for (const [id, entry] of Object.entries(patch.providers ?? {})) next[id] = { ...next[id], ...entry };
           for (const id of patch.removeProviders ?? []) delete next[id];
           box.providers = next;
+          // Paseo takes agentProfiles as the whole list.
+          if (patch.agentProfiles) box.profiles = patch.agentProfiles;
           return {};
         },
       },
@@ -610,6 +628,82 @@ try {
     assert.deepEqual(t.box.patches.at(-1), { removeProviders: ["codex-ai-router"] });
     passed += 1;
   }
+
+  // ---------------------------------------------- combos as agent profiles
+  withCombos = true;
+  const routingDoc = (dir, values) => writeFileSync(join(dir, "plugin-settings", "ai-router", "routing.json"), JSON.stringify({ version: 1, values }));
+  const userProfile = { id: "legacy_favorite:codex:gpt-5.6-sol", name: "gpt-5.6-sol", provider: "codex", model: "gpt-5.6-sol" };
+  {
+    // Through Paseo's API: one profile per combo, OmniRoute's words as notes, a person's profile untouched.
+    const t = await fresh("profiles-api", full);
+    t.box.profiles = [userProfile];
+    await t.mod.checkAutoSync(t.api);
+    assert.deepEqual(t.box.profiles.map((p) => p.id), ["legacy_favorite:codex:gpt-5.6-sol", "ai-router:auto", "ai-router:auto/coding", "ai-router:auto/fast", "ai-router:team-review"]);
+    assert.equal(t.box.profiles[0], userProfile, "a person's profile is passed back exactly");
+    const coding = t.box.profiles.find((p) => p.id === "ai-router:auto/coding");
+    assert.deepEqual(coding, { id: "ai-router:auto/coding", name: "Auto · coding", icon: "code", color: "blue", provider: "ai-router", model: "auto/coding", notes: 'OmniRoute auto combo "auto/coding": Quality-first for code. Picks from Codex, Claude. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.' });
+    assert.match(t.box.profiles.at(-1).notes, /Opus 5\.5 first, GPT-6 Sol when Claude is busy\. 2 models, priority strategy\./);
+    assert.deepEqual(t.box.providers["ai-router"].models.slice(0, 4).map((m) => m.id), ["auto", "auto/coding", "auto/fast", "team-review"], "combos also lead the model list");
+    const listed = await t.mod.handleProfiles({}, { paseo: t.api });
+    t.mod.ProfilesSchema.parse(listed);
+    assert.deepEqual([listed.enabled, listed.profiles.length, listed.profiles[1].name], [true, 4, "Auto · coding"]);
+
+    // Nothing changed: no write. A combo disappears: its profile goes; a person's tweak to ours stays.
+    const patches = t.box.patches.length;
+    await t.mod.checkAutoSync(t.api);
+    assert.equal(t.box.patches.length, patches, "unchanged profiles are not rewritten");
+    t.box.profiles = t.box.profiles.map((p) => (p.id === "ai-router:auto" ? { ...p, icon: "rocket", thinkingOptionId: "high" } : p));
+    COMBO_ENTRIES.splice(2, 1); // auto/fast gone
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // The model list is cached for a few minutes; the switch's "apply" path is what a person uses, and it asks again.
+    await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
+    assert.deepEqual(t.box.profiles.map((p) => p.id), ["legacy_favorite:codex:gpt-5.6-sol", "ai-router:auto", "ai-router:auto/coding", "ai-router:team-review"]);
+    const auto = t.box.profiles.find((p) => p.id === "ai-router:auto");
+    assert.deepEqual([auto.icon, auto.thinkingOptionId], ["rocket", "high"], "an icon or effort a person set on ours survives");
+
+    // The switch off: ours go, the person's stays; back on: they return.
+    routingDoc(t.dir, { routeAgents: false, comboProfiles: false });
+    const off = await t.mod.handleProfiles({ apply: true }, { paseo: t.api });
+    assert.deepEqual([off.enabled, off.profiles], [false, []]);
+    assert.deepEqual(t.box.profiles, [userProfile]);
+    routingDoc(t.dir, { routeAgents: false, comboProfiles: true });
+    const on = await t.mod.handleProfiles({ apply: true }, { paseo: t.api });
+    assert.equal(on.profiles.length, 3);
+
+    // Removing the AI Router provider takes its profiles with it, and the timer does not bring them back.
+    await t.mod.handleAiProvider({ enabled: false }, { paseo: t.api });
+    assert.deepEqual(t.box.profiles, [userProfile]);
+    await t.mod.checkAutoSync(t.api);
+    assert.deepEqual(t.box.profiles, [userProfile]);
+    t.restore();
+    COMBO_ENTRIES.splice(2, 0, { id: "auto/fast", owned_by: "combo", root: "auto/fast" });
+    passed += 1;
+  }
+  {
+    // At plugin load, through config.json: profiles under daemon.agentProfiles, a person's kept byte for byte.
+    const t = await fresh("profiles-file", full);
+    const bin = mkdtempSync(join(tmpdir(), "ai-router-bin-"));
+    const calls = join(bin, "calls.txt");
+    writeFileSync(join(bin, "paseo"), `#!/bin/sh\necho "$@" >> "${calls}"\n`, { mode: 0o755 });
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    const configPath = join(t.dir, "config.json");
+    writeFileSync(configPath, JSON.stringify({ version: 1, daemon: { listen: "127.0.0.1:6767", agentProfiles: [userProfile] }, agents: { providers: {} } }, null, 2), { mode: 0o600 });
+    const before = readFileSync(configPath, "utf8");
+    const userText = before.slice(before.indexOf("{", before.indexOf("agentProfiles")), before.indexOf("}", before.indexOf("agentProfiles")) + 1);
+    await t.mod.checkAutoSync(null);
+    const text = readFileSync(configPath, "utf8");
+    const written = JSON.parse(text);
+    assert.equal("agentProfiles" in written, false, "never top level");
+    assert.deepEqual(written.daemon.agentProfiles.map((p) => p.id), ["legacy_favorite:codex:gpt-5.6-sol", "ai-router:auto", "ai-router:auto/coding", "ai-router:auto/fast", "ai-router:team-review"]);
+    assert.ok(text.includes(userText), "the person's profile keeps its exact text");
+    assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "one write, one reload for providers and profiles together");
+    process.env.PATH = path;
+    t.restore();
+    rmSync(bin, { recursive: true, force: true });
+    passed += 1;
+  }
+  withCombos = false;
 
   console.log(`server: ${passed} scenarios passed`);
 } finally {

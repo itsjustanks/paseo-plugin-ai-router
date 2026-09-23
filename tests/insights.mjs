@@ -21,6 +21,10 @@ try {
   const source = readFileSync(new URL("../apps/paseo/shared/routers/omniroute/parsers.ts", import.meta.url), "utf8");
   writeFileSync(join(staging, "insights.mjs"), ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
   const I = await import(join(staging, "insights.mjs"));
+  const copySource = readFileSync(new URL("../apps/paseo/shared/routers/omniroute/copy.ts", import.meta.url), "utf8");
+  writeFileSync(join(staging, "copy.mjs"), ts.transpileModule(copySource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  const C = await import(join(staging, "copy.mjs"));
+  const KINDS = { auto: C.AUTO_COMBO_KINDS, fallback: C.AUTO_COMBO_DEFAULT, custom: C.CUSTOM_COMBO_LOOK };
   const R = JSON.parse(readFileSync(new URL("./fixtures/omniroute-3.8.50.json", import.meta.url), "utf8")).responses;
   const body = (path) => clone(R[path].body);
   const NOW = Date.parse("2026-09-23T02:00:00.000Z");
@@ -395,6 +399,79 @@ try {
       { id: "auto", owned_by: null },
     ] }, null);
     assert.deepEqual(list.map((m) => m.label), ["Claude · Sonnet 5", "Codex · GPT-6 Sol"]);
+  });
+
+  check("combos as profiles: plain names, OmniRoute's own words, a look per kind", () => {
+    assert.deepEqual(["auto", "auto/coding", "auto/coding:fast", "auto/best-coding", "auto/claude-opus"].map(I.autoComboName), ["Auto", "Auto · coding", "Auto · coding, fast", "Auto · best coding", "Auto · claude opus"]);
+    const models = { data: [
+      { id: "auto", owned_by: "combo" }, { id: "auto/coding", owned_by: "combo" }, { id: "auto/fast", owned_by: "combo" }, { id: "auto/best-reasoning", owned_by: "combo" }, { id: "auto/lkgp", owned_by: "combo" },
+      { id: "team-review", owned_by: "combo", display_name: "Team review", description: "Opus 5.5 first, GPT-6 Sol when Claude is busy" },
+      { id: "plain", owned_by: "combo" },
+      { id: "cc/claude-sonnet-5", owned_by: "claude" },
+    ] };
+    const autoBody = { combos: [{ id: "auto", candidatePool: ["codex", "claude", "opencode"] }, { id: "auto/coding", candidatePool: ["codex", "claude"] }] };
+    const customBody = { combos: [{ name: "team-review", models: [{}, {}, {}], strategy: "priority" }] };
+    const combos = I.describeCombos(["auto", "auto/coding", "auto/fast", "auto/best-reasoning", "auto/lkgp", "team-review", "plain", "auto"], models, autoBody, customBody, KINDS);
+    assert.deepEqual(combos.map((c) => [c.id, c.name, c.icon, c.color]), [
+      ["auto", "Auto", "sparkles", "violet"],
+      ["auto/coding", "Auto · coding", "code", "blue"],
+      ["auto/fast", "Auto · fast", "rocket", "amber"],
+      ["auto/best-reasoning", "Auto · best reasoning", "brain", "indigo"],
+      ["auto/lkgp", "Auto · lkgp", "compass", "sky"],
+      ["team-review", "Team review", "boxes", "sky"],
+      ["plain", "plain", "boxes", "sky"],
+    ], "one per combo, duplicates dropped");
+    assert.equal(combos[0].notes, 'OmniRoute auto combo "auto": Self-healing smart routing pool with multi-factor scoring. Picks from Codex, Claude, OpenCode. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.');
+    assert.equal(combos[2].notes, 'OmniRoute auto combo "auto/fast": Low-latency routing. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.', "no read token: no pool, still the words");
+    assert.equal(combos[5].notes, 'OmniRoute combo "team-review": Opus 5.5 first, GPT-6 Sol when Claude is busy. 3 models, priority strategy. Use it as the model on the AI Router provider.');
+    assert.equal(combos[6].notes, 'OmniRoute combo "plain": a custom combo set up in the OmniRoute dashboard. Use it as the model on the AI Router provider.');
+    const icons = new Set(combos.map((c) => c.icon));
+    for (const icon of icons) assert.ok(["code", "terminal", "bug", "wrench", "hammer", "flask", "testTube", "microscope", "search", "eye", "palette", "feather", "pencil", "fileText", "book", "rocket", "package", "boxes", "server", "database", "cpu", "cloud", "globe", "gitBranch", "layers", "compass", "brain", "sparkles", "shield"].includes(icon), `${icon} is one of Paseo's profile icons`);
+    for (const kind of [...C.AUTO_COMBO_KINDS, C.AUTO_COMBO_DEFAULT, C.CUSTOM_COMBO_LOOK]) assert.ok(["violet", "sky", "emerald", "orange", "pink", "indigo", "teal", "red", "amber", "blue"].includes(kind.color), `${kind.color} is one of Paseo's identity colours`);
+  });
+
+  check("analytics: one range from /api/usage/analytics, zero-filled days, tokens stacked by provider", () => {
+    const now = Date.parse("2026-09-23T12:00:00.000Z");
+    const analytics = {
+      summary: { totalRequests: 40, promptTokens: 90000, completionTokens: 10000, totalTokens: 100000, totalCost: 1.25, successRatePct: 97.5, avgLatencyMs: 3820, fallbackRatePct: 2.5, streak: 4 },
+      dailyTrend: [{ date: "2026-09-21", requests: 10, totalTokens: 30000, cost: 0.4 }, { date: "2026-09-23", requests: 30, totalTokens: 70000, cost: 0.85 }],
+      dailyByModel: [{ date: "2026-09-21", "claude-sonnet-5": 20000, "gpt-6-sol": 10000 }, { date: "2026-09-23", "claude-sonnet-5": 50000, "gpt-6-sol": 15000, "glm-5.2": 4000, "kimi-k2": 1000, "grok-4": 1, "qwen-3": 1, "mystery": 7 }],
+      byModel: [
+        { model: "claude-sonnet-5", provider: "claude", requests: 25, totalTokens: 70000, avgLatencyMs: 4000, successRatePct: "100.00", cost: 1 },
+        { model: "gpt-6-sol", provider: "codex", requests: 12, totalTokens: 25000, avgLatencyMs: 2500, successRatePct: "91.67", cost: 0.25 },
+        { model: "glm-5.2", provider: "glm", requests: 1, totalTokens: 4000 }, { model: "kimi-k2", provider: "kimi", requests: 1 }, { model: "grok-4", provider: "xai", requests: 1 }, { model: "qwen-3", provider: "qwen", requests: 0 },
+      ],
+      byProvider: [{ provider: "Claude Code", requests: 25, totalTokens: 70000, avgLatencyMs: 4000, successRatePct: "100.00", cost: 1 }, { provider: "OpenAI Codex", requests: 15, totalTokens: 30000, avgLatencyMs: 2500, successRatePct: "93.33", cost: 0.25 }],
+      errorBreakdown: [{ errorType: "rate_limit", count: 2 }, { errorType: "unclassified", count: 1 }, { errorType: "zero", count: 0 }],
+      activityMap: { "2026-09-21": 30000, "2026-09-23": 70000, "2026-09-22": 0, "nope": 5 },
+      weeklyPattern: [{ day: "Mon", avgTokens: 5 }, { day: "Tue", avgTokens: 9 }, { day: "Sun", avgTokens: "<redacted>" }],
+    };
+    const a = I.parseAnalytics(analytics, "7d", now);
+    assert.deepEqual(a.totals, { requests: 40, promptTokens: 90000, completionTokens: 10000, tokens: 100000, cost: 1.25, successRatePct: 97.5, avgLatencyMs: 3820, fallbackRatePct: 2.5, streak: 4 });
+    assert.deepEqual(a.trend.map((d) => [d.date, d.requests]), [["2026-09-17", 0], ["2026-09-18", 0], ["2026-09-19", 0], ["2026-09-20", 0], ["2026-09-21", 10], ["2026-09-22", 0], ["2026-09-23", 30]]);
+    assert.equal(I.parseAnalytics(analytics, "30d", now).trend.length, 30);
+    assert.equal(I.parseAnalytics(analytics, "1d", now).trend.length, 2);
+    assert.deepEqual(a.providerTrend.providers, ["Claude", "Codex", "GLM", "Kimi", "xAI", "Other"], "five providers by tokens, the rest and unknown models folded into Other");
+    assert.deepEqual(a.providerTrend.days.find((d) => d.date === "2026-09-23").values, [50000, 15000, 4000, 1000, 1, 8]);
+    assert.deepEqual(a.providerTrend.days.find((d) => d.date === "2026-09-21").values, [20000, 10000, 0, 0, 0, 0]);
+    assert.deepEqual(a.byProvider.map((r) => [r.label, r.sharePct, r.successRatePct, r.failedPct]), [["Claude", 62.5, 100, 0], ["Codex", 37.5, 93.3, 6.7]]);
+    assert.deepEqual(a.byModel.slice(0, 2).map((r) => [r.label, r.provider, r.failedPct, r.avgLatencyMs]), [["claude-sonnet-5", "Claude", 0, 4000], ["gpt-6-sol", "Codex", 8.3, 2500]]);
+    assert.deepEqual(a.errors, [{ type: "rate_limit", count: 2 }, { type: "unclassified", count: 1 }]);
+    assert.deepEqual([I.errorWords("rate_limit"), I.errorWords("upstream_5xx"), I.errorWords("unclassified")], ["rate limit", "upstream 5xx", "not classified"]);
+    assert.deepEqual(a.activity, [{ date: "2026-09-21", tokens: 30000 }, { date: "2026-09-23", tokens: 70000 }]);
+    assert.equal(a.busiestWeekday, "Tue");
+    const blank = I.parseAnalytics(null, "7d", now);
+    assert.deepEqual([blank.totals, blank.byModel, blank.providerTrend.providers, blank.activity, blank.busiestWeekday], [null, [], [], [], null]);
+    assert.equal(blank.trend.length, 7, "no data: still one bar per day");
+  });
+
+  check("analytics against a real OmniRoute answer", () => {
+    const real = I.parseAnalytics(body("/api/usage/analytics?range=7d"), "7d", NOW);
+    assert.equal(real.totals.requests, 4);
+    assert.equal(real.totals.tokens, null, "redacted fields read as unknown, not zero");
+    assert.deepEqual(real.byProvider.map((r) => r.label), ["Claude", "Codex"]);
+    assert.deepEqual(real.providerTrend.providers, ["Claude", "Codex"]);
+    assert.deepEqual(real.activity, [{ date: "2026-09-23", tokens: 64141 }]);
   });
 
   console.log(`insights: ${passed} checks passed`);

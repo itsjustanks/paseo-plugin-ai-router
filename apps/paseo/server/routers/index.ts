@@ -1,7 +1,7 @@
-import type { Access, Accounts, Compression, RouterSettings, Tunnels, Usage } from "../../shared/contracts";
+import type { Access, Accounts, AnalyticsRangeId, Compression, RouterSettings, Tunnels, Usage } from "../../shared/contracts";
 import type { Connection, HealthProbe, RouterId } from "../../shared/logic";
 import { omniroute } from "./omniroute";
-import type { CatalogModel, Tunnel } from "../../shared/routers/omniroute/parsers";
+import type { CatalogModel, ComboInfo, Tunnel } from "../../shared/routers/omniroute/parsers";
 
 type Result = { ok: boolean; message: string };
 export type Health = {
@@ -31,12 +31,12 @@ export interface RouterAdapter {
   recentlyDown(connection: Pick<Connection, "endpoint" | "token">): string | null;
   lastSeenAt(endpoint: string | null): string | null;
   /** Models for the AI Router provider, limited to connected accounts (with a plain key when the router can). */
-  models(connection: Connection): Promise<{ ok: true; list: CatalogModel[] } | { ok: false; error: string }>;
+  models(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[] } | { ok: false; error: string }>;
   testModel(connection: Connection, model: string): Promise<Result>;
   /** What this key itself may see about itself: name, spend and limit, account quotas. */
   access(connection: Connection, refresh: boolean): Promise<Access>;
   accounts(connection: Connection, refresh: boolean): Promise<Accounts>;
-  usage(connection: Connection, refresh: boolean): Promise<Usage>;
+  usage(connection: Connection, refresh: boolean, range?: AnalyticsRangeId): Promise<Usage>;
   settings(connection: Connection, refresh: boolean): Promise<RouterSettings>;
   applySetting(connection: Connection, id: string, on: boolean | undefined): Promise<Result>;
   compression(connection: Connection, refresh: boolean): Promise<Compression>;

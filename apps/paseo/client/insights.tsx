@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { accountAction, accounts, accountsCheckAll, routerSettings, settingApply, usage, type Accounts, type Status, type Usage } from "../shared/contracts";
+import { accountAction, accounts, accountsCheckAll, routerSettings, settingApply, type Accounts, type Status, type Usage } from "../shared/contracts";
 import { accountsHeadline, compactNumber as compact, healthLine, providerLabel } from "../shared/routers/omniroute/parsers";
 import { CODEX_LOGIN_PORT, dashboardLink, formatUptime, providerDashboardPage } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
@@ -15,10 +15,10 @@ import { Banner, Button, Card, Chip, Link, Note, Row, StaleNote, toneColor, type
 type Theme = PluginTheme;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const money = (n: number | null) => (n === null || n <= 0 ? null : n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
+export const money = (n: number | null) => (n === null || n <= 0 ? null : n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
 const tone = (pct: number): Tone => (pct <= 10 ? "danger" : pct <= 30 ? "warning" : "success");
 
-function Bar({ theme, pct, color }: { theme: Theme; pct: number; color: string }) {
+export function Bar({ theme, pct, color }: { theme: Theme; pct: number; color: string }) {
   return (
     <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surface2, overflow: "hidden", flexGrow: 1 }}>
       <View style={{ width: `${Math.max(2, Math.min(100, pct))}%`, height: 6, backgroundColor: color }} />
@@ -27,7 +27,7 @@ function Bar({ theme, pct, color }: { theme: Theme; pct: number; color: string }
 }
 
 /** Loading, no token, or an error, said once and plainly. When the router is down, the last answer shows under a note. Null when there is data to show. */
-function Gate({ theme, title, data, error, loading, refetch }: { theme: Theme; title: string; data: { state: string; message: string | null; checkedAt?: string | null; stale?: { reason: string } | null } | undefined; error: unknown; loading: boolean; refetch: () => void }) {
+export function Gate({ theme, title, data, error, loading, refetch }: { theme: Theme; title: string; data: { state: string; message: string | null; checkedAt?: string | null; stale?: { reason: string } | null } | undefined; error: unknown; loading: boolean; refetch: () => void }) {
   if (!data) {
     return <Card theme={theme} title={title}>{error ? <Note theme={theme} tone="danger">{errorText(error)}</Note> : <Note theme={theme}>{loading ? "Asking the router…" : "No answer yet."}</Note>}</Card>;
   }
@@ -50,7 +50,7 @@ function Gate({ theme, title, data, error, loading, refetch }: { theme: Theme; t
 }
 
 /** Parts that failed while the rest worked. Small print, at the bottom. */
-function Notes({ theme, notes }: { theme: Theme; notes: string[] }) {
+export function Notes({ theme, notes }: { theme: Theme; notes: string[] }) {
   return notes.length ? <View style={{ gap: 4, marginTop: 4 }}>{notes.map((note) => <Note key={note} theme={theme}>{note}</Note>)}</View> : null;
 }
 
@@ -179,21 +179,8 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
   );
 }
 
-function Totals({ theme, title, totals }: { theme: Theme; title: string; totals: Usage["day"] }) {
-  const figures = totals
-    ? [totals.tokens !== null ? `${compact(totals.tokens)} tokens` : null, money(totals.cost), totals.successRatePct !== null && totals.requests > 0 ? `${totals.successRatePct}% succeeded` : null].filter(Boolean).join(" · ")
-    : "";
-  return (
-    <View style={{ flexGrow: 1, flexBasis: 150, gap: 2 }}>
-      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{title}</Text>
-      {!totals ? <Note theme={theme}>Not reported.</Note> : null}
-      {totals ? <Text style={{ color: theme.colors.foreground, fontSize: 22, fontWeight: "700" }}>{totals.requests === 0 ? "No requests" : `${compact(totals.requests)} request${totals.requests === 1 ? "" : "s"}`}</Text> : null}
-      {totals && totals.requests > 0 && figures ? <Note theme={theme}>{figures}</Note> : null}
-    </View>
-  );
-}
-
-function Breakdown({ theme, title, why, rows }: { theme: Theme; title: string; why: string; rows: Usage["byAccount"] }) {
+/** Rows with a proportional bar; "this daemon" highlighted. Used by the analytics view. */
+export function Breakdown({ theme, title, why, rows }: { theme: Theme; title: string; why: string; rows: Usage["byAccount"] }) {
   if (!rows.length) return null;
   const top = Math.max(1, ...rows.map((row) => row.requests));
   return (
@@ -214,48 +201,6 @@ function Breakdown({ theme, title, why, rows }: { theme: Theme; title: string; w
         </View>
       ))}
     </Card>
-  );
-}
-
-export function UsageTab({ theme }: { theme: Theme }) {
-  const call = useRpc(usage);
-  const query = useQuery({ queryKey: ["ai-router", "usage"], queryFn: () => call({}), refetchInterval: 60_000 });
-  const data = query.data;
-  const gate = <Gate theme={theme} title="Usage" data={data} error={query.error} loading={query.isLoading} refetch={() => void query.refetch()} />;
-  if (!data || data.state !== "ok") return gate;
-  const stale = data.stale ? gate : null;
-  if (data.week && data.week.requests === 0) {
-    return (
-      <Banner theme={theme} tone="neutral" title="No requests in the last 7 days">
-        <Note theme={theme}>Nothing has gone through the router with any key this week. Once an agent uses it, usage shows here within a minute.</Note>
-        <Notes theme={theme} notes={data.notes} />
-      </Banner>
-    );
-  }
-  const peak = Math.max(1, ...data.trend.map((day) => day.requests));
-  return (
-    <>
-      {stale}
-      <Card theme={theme} title="Usage">
-        <Row>
-          <Totals theme={theme} title="Last 24 hours" totals={data.day} />
-          <Totals theme={theme} title="Last 7 days" totals={data.week} />
-        </Row>
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6, height: 70 }}>
-          {data.trend.map((day) => (
-            <View key={day.date} style={{ flex: 1, alignItems: "center", gap: 2 }}>
-              <View style={{ width: "100%", height: Math.max(2, (day.requests / peak) * 48), borderRadius: 3, backgroundColor: day.requests ? theme.colors.accent : theme.colors.surface2 }} />
-              <Text style={{ color: theme.colors.foregroundMuted, fontSize: 10 }}>{day.date.slice(5)}</Text>
-            </View>
-          ))}
-        </View>
-        <Note theme={theme}>Requests per day. Days run midnight to midnight UTC, as the router counts them.</Note>
-        <Notes theme={theme} notes={data.notes} />
-      </Card>
-      <Breakdown theme={theme} title="By daemon" why="One API key per daemon, so each row is one Paseo machine. Last 7 days." rows={data.byDaemon} />
-      <Breakdown theme={theme} title="By account" why="Which subscription served the requests. Last 7 days." rows={data.byAccount} />
-      <Breakdown theme={theme} title="Top models" why="The five most-used models. Last 7 days." rows={data.topModels} />
-    </>
   );
 }
 

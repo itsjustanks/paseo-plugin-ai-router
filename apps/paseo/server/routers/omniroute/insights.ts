@@ -1,4 +1,4 @@
-import type { Access, Accounts, Compression, RouterSettings, Tunnels, Usage } from "../../../shared/contracts";
+import type { Access, Accounts, AnalyticsRangeId, Compression, RouterSettings, Tunnels, Usage } from "../../../shared/contracts";
 import {
   activeTunnel,
   describeAccountTest,
@@ -28,9 +28,12 @@ import {
   parseTotals,
   parseTrend,
   parseKeyStatus,
+  parseAnalytics,
+  describeCombos,
+  type ComboInfo,
 } from "../../../shared/routers/omniroute/parsers";
 import { describeFetchError, type Connection } from "../../../shared/logic";
-import { RECOMMENDED_COMPRESSION } from "../../../shared/routers/omniroute/copy";
+import { AUTO_COMBO_DEFAULT, AUTO_COMBO_KINDS, CUSTOM_COMBO_LOOK, RECOMMENDED_COMPRESSION } from "../../../shared/routers/omniroute/copy";
 import { bearer, getJson, recentlyDown } from "./health";
 
 const TIMEOUT_MS = 10_000;
@@ -130,39 +133,35 @@ async function loadAccounts(connection: Connection): Promise<Omit<Accounts, "can
   }
 }
 
-export async function getUsage(connection: Connection, refresh: boolean): Promise<Usage> {
-  const empty = { day: null, week: null, trend: [], byAccount: [], byDaemon: [], topModels: [], ownKey: null };
+export async function getUsage(connection: Connection, refresh: boolean, range: AnalyticsRangeId = "7d"): Promise<Usage> {
+  const empty = { range, totals: null, trend: [], providerTrend: { providers: [], days: [] }, byModel: [], byProvider: [], byAccount: [], byDaemon: [], errors: [], activity: [], busiestWeekday: null, ownKey: null };
   const stop = precheck(connection);
   if (stop) return { ...base, ...stop, ...empty };
-  const key = `usage\n${connection.endpoint}\n${readKey(connection)}`;
+  const key = `usage\n${range}\n${connection.endpoint}\n${readKey(connection)}`;
   const down = whileDown<Usage>(connection, key, "Usage", empty);
   if (down) return down;
-  return cached(key, refresh ? 0 : USAGE_MAX_AGE_MS, async () => keepOrFallBack(key, await loadUsage(connection, empty)));
+  return cached(key, refresh ? 0 : USAGE_MAX_AGE_MS, async () => keepOrFallBack(key, await loadUsage(connection, range, empty)));
 }
 
-async function loadUsage(connection: Connection, empty: Omit<Usage, keyof typeof base | "state">): Promise<Usage> {
-  {
-    const [day, week, keys] = await Promise.all(["/api/usage/analytics?range=1d", "/api/usage/analytics?range=7d", "/api/keys"].map((path) => read(connection, path)));
-    const checkedAt = new Date().toISOString();
-    if (!week.ok) return { ...base, state: "error", message: `Usage: ${week.error}`, checkedAt, ...empty };
-    const notes: string[] = [];
-    if (!day.ok) notes.push(`Last 24 hours unavailable: ${day.error}`);
-    const own = keys.ok ? findOwnKey(keys.body, connection.apiKey) : null;
-    if (!keys.ok) notes.push(`Could not tell which key is this daemon's: ${keys.error}`);
-    else if (!own) notes.push("This daemon's API key is not in OmniRoute's key list, so its row is not highlighted.");
-    return {
-      ...base,
-      checkedAt,
-      notes,
-      day: day.ok ? parseTotals(day.body) : null,
-      week: parseTotals(week.body),
-      trend: parseTrend(week.body, 7, Date.now()),
-      byAccount: parseByAccount(week.body),
-      byDaemon: parseByDaemon(week.body, own),
-      topModels: parseTopModels(week.body),
-      ownKey: own?.name ?? null,
-    };
-  }
+/** One `/api/usage/analytics` call for the range, plus `/api/keys` to find this daemon's row. */
+async function loadUsage(connection: Connection, range: AnalyticsRangeId, empty: Omit<Usage, keyof typeof base | "state">): Promise<Usage> {
+  const [analytics, keys] = await Promise.all([`/api/usage/analytics?range=${range}`, "/api/keys"].map((path) => read(connection, path)));
+  const checkedAt = new Date().toISOString();
+  if (!analytics.ok) return { ...base, state: "error", message: `Usage: ${analytics.error}`, checkedAt, ...empty };
+  const notes: string[] = [];
+  const own = keys.ok ? findOwnKey(keys.body, connection.apiKey) : null;
+  if (!keys.ok) notes.push(`Could not tell which key is this daemon's: ${keys.error}`);
+  else if (!own) notes.push("This daemon's API key is not in OmniRoute's key list, so its row is not highlighted.");
+  return {
+    ...base,
+    checkedAt,
+    notes,
+    range,
+    ...parseAnalytics(analytics.body, range, Date.now()),
+    byAccount: parseByAccount(analytics.body),
+    byDaemon: parseByDaemon(analytics.body, own),
+    ownKey: own?.name ?? null,
+  };
 }
 
 // ------------------------------------------------------------------ models
@@ -170,8 +169,9 @@ async function loadUsage(connection: Connection, empty: Omit<Usage, keyof typeof
 /**
  * The combos the dashboard shows, in its order: auto combos, then custom ones.
  * Read-token calls; null (fall back to the core auto combos) if either fails.
+ * The bodies come back too, for the combo descriptions on agent profiles.
  */
-async function dashboardCombos(connection: Connection): Promise<string[] | null> {
+async function dashboardCombos(connection: Connection): Promise<{ ids: string[] | null; auto: unknown; custom: unknown }> {
   const names = (body: unknown): string[] => {
     const root = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
     const items = Array.isArray(body) ? body : Array.isArray(root.combos) ? root.combos : Array.isArray(root.data) ? root.data : [];
@@ -179,8 +179,10 @@ async function dashboardCombos(connection: Connection): Promise<string[] | null>
       .filter((value): value is string => typeof value === "string" && value.length > 0);
   };
   const [auto, custom] = await Promise.all([read(connection, "/api/combos/auto"), read(connection, "/api/combos")]);
-  if (!auto.ok) return null;
-  return [...names(auto.body), ...(custom.ok ? names(custom.body) : [])];
+  const autoBody = auto.ok ? auto.body : null;
+  const customBody = custom.ok ? custom.body : null;
+  if (!auto.ok) return { ids: null, auto: autoBody, custom: customBody };
+  return { ids: [...names(auto.body), ...(custom.ok ? names(custom.body) : [])], auto: autoBody, custom: customBody };
 }
 
 /** More than this after `?configuredOnly=true` means the router ignored the filter (an older OmniRoute). */
@@ -192,7 +194,7 @@ const UNFILTERED_MODELS = 300;
  * `/api/providers`. With only the inference key: `/v1/models?configuredOnly=true`,
  * which OmniRoute filters itself and also limits to the key's allowed models.
  */
-export async function catalogue(connection: Connection): Promise<{ ok: true; list: CatalogModel[] } | { ok: false; error: string }> {
+export async function catalogue(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[] } | { ok: false; error: string }> {
   if (!connection.endpoint || !connection.apiKey) return { ok: false, error: "Set the endpoint URL and API key first." };
   const down = recentlyDown(connection);
   if (down) return { ok: false, error: `Models: ${down}` };
@@ -212,12 +214,15 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
     if (!providers.ok) return { ok: false, error: `Connected accounts: ${providers.error}` };
     active = activeProviders(providers.body);
   }
-  const list = buildModelList(models.body, active, operator ? await dashboardCombos(connection) : null);
+  const dashboard = operator ? await dashboardCombos(connection) : { ids: null, auto: null, custom: null };
+  const list = buildModelList(models.body, active, dashboard.ids);
   if (!list.length) return { ok: false, error: active ? `OmniRoute lists no models for the active accounts (${[...active].join(", ") || "none"}).` : "OmniRoute lists no models this key can use on connected accounts." };
   if (!active && list.length > UNFILTERED_MODELS) {
     return { ok: false, error: `OmniRoute listed ${list.length} models without narrowing them to connected accounts; this version may not support that for a plain key. Add a read token on the Connection tab, or update OmniRoute.` };
   }
-  return { ok: true, list };
+  const comboIds = list.filter((model) => model.provider === "combo").map((model) => model.id);
+  const combos = describeCombos(comboIds, models.body, dashboard.auto, dashboard.custom, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK });
+  return { ok: true, list, combos };
 }
 
 // ------------------------------------------------------------- your access

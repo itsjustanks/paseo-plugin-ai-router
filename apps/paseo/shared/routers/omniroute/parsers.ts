@@ -23,7 +23,7 @@ const epochMs = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const PROVIDER_LABELS: Record<string, string> = { claude: "Claude", cc: "Claude", codex: "Codex", cx: "Codex", "claude code": "Claude", "openai codex": "Codex" };
+const PROVIDER_LABELS: Record<string, string> = { claude: "Claude", cc: "Claude", codex: "Codex", cx: "Codex", "claude code": "Claude", "openai codex": "Codex", glm: "GLM", xai: "xAI", openai: "OpenAI", opencode: "OpenCode" };
 export function providerLabel(id: string): string {
   return PROVIDER_LABELS[id.toLowerCase()] ?? id.replace(/[-_]/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
@@ -712,4 +712,175 @@ export function parseKeyStatus(body: unknown): KeyStatus {
     tokens: num(rec(rec(record.usage).tokens).totalTokens),
     quotas,
   };
+}
+
+// ------------------------------------------------------ combos as profiles
+
+export type ComboLook = { match: RegExp; words: string; icon: string; color: string };
+export type ComboInfo = { id: string; name: string; notes: string; icon: string; color: string };
+
+/** `auto` → "Auto", `auto/coding` → "Auto · coding", `auto/coding:fast` → "Auto · coding, fast", `auto/best-coding` → "Auto · best coding". */
+export function autoComboName(id: string): string {
+  const rest = id.replace(/^auto\/?/, "");
+  if (!rest) return "Auto";
+  return `Auto · ${rest.replace(/:/g, ", ").replace(/[-_]/g, " ")}`;
+}
+
+const pool = (value: unknown) => list(value).map((p) => (typeof p === "string" ? providerLabel(p) : null)).filter((p): p is string => !!p);
+const byKey = (body: unknown, key: (row: Rec) => string | null) => new Map(list(rec(body).combos).map(rec).map((row) => [key(row), row] as const));
+
+/**
+ * One entry per combo id, for Paseo agent profiles: a plain name, OmniRoute's
+ * own description, and a look. Custom combos carry their own description and
+ * display name (in `/v1/models` for any key, `/api/combos` with a read token);
+ * auto combos get OmniRoute's variant wording and, with a read token, the
+ * providers they pick from (`/api/combos/auto`).
+ */
+export function describeCombos(ids: readonly string[], modelsBody: unknown, autoBody: unknown, customBody: unknown, kinds: { auto: readonly ComboLook[]; fallback: Omit<ComboLook, "match">; custom: { icon: string; color: string } }): ComboInfo[] {
+  const listed = new Map(list(rec(modelsBody).data).map(rec).filter((row) => str(row.owned_by) === "combo").map((row) => [str(row.id), row] as const));
+  const autos = byKey(autoBody, (row) => str(row.id));
+  const customs = byKey(customBody, (row) => str(row.name));
+  return [...new Set(ids)].map((id) => {
+    const entry = listed.get(id) ?? {};
+    const auto = autos.get(id);
+    const isAuto = /^auto(\/|$)/.test(id) && !customs.has(id);
+    if (isAuto) {
+      const kind = kinds.auto.find((k) => k.match.test(id.replace(/^auto\/?/, ""))) ?? kinds.fallback;
+      const from = pool(auto?.candidatePool);
+      const notes = `OmniRoute auto combo "${id}": ${kind.words}.${from.length ? ` Picks from ${from.join(", ")}.` : ""} Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.`;
+      return { id, name: autoComboName(id), notes, icon: kind.icon, color: kind.color };
+    }
+    const custom = customs.get(id) ?? {};
+    const name = str(entry.display_name) ?? str(custom.displayName) ?? id;
+    const description = str(entry.description) ?? str(custom.description);
+    const models = list(custom.models).length;
+    const strategy = str(custom.strategy);
+    const shape = models ? ` ${models} model${models === 1 ? "" : "s"}${strategy ? `, ${strategy} strategy` : ""}.` : "";
+    const notes = `OmniRoute combo "${id}": ${description ?? "a custom combo set up in the OmniRoute dashboard"}${/[.!?]$/.test(description ?? "") ? "" : "."}${shape} Use it as the model on the AI Router provider.`;
+    return { id, name, notes, icon: kinds.custom.icon, color: kinds.custom.color };
+  });
+}
+
+// ---------------------------------------------------------------- analytics
+
+export type AnalyticsRange = "1d" | "7d" | "30d";
+export const RANGE_DAYS: Record<AnalyticsRange, number> = { "1d": 2, "7d": 7, "30d": 30 };
+export type RichRow = UsageRow & { provider?: string | null; successRatePct?: number | null; avgLatencyMs?: number | null; sharePct?: number | null };
+export type Analytics = {
+  totals: { requests: number; promptTokens: number | null; completionTokens: number | null; tokens: number | null; cost: number | null; successRatePct: number | null; avgLatencyMs: number | null; fallbackRatePct: number | null; streak: number | null } | null;
+  trend: Array<{ date: string; requests: number; tokens: number | null; cost: number | null }>;
+  /** Tokens per day stacked by provider: `providers` in legend order (by tokens), `values` aligned with it. */
+  providerTrend: { providers: string[]; days: Array<{ date: string; values: number[] }> };
+  byModel: RichRow[];
+  byProvider: RichRow[];
+  errors: Array<{ type: string; count: number }>;
+  /** Tokens per UTC day, the last year, only days with traffic. */
+  activity: Array<{ date: string; tokens: number }>;
+  busiestWeekday: string | null;
+};
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+/** At most this many providers get their own colour in the stacked chart; the rest fold into "Other". */
+export const MAX_STACKED = 5;
+
+/** `/api/usage/analytics?range=…` → everything the analytics view draws. Defensive: any missing part is empty. */
+export function parseAnalytics(body: unknown, range: AnalyticsRange, now: number): Analytics {
+  const root = rec(body);
+  const summary = rec(root.summary);
+  const requests = num(summary.totalRequests);
+  const totals = requests === null ? null : {
+    requests,
+    promptTokens: num(summary.promptTokens),
+    completionTokens: num(summary.completionTokens),
+    tokens: num(summary.totalTokens),
+    cost: num(summary.totalCost),
+    successRatePct: num(summary.successRatePct),
+    avgLatencyMs: num(summary.avgLatencyMs),
+    fallbackRatePct: num(summary.fallbackRatePct),
+    streak: num(summary.streak),
+  };
+  const days = RANGE_DAYS[range];
+  const dates: string[] = [];
+  for (let i = days - 1; i >= 0; i -= 1) dates.push(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+  const daily = new Map(list(root.dailyTrend).map(rec).map((row) => [str(row.date), row] as const));
+  const trend = dates.map((date) => {
+    const row = daily.get(date);
+    return { date, requests: num(row?.requests) ?? 0, tokens: row ? num(row.totalTokens) : 0, cost: row ? num(row.cost) : 0 };
+  });
+
+  // Tokens per day by provider: dailyByModel is per model; byModel says which provider each model is on.
+  const modelProvider = new Map(list(root.byModel).map(rec).map((row) => [str(row.model), providerLabel(str(row.provider) ?? "other")] as const));
+  const perDay = new Map<string, Map<string, number>>();
+  const providerTotals = new Map<string, number>();
+  for (const row of list(root.dailyByModel).map(rec)) {
+    const date = str(row.date);
+    if (!date) continue;
+    const day = perDay.get(date) ?? new Map<string, number>();
+    for (const [model, value] of Object.entries(row)) {
+      if (model === "date") continue;
+      const tokens = num(value);
+      if (tokens === null || tokens <= 0) continue;
+      const provider = modelProvider.get(model) ?? "Other";
+      day.set(provider, (day.get(provider) ?? 0) + tokens);
+      providerTotals.set(provider, (providerTotals.get(provider) ?? 0) + tokens);
+    }
+    perDay.set(date, day);
+  }
+  const ranked = [...providerTotals].sort((a, b) => b[1] - a[1]).map(([name]) => name).filter((name) => name !== "Other");
+  const shown = ranked.slice(0, MAX_STACKED);
+  const folds = ranked.length > MAX_STACKED || providerTotals.has("Other");
+  const providers = folds ? [...shown, "Other"] : shown;
+  const providerTrend = {
+    providers,
+    days: dates.map((date) => {
+      const day = perDay.get(date) ?? new Map<string, number>();
+      const values = shown.map((name) => day.get(name) ?? 0);
+      if (folds) values.push([...day].filter(([name]) => !shown.includes(name)).reduce((sum, [, v]) => sum + v, 0));
+      return { date, values };
+    }),
+  };
+
+  const rich = (value: unknown, label: (row: Rec) => string | null): RichRow[] => {
+    const all = list(value).map(rec);
+    const total = all.reduce((sum, row) => sum + (num(row.requests) ?? 0), 0);
+    return all
+      .map((row) => ({ row, label: label(row), requests: num(row.requests) }))
+      .filter((entry): entry is { row: Rec; label: string; requests: number } => entry.label !== null && entry.requests !== null)
+      .map(({ row, label: text, requests: n }) => {
+        const success = num(row.successRatePct);
+        return {
+          label: text,
+          requests: n,
+          tokens: num(row.totalTokens),
+          cost: num(row.cost),
+          provider: str(row.provider) ? providerLabel(str(row.provider)!) : null,
+          successRatePct: success === null ? null : round1(success),
+          avgLatencyMs: num(row.avgLatencyMs),
+          sharePct: total ? round1((n / total) * 100) : null,
+          failedPct: success === null ? null : round1(100 - success),
+        };
+      })
+      .sort((a, b) => b.requests - a.requests);
+  };
+
+  // weeklyPattern: average tokens per weekday; redacted values read as null.
+  const week = list(root.weeklyPattern).map(rec).map((row) => ({ day: str(row.day), avg: num(row.avgTokens) }));
+  const best = week.filter((d): d is { day: string; avg: number } => !!d.day && d.avg !== null && d.avg > 0).sort((a, b) => b.avg - a.avg)[0];
+
+  return {
+    totals,
+    trend,
+    providerTrend,
+    byModel: rich(root.byModel, (row) => str(row.model)).slice(0, 8),
+    byProvider: rich(root.byProvider, (row) => (str(row.provider) ? providerLabel(str(row.provider)!) : null)),
+    errors: list(root.errorBreakdown).map(rec).map((row) => ({ type: str(row.errorType), count: num(row.count) })).filter((row): row is { type: string; count: number } => !!row.type && row.count !== null && row.count > 0).slice(0, 6),
+    activity: Object.entries(rec(root.activityMap)).map(([date, value]) => ({ date, tokens: num(value) })).filter((d): d is { date: string; tokens: number } => /^\d{4}-\d{2}-\d{2}$/.test(d.date) && d.tokens !== null && d.tokens > 0).sort((a, b) => a.date.localeCompare(b.date)),
+    busiestWeekday: best ? best.day : null,
+  };
+}
+
+/** An error type from OmniRoute's call log in plain words: `rate_limit` → "rate limit". */
+export function errorWords(type: string): string {
+  const known: Record<string, string> = { pre_migration: "before error types were recorded", unclassified: "not classified" };
+  return known[type] ?? type.replace(/[_-]+/g, " ");
 }

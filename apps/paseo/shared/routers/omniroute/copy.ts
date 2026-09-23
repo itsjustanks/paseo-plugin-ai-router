@@ -68,3 +68,23 @@ export const RECOMMENDED_COMPRESSION = {
     "Every other engine rewrites, summarises or drops content. That changes the cached part, so each turn pays full price, and it can hide a failing test or an earlier instruction from Opus 5.5 or GPT-6.",
   ],
 } as const;
+
+/**
+ * OmniRoute's own one-line descriptions of its auto combos, from its UI copy
+ * (i18n `combos.autoDesc` and `settings.routingDefaultAutoVariant*Desc`). A
+ * combo id is matched to a variant by its words, the way OmniRoute's
+ * builtinCatalog maps `auto/best-coding` to "coding". First match wins.
+ */
+export const AUTO_COMBO_KINDS: ReadonlyArray<{ match: RegExp; words: string; icon: string; color: string }> = [
+  { match: /coding|code/, words: "Quality-first for code", icon: "code", color: "blue" },
+  { match: /reasoning|smart|opus/, words: "Best discovery (10% explore)", icon: "brain", color: "indigo" },
+  { match: /vision|multimodal/, words: "Best discovery (10% explore)", icon: "eye", color: "pink" },
+  { match: /fast|haiku/, words: "Low-latency routing", icon: "rocket", color: "amber" },
+  { match: /cheap|free|thrifty/, words: "Cost-optimized", icon: "package", color: "emerald" },
+  { match: /offline|reliable/, words: "High availability", icon: "shield", color: "teal" },
+  { match: /lkgp/, words: "Last Known Good Provider", icon: "compass", color: "sky" },
+  { match: /subscription/, words: "Plan-included accounts first", icon: "layers", color: "violet" },
+  { match: /chat|sonnet/, words: "Self-healing smart routing pool with multi-factor scoring", icon: "feather", color: "orange" },
+];
+export const AUTO_COMBO_DEFAULT = { words: "Self-healing smart routing pool with multi-factor scoring", icon: "sparkles", color: "violet" } as const;
+export const CUSTOM_COMBO_LOOK = { icon: "boxes", color: "sky" } as const;

@@ -8,18 +8,23 @@ import {
   CODEX_ROUTER_PROVIDER_ID,
   aiRouterProviderEntry,
   codexRouterProviderEntry,
+  comboProfile,
   connectionProblem,
+  isOwnProfile,
+  mergeAgentProfiles,
   sameProviderEntry,
   withProviderEntries,
+  type AgentProfile,
   type Connection,
 } from "../shared/logic";
 import { adapterFor } from "./routers";
 import {
   connectionMtime,
+  daemonStateFromConfigFile,
   describeProviderEntries,
   paseoHome,
-  providersFromConfigFile,
   readConnection,
+  readRoutingSettings,
   readDaemonConfig,
   readProviderEntries,
   readSyncState,
@@ -87,12 +92,26 @@ function countsOf(list: CatalogModel[]): string {
   return [...byProvider].map(([provider, n]) => `${providerLabel(provider)} ${n}`).join(" · ");
 }
 
-/** Through Paseo's API: validated by the daemon and live at once. */
-async function applyThroughApi(paseo: Paseo, changed: Record<string, unknown | null>): Promise<void> {
+/**
+ * Through Paseo's API: validated by the daemon and live at once. Paseo takes
+ * `agentProfiles` as the whole list, so `profiles` is the merged list, with
+ * everyone else's profiles exactly as Paseo returned them.
+ */
+async function applyThroughApi(paseo: Paseo, changed: Record<string, unknown | null>, profiles: unknown[] | null = null): Promise<void> {
   const providers = Object.fromEntries(Object.entries(changed).filter(([, entry]) => entry !== null));
   const removeProviders = Object.keys(changed).filter((id) => changed[id] === null);
-  await paseo.config.patch({ ...(Object.keys(providers).length ? { providers } : {}), ...(removeProviders.length ? { removeProviders } : {}) } as Parameters<Paseo["config"]["patch"]>[0]);
-  await refreshProviders(paseo, Object.keys(providers));
+  const patch = { ...(Object.keys(providers).length ? { providers } : {}), ...(removeProviders.length ? { removeProviders } : {}), ...(profiles ? { agentProfiles: profiles } : {}) };
+  if (!Object.keys(patch).length) return;
+  await paseo.config.patch(patch as Parameters<Paseo["config"]["patch"]>[0]);
+  if (Object.keys(providers).length) await refreshProviders(paseo, Object.keys(providers));
+}
+
+/**
+ * The AI Router profiles that should exist: one per combo in the provider's
+ * model list, unless the switch is off or the provider was removed.
+ */
+export function desiredProfiles(combos: ReadonlyArray<{ id: string; name: string; notes: string; icon: string; color: string }>, on: boolean): AgentProfile[] {
+  return on ? combos.map(comboProfile) : [];
 }
 
 /** `paseo daemon reload`: makes an edited config.json live without a restart. Null when it worked. */
@@ -112,10 +131,10 @@ export function reloadDaemon(): Promise<string | null> {
  * ask it to reload. Only our entries change; the file must parse as a daemon
  * config and must not have changed under us, or nothing is written.
  */
-async function applyThroughFile(changed: Record<string, unknown | null>): Promise<{ ok: boolean; note: string }> {
+async function applyThroughFile(changed: Record<string, unknown | null>, profiles: AgentProfile[] | null): Promise<{ ok: boolean; note: string }> {
   const file = readDaemonConfig();
   if (!file) return { ok: false, note: `no ${paseoHome()}/config.json to write to` };
-  const next = withProviderEntries(file.text, changed);
+  const next = withProviderEntries(file.text, changed, profiles);
   if (!next.ok) return { ok: false, note: next.error };
   if (!next.changed) return { ok: true, note: "already in config.json" };
   if (!writeDaemonConfig(next.text, file)) return { ok: false, note: "config.json changed while it was being updated; will retry" };
@@ -128,7 +147,9 @@ export async function syncAiProvider(paseo: Paseo, connection: Connection, enabl
   const entries = await readProviderEntries(paseo);
   const at = new Date().toISOString();
   if (!enabled) {
-    await paseo.config.patch({ removeProviders: [AI_ROUTER_PROVIDER_ID] });
+    // The combo profiles run on this provider, so they go with it.
+    const merged = mergeAgentProfiles(entries.profiles, []);
+    await paseo.config.patch({ removeProviders: [AI_ROUTER_PROVIDER_ID], ...(merged.changed ? { agentProfiles: merged.next } : {}) } as Parameters<Paseo["config"]["patch"]>[0]);
     // Remembered so the auto-sync does not put back what a person took out.
     writeSyncState({ at, ok: true, message: "Removed from Paseo.", endpoint: connection.endpoint, removed: true });
     return { ok: true, message: "AI Router provider removed from Paseo.", log: "removed the AI Router provider" };
@@ -139,7 +160,9 @@ export async function syncAiProvider(paseo: Paseo, connection: Connection, enabl
     return { ok: false, message: result.error, log: `model sync failed: ${result.error}` };
   }
   const desired = desiredEntries(connection, result.list, entries);
-  await applyThroughApi(paseo, desired);
+  const settings = await readRoutingSettings();
+  const merged = mergeAgentProfiles(entries.profiles, desiredProfiles(result.combos, settings.comboProfiles));
+  await applyThroughApi(paseo, desired, merged.changed ? merged.next : null);
   const counts = countsOf(result.list);
   const message = `Synced ${result.list.length} models to Paseo (${counts}).${entries.codex.present ? " Removed the old AI Router Codex provider." : ""}`;
   writeSyncState({ at, ok: true, message, endpoint: connection.endpoint, via: "api" });
@@ -210,27 +233,43 @@ export function checkAutoSync(paseo: Paseo | null): Promise<void> {
       const problem = connectionProblem(resolved);
       if (problem) return say(`model sync skipped: ${problem}`, true);
       const state = readSyncState();
-      if (state?.removed) return;
-      const providers = paseo ? (await readProviderEntries(paseo)).all : providersFromConfigFile();
-      if (!providers) return say(`model sync skipped: cannot read ${paseoHome()}/config.json`, true);
-      const entries = describeProviderEntries(providers);
+      const daemon = paseo ? await readProviderEntries(paseo) : (() => {
+        const file = daemonStateFromConfigFile();
+        return file ? describeProviderEntries(file.providers, file.profiles) : null;
+      })();
+      if (!daemon) return say(`model sync skipped: cannot read ${paseoHome()}/config.json`, true);
+      const settings = await readRoutingSettings();
+      if (state?.removed) {
+        // The provider was taken out in the panel: leave it out, and take its combo profiles with it.
+        const leftover = mergeAgentProfiles(daemon.profiles, []);
+        if (!leftover.changed) return;
+        if (paseo) await applyThroughApi(paseo, {}, leftover.next);
+        else await applyThroughFile({}, []);
+        return say("removed the combo profiles of the removed AI Router provider", false);
+      }
+      const entries = daemon;
       const result = await catalogueFor(connection);
       if (!result.ok) return say(`model sync skipped: ${result.error}`, true);
       const changed = changedEntries(desiredEntries(connection, result.list, entries), entries);
-      const reason = syncReason({ removed: false, present: entries.aiRouter.present, changed: Object.keys(changed) });
+      const wantedProfiles = desiredProfiles(result.combos, settings.comboProfiles);
+      const profiles = mergeAgentProfiles(entries.profiles, wantedProfiles);
+      const reason = syncReason({ removed: false, present: entries.aiRouter.present, changed: [...Object.keys(changed), ...(profiles.changed ? ["combo profiles"] : [])] });
       if (!reason) return;
       const counts = countsOf(result.list);
       const at = new Date().toISOString();
-      const message = `Synced ${result.list.length} models to Paseo (${counts}).`;
+      const ours = wantedProfiles.length;
+      const profileWords = profiles.changed ? `${ours} combo profile${ours === 1 ? "" : "s"}` : null;
+      const message = `Synced ${result.list.length} models to Paseo (${counts}).${profileWords ? ` ${profileWords.replace(/^./, (c) => c.toUpperCase())} kept.` : ""}`;
+      const log = Object.keys(changed).length ? `synced ${result.list.length} models (${counts})${profileWords ? `, ${profileWords}` : ""}` : `updated the combo profiles (${profileWords})`;
       if (paseo) {
-        await applyThroughApi(paseo, changed);
-        writeSyncState({ at, ok: true, message, endpoint: connection.endpoint, via: "api" });
-        return say(`synced ${result.list.length} models (${counts})`, false);
+        await applyThroughApi(paseo, changed, profiles.changed ? profiles.next : null);
+        if (Object.keys(changed).length) writeSyncState({ at, ok: true, message, endpoint: connection.endpoint, via: "api" });
+        return say(log, false);
       }
-      const written = await applyThroughFile(changed);
+      const written = await applyThroughFile(changed, profiles.changed ? wantedProfiles : null);
       if (!written.ok) return say(`model sync at load skipped: ${written.note}`, true);
-      writeSyncState({ at, ok: true, message: `${message} ${written.note.replace(/^./, (c) => c.toUpperCase())}.`, endpoint: connection.endpoint, via: "config-file" });
-      say(`synced ${result.list.length} models (${counts}) at load: ${written.note}`, false);
+      if (Object.keys(changed).length) writeSyncState({ at, ok: true, message: `${message} ${written.note.replace(/^./, (c) => c.toUpperCase())}.`, endpoint: connection.endpoint, via: "config-file" });
+      say(`${log} at load: ${written.note}`, false);
     } catch (error) {
       say(`model sync failed: ${error instanceof Error ? error.message : String(error)}`, true);
     } finally {
@@ -280,4 +319,10 @@ export async function testProviderModel(connection: Connection, model: string): 
   const outcome = await adapterFor(connection.router).testModel(connection, model);
   tests.set(model, { model, at: new Date().toISOString(), ...outcome });
   return outcome;
+}
+
+/** The combo profiles AI Router keeps, as Paseo holds them now. */
+export function listOwnProfiles(profiles: unknown[]): Array<{ id: string; name: string; model: string | null; notes: string | null; icon: string | null; color: string | null }> {
+  const text = (value: unknown) => (typeof value === "string" && value ? value : null);
+  return profiles.filter(isOwnProfile).map((p) => ({ id: p.id, name: typeof p.name === "string" ? p.name : p.id, model: text(p.model), notes: text(p.notes), icon: text(p.icon), color: text(p.color) }));
 }
