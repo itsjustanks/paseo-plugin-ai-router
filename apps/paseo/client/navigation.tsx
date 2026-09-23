@@ -1,5 +1,5 @@
-import React from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import React, { useState } from "react";
+import { Pressable, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import * as HostRN from "@getpaseo/plugin/client/react-native";
 import type { AccessTier } from "../shared/logic";
@@ -33,13 +33,23 @@ export function visibleTabs(tier: AccessTier): TabId[] {
 /** The app's icon component, when the host provides one (Paseo 0.9 does). */
 export const HostIcon = (HostRN as unknown as { Icon?: React.ComponentType<{ name: string; size?: number; color?: string }> }).Icon;
 
+/** About what one tab needs with its label (icon, name, padding); nine need ~870 px. */
+const LABELLED_TAB_WIDTH = 100;
+
 /**
- * An underline tab bar in one row. Narrow screens show every tab's icon and
- * the active tab's label beside its icon, so nothing is hidden. Without app
- * icons, the labels scroll sideways instead.
+ * An underline tab bar in one row. When the full labels do not fit (a narrow
+ * screen, or a half-width desktop window, measured here), every tab shows its
+ * icon and the active tab its label beside it, so nothing is cut off. Without
+ * app icons, the labels scroll sideways instead.
  */
 export function TabBar({ theme, compact, tabs, active, onSelect }: { theme: Theme; compact: boolean; tabs: readonly TabId[]; active: TabId; onSelect: (id: TabId) => void }) {
-  const iconsOnly = compact && !!HostIcon;
+  const [width, setWidth] = useState<number | null>(null);
+  const tight = compact || (width !== null && width < tabs.length * LABELLED_TAB_WIDTH);
+  const iconsOnly = tight && !!HostIcon;
+  const onLayout = (event: LayoutChangeEvent) => {
+    const next = Math.round(event.nativeEvent.layout.width);
+    if (next !== width) setWidth(next);
+  };
   const items = TABS.filter((tab) => tabs.includes(tab.id)).map((tab) => {
     const selected = tab.id === active;
     const color = selected ? theme.colors.accent : theme.colors.foregroundMuted;
@@ -69,14 +79,14 @@ export function TabBar({ theme, compact, tabs, active, onSelect }: { theme: Them
     );
   });
   const bar = { flexDirection: "row" as const, borderBottomWidth: 1, borderColor: theme.colors.border, marginTop: 12, marginBottom: 12 };
-  if (compact && !HostIcon) {
+  if (tight && !HostIcon) {
     return (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist" style={{ ...bar, flexGrow: 0 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist" onLayout={onLayout} style={{ ...bar, flexGrow: 0 }}>
         {items}
       </ScrollView>
     );
   }
-  return <View accessibilityRole="tablist" style={bar}>{items}</View>;
+  return <View accessibilityRole="tablist" onLayout={onLayout} style={bar}>{items}</View>;
 }
 
 /** One line under the tabs saying what the tab is for. The tab bar already names it. */

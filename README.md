@@ -32,7 +32,8 @@ AI_ROUTER_CONSOLE_URL=https://ai-router.example.com         # optional: the publ
 
 ## The panel
 
-Nine tabs in one row; at narrow widths each shows its icon and the active one its name too. Tabs
+Nine tabs in one row; whenever the names do not fit (a phone, a half-width window) each shows its icon
+and the active one its name too. Tabs
 that need more access than the daemon has are not shown, and one small line says what a read token or
 manage key would add.
 

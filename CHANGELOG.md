@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1 — 2026-09-24
+
+**No tab cut off.** In a half-width desktop window or on a tablet, the nine tabs no longer run off the
+edge (Tips vanished at about 820 px, Connection at 700 px). The tab bar measures itself and, when the
+names do not fit, shows every tab's icon with the active tab's name, as on a phone.
+
 ## 0.10.0 — 2026-09-23
 
 **The AI Router provider is the way in.** Overview now leads with the AI Router provider and its

@@ -12,7 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiRouterSurface } from "../../client/surface";
 import { RouterSettingsCard } from "../../client/insights";
 import { UsageTab } from "../../client/analytics";
-import type { TabId } from "../../client/navigation";
+import { TabBar, type TabId } from "../../client/navigation";
 import { createBadgeStore, makeContextChip, makeContextPanel, recheckBadges, registerContextBadges } from "../../client/context";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
 import { releaseRpc, setAccessFixture, setActivityFixture, setCompressionFixture, setContextFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
@@ -317,4 +317,20 @@ export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
   await flush();
   const afterStop = rpcCalls - beforeSlow;
   return { first, afterTurn, offRemoved, backOn, removedAll: [...removed].filter((id) => id !== "d").sort(), rpcCalls: beforeSlow, whileOut, slowReads, afterStop, alerted, cleared };
+}
+
+/** The tab bar measured at a half-width window: labels give way to icons, the active tab keeps its name. */
+export async function tabBarWidthCheck(): Promise<{ wide: string; tight: string; tightIcons: number }> {
+  const all: TabId[] = ["overview", "activity", "models", "providers", "accounts", "usage", "settings", "connection", "tips"];
+  let renderer!: ReturnType<typeof create>;
+  await act(async () => { renderer = create(<TabBar theme={base.theme} compact={false} tabs={all} active="usage" onSelect={() => {}} />); });
+  const text = () => describe(renderer.toJSON()).text;
+  const bar = () => renderer.root.findAll((node) => node.props.accessibilityRole === "tablist")[0];
+  await act(async () => { bar().props.onLayout({ nativeEvent: { layout: { width: 1100 } } }); });
+  const wide = text();
+  await act(async () => { bar().props.onLayout({ nativeEvent: { layout: { width: 772 } } }); });
+  const tight = text();
+  const tightIcons = renderer.root.findAll((node) => node.type === "Icon").length;
+  await act(async () => { renderer.unmount(); });
+  return { wide, tight, tightIcons };
 }

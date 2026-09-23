@@ -20,7 +20,7 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents, tabBarWidthCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
 const BASIC_TABS = ["Overview", "Activity", "Models", "Providers", "Settings", "Connection", "Tips"];
@@ -274,6 +274,17 @@ try {
 } catch (error) {
   failed += 1;
   console.error(`FAIL context badge registry: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+try {
+  const bar = await tabBarWidthCheck();
+  for (const label of ["Overview", "Activity", "Settings", "Connection", "Tips"]) assert.ok(bar.wide.includes(label), `wide bar shows "${label}"`);
+  assert.equal(bar.tight.trim(), "Usage", "at 772 px (a half-width window) only the active tab keeps its label");
+  assert.equal(bar.tightIcons, 9, "every tab keeps its icon, so none is cut off");
+  console.log("ok   tab bar gives way to icons when the labels do not fit");
+} catch (error) {
+  failed += 1;
+  console.error(`FAIL tab bar width: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 if (failed) {
