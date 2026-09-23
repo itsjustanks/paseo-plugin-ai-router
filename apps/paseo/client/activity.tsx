@@ -183,8 +183,9 @@ function Requests({ theme, data, filter, setFilter, loading, openAgent }: { them
 }
 
 /**
- * Activity: what went through the router. Sessions (every tier) come from
+ * Traffic: what went through the router. Sessions (every tier) come from
  * this daemon's own hook; requests (read token) from OmniRoute's call log.
+ * Local usage analytics (tools, agents, messages) are the Activity plugin's job.
  */
 export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; data: Status; openAgent?: OpenAgent }) {
   const [filter, setFilter] = useState<Filter>({ scope: "daemon", errorsOnly: false, model: null, provider: null, limit: PAGE });
@@ -194,7 +195,7 @@ export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; d
   const operator = data.tier === "operator" || data.tier === "admin";
   const connected = data.tier !== "none";
   if (!result) {
-    return <Card theme={theme} title="Activity">{query.error ? <Note theme={theme} tone="danger">{errorText(query.error)}</Note> : <Note theme={theme}>Reading the activity…</Note>}</Card>;
+    return <Card theme={theme} title="Traffic">{query.error ? <Note theme={theme} tone="danger">{errorText(query.error)}</Note> : <Note theme={theme}>Reading the traffic…</Note>}</Card>;
   }
   return (
     <>
@@ -210,6 +211,7 @@ export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; d
           <Note theme={theme}>A read token adds every request the router served: the model and account it used, fallbacks, combos, errors, and the agent that sent it.</Note>
         </Banner>
       )}
+      {data.plugins.installed.includes("activity") ? <Note theme={theme}>This is traffic through OmniRoute. For this daemon's own usage analytics (tools, agents, messages, models), open the Activity plugin.</Note> : null}
     </>
   );
 }

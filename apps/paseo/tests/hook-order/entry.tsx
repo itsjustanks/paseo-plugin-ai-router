@@ -181,12 +181,12 @@ export const presses: Record<string, string[]> = {
   "activity (all daemons, a model)": ["All daemons", "Only claude-haiku-4-5"],
   "activity (why this route)": ["Request r-300, succeeded; show why"],
   "activity (show older)": ["Show older"],
-  "overview (last agent links to Activity)": ["See every agent session in Activity"],
+  "overview (last agent links to Activity)": ["See every agent session in Traffic"],
   "overview (hide the MCP card)": ["Hide the MCP card"],
   "tips tab (admin, two installed, copy one)": ["Copy the Activity install command"],
-  "settings tab (badge off)": ["Context badge on each chat"],
+  "settings tab (badge off)": ["Context breakdown chip on each chat"],
   "context panel (timeline error, refresh)": ["Refresh"],
-  "context panel (hide the badge)": ["Hide the context badge"],
+  "context panel (hide the badge)": ["Hide the Breakdown chip"],
   "activity (open an agent)": ["Open Fix the login bug", "Open Draft release notes"],
 };
 

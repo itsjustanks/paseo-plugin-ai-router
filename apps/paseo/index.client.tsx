@@ -19,20 +19,20 @@ export default function contribute(client: PluginClientContext) {
       openSurface("ai-router");
     },
   });
-  // The context badge: a chip on each chat, and the panel it opens.
+  // The context breakdown: a chip on each chat beside Paseo's own context meter, and the panel it opens.
   const badges = createBadgeStore();
   client.addWorkspacePanel({
     id: CONTEXT_PANEL_ID,
     title: "Context",
-    icon: "Gauge",
+    icon: "ChartPie",
     context: "agent",
     locations: ["workspace", "explorer"],
     Component: makeContextPanel(badges, (id) => client.openSurface(id)),
   });
   client.addCommandCenterItem({
     id: "open-context",
-    title: "Context used in this chat",
-    icon: "Gauge",
+    title: "What fills this chat's context",
+    icon: "ChartPie",
     keywords: ["context", "tokens", "window", "compact", "mcp", "size"],
     context: "agent",
     onSelect({ openPanel }) {

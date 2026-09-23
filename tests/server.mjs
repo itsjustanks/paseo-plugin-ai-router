@@ -102,8 +102,14 @@ const decisions = {
   },
 };
 
+/** Paths a web server's console lock (basic auth) answers before OmniRoute sees them, as Caddy does. */
+const consoleLocked = new Set();
 const router = createServer((req, res) => {
   if (routerDown) return req.socket.destroy();
+  if (consoleLocked.has(req.url)) {
+    res.writeHead(401, { "www-authenticate": 'Basic realm="restricted"', "content-type": "text/html" });
+    return res.end("<html><body>401 Unauthorized</body></html>");
+  }
   const auth = req.headers.authorization ?? "";
   const send = (status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
   if (req.url === "/api/health/ping") return send(200, { status: "ok", timestamp: "t", latencyMs: 1 });
@@ -730,10 +736,18 @@ try {
     delete managed["/api/combos/auto"];
     const idsBefore = t.box.profiles.map((p) => p.id);
     const modelsBefore = t.box.providers["ai-router"].models.map((m) => m.id);
-    await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
+    const missing = await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
     managed["/api/combos/auto"] = savedAuto;
     assert.deepEqual(t.box.profiles.map((p) => p.id), idsBefore, "a failed combo read leaves the profiles alone");
     assert.deepEqual(t.box.providers["ai-router"].models.map((m) => m.id), modelsBefore, "and the model list");
+    assert.equal(missing.message, "Couldn't read OmniRoute's combo list (404 — /api/combos/auto not found; is OmniRoute older than 3.8?); kept the current models and profiles. Will retry.", "the reason, with its HTTP status");
+    // A console lock (basic auth) in front of OmniRoute answers 401 before OmniRoute sees the token: named as such.
+    consoleLocked.add("/api/combos/auto");
+    const locked = await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
+    consoleLocked.clear();
+    assert.equal(locked.ok, false);
+    assert.match(locked.message, /^Couldn't read OmniRoute's combo list \(401 from the console lock \(basic auth\) in front of OmniRoute at 127\.0\.0\.1:\d+, not from OmniRoute: \/api\/combos\/auto is not let through it, so the token never reached the router\); kept the current models and profiles\. Will retry\.$/);
+    assert.deepEqual(t.box.profiles.map((p) => p.id), idsBefore, "still nothing written");
 
     // The switch off: ours go, the person's stays; back on: they return.
     routingDoc(t.dir, { routeAgents: false, comboProfiles: false });

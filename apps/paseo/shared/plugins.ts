@@ -2,7 +2,8 @@
 // `install` is the command Paseo Cafe publishes, verbatim, except paseo-mcp:
 // its Cafe entry pins an older commit, so it follows the repository instead.
 
-export type RecommendedPlugin = { id: string; name: string; by: string; what: string; install: string };
+/** `blocked`: why it cannot be installed on the Paseo this plugin targets; the panel shows that instead of the command. */
+export type RecommendedPlugin = { id: string; name: string; by: string; what: string; install: string; blocked?: string };
 
 export const PASEO_CAFE_URL = "https://paseo.cafe/plugins/";
 export const paseoCafeUrl = (id: string) => `${PASEO_CAFE_URL}${id}/`;
@@ -49,5 +50,8 @@ export const RECOMMENDED_PLUGINS: readonly RecommendedPlugin[] = [
     by: "Omer Cohen",
     what: "Send messages to agents in other workspaces on the same Paseo host.",
     install: "paseo plugin add npm:@omercnet/paseo-tell-agent@0.3.0",
+    // Checked 2026-09-24 on the Mac and all ten daemons: the build fails with
+    // `Could not resolve type dependency "@getpaseo/client"` (plugin-client-runtime-boundary).
+    blocked: "Doesn't install on Paseo 0.9.1 yet: its build fails there. Watch its Paseo Cafe page for a fixed version.",
   },
 ];

@@ -144,10 +144,10 @@ function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
   return (
     <Card theme={theme} title="In Paseo">
       <Row>
-        <Toggle theme={theme} label="Context badge on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Context badge on." : "Context badge off.")} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>Context badge on each chat</Text>
+        <Toggle theme={theme} label="Context breakdown chip on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Breakdown chip on." : "Breakdown chip off.")} />
+        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>Context breakdown chip on each chat</Text>
       </Row>
-      <Note theme={theme}>Shows how full each chat's context window is, such as 186k / 1M, next to its message box: amber from 60 %, red from 85 %. Tap it to see what is using the most. It also turns red with the reason when OmniRoute is down or has paused a routed chat's provider. Needs no read token: the total comes from Paseo, the rest is worked out on this daemon.</Note>
+      <Note theme={theme}>A "Breakdown" chip beside Paseo's own context meter: tap it to see what is filling the chat. It turns red with the reason when OmniRoute is down or has paused a routed chat's provider. Needs no read token: the parts are worked out on this daemon.</Note>
       <Row>
         <Toggle theme={theme} label="Check out MCP card on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP card back on Overview." : "MCP card hidden.")} />
         <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>"Check out MCP" card on Overview</Text>

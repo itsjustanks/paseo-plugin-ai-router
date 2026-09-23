@@ -126,10 +126,10 @@ function OverviewTab({ theme, data, go, say }: { theme: Theme; data: Status; go:
         <StatusLine theme={theme} label="Built-in Claude" value={on ? "Re-routed" : "Own sign-in"} tone={on ? "success" : "neutral"} hint={on ? "its chats go through OmniRoute" : null} action={{ label: "Re-route providers", onPress: () => go("providers") }} />
         <StatusLine theme={theme} label="Access" value={TIER_LABELS[data.tier]} tone="neutral" action={{ label: "Connection", onPress: () => go("connection") }} />
         {last ? (
-          <Pressable accessibilityRole="link" accessibilityLabel="See every agent session in Activity" onPress={() => go("activity")}>
+          <Pressable accessibilityRole="link" accessibilityLabel="See every agent session in Traffic" onPress={() => go("activity")}>
             <Note theme={theme} tone={last.routed ? "success" : "warning"}>
               {`${lastAgentLine(last, name, hhmm(last.at))}  `}
-              <Text style={{ color: theme.colors.accent, fontSize: 12, fontWeight: "600" }}>Activity →</Text>
+              <Text style={{ color: theme.colors.accent, fontSize: 12, fontWeight: "600" }}>Traffic →</Text>
             </Note>
           </Pressable>
         ) : null}
@@ -504,7 +504,7 @@ export function AiRouterSurface({ theme, layout, navigation, initialTab, initial
       <SectionHeading theme={theme} tab={tab} />
       {message ? <View style={{ marginBottom: 12 }}><Note theme={theme} tone={message.tone}>{message.text}</Note></View> : null}
       {tab === "connection" ? <ConnectionTab theme={theme} data={data} configured={configured} say={setMessage} /> : null}
-      {tab === "providers" ? <ProvidersTab theme={theme} data={data} say={setMessage} compact={layout.compact} /> : null}
+      {tab === "providers" ? <ProvidersTab theme={theme} data={data} say={setMessage} /> : null}
       {tab === "activity" ? <ActivityTab theme={theme} data={data} openAgent={navigation ? (agentId) => navigation.openAgent({ agentId }) : null} /> : null}
       {tab === "settings" ? <SettingsTab theme={theme} data={data} configured={configured} go={go} say={setMessage} /> : null}
       {tab === "tips" ? <TipsTab theme={theme} data={data} say={setMessage} /> : null}

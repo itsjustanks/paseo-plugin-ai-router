@@ -1,4 +1,5 @@
 import type { Status } from "../../../shared/contracts";
+import { describeConsoleLock, isBasicAuthChallenge } from "../../../shared/routers/omniroute/parsers";
 import { readLastSeen, writeLastSeen } from "../../store";
 import {
   classifyPublicCheck,
@@ -23,13 +24,13 @@ export async function getJson(
   headers: Record<string, string> = {},
   timeoutMs = TIMEOUT_MS,
   init: { method?: string; body?: string } = {},
-): Promise<{ status: number; body: unknown }> {
+): Promise<{ status: number; body: unknown; challenge: string | null }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...init, headers, signal: controller.signal });
     const body = await response.json().catch(() => null);
-    return { status: response.status, body };
+    return { status: response.status, body, challenge: response.headers.get("www-authenticate") };
   } finally {
     clearTimeout(timer);
   }
@@ -57,7 +58,8 @@ export async function ping(endpoint: string): Promise<HealthProbe & { latencyMs:
 async function monitoring(endpoint: string, token: string): Promise<MonitoringInfo> {
   const url = `${endpoint}/api/monitoring/health`;
   try {
-    const { status, body } = await getJson(url, bearer(token));
+    const { status, body, challenge } = await getJson(url, bearer(token));
+    if (status === 401 && isBasicAuthChallenge(challenge)) return { version: null, uptimeSeconds: null, error: describeConsoleLock(url, "/api/monitoring/health"), paused: [] };
     return parseMonitoring(status, body);
   } catch (error) {
     return { version: null, uptimeSeconds: null, error: describeFetchError(error, url, TIMEOUT_MS), paused: [] };

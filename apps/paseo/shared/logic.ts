@@ -809,7 +809,7 @@ export function withSessionHeader(existing: string | undefined, agentId: string)
   return [...lines, `${SESSION_HEADER}: ${sessionTagFor(agentId)}`].join("\n");
 }
 
-/** One routing decision from the session_open hook, for the Activity tab. No secrets, no content. */
+/** One routing decision from the session_open hook, for the Traffic tab. No secrets, no content. */
 export type SessionEntry = { at: string; agentId: string; kind: "claude" | "provider" | "codex"; provider: string; reason: string | null; routed: boolean; tagged: boolean };
 export const SESSION_LOG_SIZE = 200;
 

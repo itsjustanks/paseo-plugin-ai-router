@@ -23,20 +23,20 @@ if (build.status !== 0) {
 const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents, tabBarWidthCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
-const BASIC_TABS = ["Overview", "Activity", "Models", "Providers", "Settings", "Connection", "Tips"];
-const ALL_TABS = ["Overview", "Activity", "Models", "Providers", "Accounts", "Usage", "Settings", "Connection", "Tips"];
+const BASIC_TABS = ["Overview", "Traffic", "Models", "Providers", "Settings", "Connection", "Tips"];
+const ALL_TABS = ["Overview", "Traffic", "Models", "Providers", "Accounts", "Usage", "Settings", "Connection", "Tips"];
 const H = {
   Overview: "Is traffic going through the router, and what to do next.",
   Activity: "What went through the router: each agent session on this daemon",
   Models: "The models this key can use through the router",
-  Providers: "Every agent provider on this daemon, and which ones can go through OmniRoute.",
+  Providers: "Which agent providers can go through OmniRoute, and tidying away the ones that can't run here. Each provider's own switch is in Paseo's Settings → Providers.",
   Accounts: "Each connected subscription, how much it has left",
   Usage: "Usage & analytics: requests, tokens, cost and failures across the router",
   Settings: "What AI Router adds to Paseo",
   Connection: "Which router this daemon uses, the keys it holds",
   Tips: "Recommended plugins to level up your Paseo, from Paseo Cafe.",
 };
-const IN_PASEO = ["In Paseo", "Context badge on each chat", "amber from 60 %, red from 85 %", "Needs no read token", "\"Check out MCP\" card on Overview"];
+const IN_PASEO = ["In Paseo", "Context breakdown chip on each chat", "A \"Breakdown\" chip beside Paseo's own context meter", "Needs no read token", "\"Check out MCP\" card on Overview"];
 const MCP = ["Check out MCP", "Manage MCP servers for Claude Code, Codex and your other agents in one place — sign-ins, tools and per-workspace switches.", "View plugin"];
 const ADVANCED = "Advanced routing (combos, fallbacks, per-provider rules) lives in the OmniRoute dashboard";
 const expected = {
@@ -49,7 +49,7 @@ const expected = {
   "connection tab (basic, narrow)": ["Read token (optional)", "Not set", "Add"],
   "connection tab (editing)": ["Edit connection", "1. Choose your router", "Test connection & save", "Cancel"],
   "connection tab (router down)": ["connection refused at http://10.0.0.5:20128/api/health/ping", "Check now", "Edit", "Disconnect"],
-  "overview (routing on, narrow)": [H.Overview, "Up · 12 ms", "AI Router provider", "12 models", "pick it in Paseo to use OmniRoute", "Models →", "Built-in Claude", "Re-routed", "its chats go through OmniRoute", "Re-route providers →", "Access", "Read token", "Connection →", "Last Claude agent (", "routed through OmniRoute", "Activity →", "Open OmniRoute dashboard", "Sync models again", "Pick \"AI Router\" in Paseo's provider menu", "More with a manage key"],
+  "overview (routing on, narrow)": [H.Overview, "Up · 12 ms", "AI Router provider", "12 models", "pick it in Paseo to use OmniRoute", "Models →", "Built-in Claude", "Re-routed", "its chats go through OmniRoute", "Re-route providers →", "Access", "Read token", "Connection →", "Last Claude agent (", "routed through OmniRoute", "Traffic →", "Open OmniRoute dashboard", "Sync models again", "Pick \"AI Router\" in Paseo's provider menu", "More with a manage key"],
   "overview (basic)": ["Key only", "More with a read token", "Last AI Router agent (", "routed through OmniRoute"],
   "overview (admin, tunnel)": ["Manage key", "Open OmniRoute dashboard", "via Cloudflare tunnel"],
   "overview (routing off)": ["Own sign-in", "Not synced", "Sync models to Paseo", "Built-in Claude keeps its own sign-in unless you re-route it on Providers."],
@@ -60,13 +60,13 @@ const expected = {
   "models tab (basic, key hides its spend)": ["Your access", "12 models on connected accounts", "lacks the self:usage scope"],
   "models tab (testing one)": ["cc/claude-opus-5-5 answered in 640 ms"],
   "models tab (not synced)": ["Not synced yet: Paseo has no AI Router provider.", "Test a model"],
-  "providers tab (basic, narrow)": [H.Providers, "Re-route providers", "The AI Router provider is the way to use OmniRoute", "A built-in provider keeps its own sign-in unless you re-route it here.", "Always through OmniRoute", "12 models", "Through OmniRoute", "Add Codex via OmniRoute", "no Codex login needed here", "Can't be re-routed: GitHub Copilot, Gemini, OpenCode, Pi.", ADVANCED, "Open dashboard", "Dashboard login: ask your router admin.", "Agent providers on this daemon", "Claude", "Available", "Codex", "Not installed", "GitHub Copilot", "Still loading", "Gemini", "yours", "Tidy up", "3 enabled providers are not usable on this daemon", "Tidy up…"],
+  "providers tab (basic, narrow)": [H.Providers, "Re-route providers", "The AI Router provider is the way to use OmniRoute", "A built-in provider keeps its own sign-in unless you re-route it here.", "Always through OmniRoute", "12 models", "Through OmniRoute", "Add Codex via OmniRoute", "no Codex login needed here", "Can't be re-routed: GitHub Copilot, Gemini, OpenCode, Pi.", ADVANCED, "Open dashboard", "Dashboard login: ask your router admin.", "Tidy up", "3 enabled providers are not usable on this daemon", "any can go back on in Paseo's Settings → Providers", "Tidy up…"],
   "providers tab (re-route Claude asks first)": ["New Claude chats on this daemon will use OmniRoute's accounts instead of this daemon's own Claude sign-in.", "Open chats switch when they reopen.", "if OmniRoute is down a chat keeps its own sign-in", "Re-route Claude", "Cancel"],
   "providers tab (re-route Claude confirmed)": ["Claude re-routed: new Claude chats use OmniRoute."],
   "providers tab (own sign-in asks first)": ["New Claude chats will use this daemon's own Claude sign-in. If this daemon has none, they won't answer: pick the AI Router provider for Claude through OmniRoute instead.", "Use own sign-in", "Cancel"],
   "providers tab (own sign-in asks first, cancel)": ["Through OmniRoute"],
   "providers tab (tidy up preview)": ["These will be turned off:", "• GitHub Copilot — never finished loading", "• OpenCode — not installed on this daemon", "• Pi — never finished loading", "Turn off 3", "Cancel", "Codex via OmniRoute · 3 models"],
-  "providers tab (not connected)": ["Agent providers on this daemon", "GitHub Copilot"],
+  "providers tab (not connected)": ["Re-route providers", "Can't be re-routed: GitHub Copilot"],
   "accounts tab (operator)": [H.Accounts, "3 accounts · 3 healthy", "Add account", "Codex sign-in in the dashboard calls back to port 1455", "healthy · 96% of 128 requests answered in 24 h", "Router health", "version 3.8.50", "running 1d 1h"],
   "accounts tab (admin, attention)": ["2 need attention", "Check all", "Check now", "Refresh token", "Re-login in dashboard", "Sign-in expired (2026-09-20)", "degraded · 40% of 10 requests answered in 24 h · failing: gpt-5.6-sol"],
   "accounts tab (Claude paused)": ["Claude traffic paused by OmniRoute's circuit breaker", "The Settings tab can reset it."],
@@ -110,21 +110,21 @@ const expected = {
   "overview (MCP card)": [...MCP, "Copy install source", "Hide"],
   "overview (MCP installed, narrow)": [...MCP, "Installed"],
   "overview (hide the MCP card)": ["MCP card hidden. Settings → In Paseo brings it back."],
-  "tips tab (operator)": [H.Tips, "Recommended plugins", "0 of 6 installed on this daemon", "Plugins run with the daemon's own access", "Paseo MCP", "by itsjustanks", "Shared Browser", "Activity", "Advanced Markdown", "Mermaid", "Remote Editor", "--ref 56bc4056630ebd766395ba3e71c6d92268e95f59", "Tell Agent", "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git", "View on Paseo Cafe", "Copy install command", "Browse every plugin on Paseo Cafe"],
-  "tips tab (admin, two installed, copy one)": ["2 of 6 installed on this daemon", "Installed", "Copied the Activity install command"],
-  "tips tab (not connected)": [H.Tips, "0 of 6 installed"],
+  "tips tab (operator)": [H.Tips, "Recommended plugins", "0 of 5 installed on this daemon", "Install one in Paseo's Settings → Plugins by pasting its source", "Not on Paseo 0.9.1 yet", "Doesn't install on Paseo 0.9.1 yet: its build fails there.", "Plugins run with the daemon's own access", "Paseo MCP", "by itsjustanks", "Shared Browser", "Activity", "Advanced Markdown", "Mermaid", "Remote Editor", "--ref 56bc4056630ebd766395ba3e71c6d92268e95f59", "Tell Agent", "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git", "View on Paseo Cafe", "Copy install command", "Browse every plugin on Paseo Cafe"],
+  "tips tab (admin, two installed, copy one)": ["2 of 5 installed on this daemon", "Installed", "Copied the Activity install command"],
+  "tips tab (not connected)": [H.Tips, "0 of 5 installed"],
   "settings tab (basic)": [H.Settings, ...IN_PASEO, "Router settings", "A read token shows how the router compresses prompts", "Add a read token on Connection"],
   "settings tab (not connected)": [...IN_PASEO, "Connect a router to see its settings.", "Open Connection"],
-  "settings tab (badge off)": ["Context badge off.", "Context compression"],
-  "context chip": ["186k / 1M"],
-  "context chip (nearly full)": ["190k / 200k"],
-  "context panel (operator)": ["Context", "Fix the login bug", "186,204 of 1,000,000 tokens", "19% full", "Exact: as the agent reported it after its last turn.", "What's using it", "Biggest first.", "MCP tool results", "IKIT: Attio ≈ 50k", "linear", "Files read", "package-lock.json ≈ 40k", "src/server/handlers.ts ≈ 24k", "System prompt, tools and instructions", "40k · 21% · measured", "Measured by OmniRoute: the chat's first request, less its first message (counted under your messages).", "Not in the chat's history", "the rest", "images, attachments, and tool output Paseo keeps shorter", "Command output", "npm ≈", "Web pages and web searches", "docs.example.com", "Tip: Whole-file reads stay in context: ask for just the lines you need", "Measured by OmniRoute", "Latest request: 185,004 tokens in (claude-opus-5-5", "First request: 41,300 tokens in", "the system prompt, tools and instructions, plus the first message", "Thinking isn't counted, and images and attachments aren't in the chat's history", "Refresh", "Hide the context badge"],
+  "settings tab (badge off)": ["Breakdown chip off.", "Context compression"],
+  "context chip": ["Breakdown"],
+  "context chip (nearly full)": ["Breakdown"],
+  "context panel (operator)": ["Context", "Fix the login bug", "186,204 of 1,000,000 tokens", "19% full", "Exact: as the agent reported it after its last turn.", "What's using it", "Biggest first.", "MCP tool results", "IKIT: Attio ≈ 50k", "linear", "Files read", "package-lock.json ≈ 40k", "src/server/handlers.ts ≈ 24k", "System prompt, tools and instructions", "40k · 21% · measured", "Measured by OmniRoute: the chat's first request, less its first message (counted under your messages).", "Not in the chat's history", "the rest", "images, attachments, and tool output Paseo keeps shorter", "Command output", "npm ≈", "Web pages and web searches", "docs.example.com", "Tip: Whole-file reads stay in context: ask for just the lines you need", "Measured by OmniRoute", "Latest request: 185,004 tokens in (claude-opus-5-5", "First request: 41,300 tokens in", "the system prompt, tools and instructions, plus the first message", "Thinking isn't counted, and images and attachments aren't in the chat's history", "Refresh", "Hide the Breakdown chip"],
   "context panel (compacted, nearly full, narrow)": ["86% full", "Nearly full: compact the chat now (/compact)", "Counted since the chat was last compacted", "System prompt, tools, instructions and the compaction summary", "a summary of what came before"],
   "context panel (basic)": ["58,400 of 200,000 tokens", "A read token adds what OmniRoute measured for this chat"],
   "context panel (no turn yet)": ["No context size yet", "the agent reports it after a turn"],
   "context panel (timeline error, refresh)": ["Couldn't read this chat's context", "Reading the chat's timeline took longer than 8 s"],
-  "context panel (hide the badge)": ["Context badge off for this daemon. AI Router → Settings → In Paseo turns it back on."],
-  "context chip (router down)": ["Router down · 186k / 1M"],
+  "context panel (hide the badge)": ["Breakdown chip off for this daemon. AI Router → Settings → In Paseo turns it back on."],
+  "context chip (router down)": ["Router down"],
   "context chip (router down, no turn yet)": ["Router down"],
   "context panel (router down)": ["Router down", "OmniRoute isn't answering (connection refused). This chat's requests go through it", "Open AI Router", "186,204 of 1,000,000 tokens"],
   "activity (open an agent)": [H.Activity, "Open", "Agent: Draft release notes"],
@@ -135,6 +135,11 @@ const absent = {
   "setup (not connected, opens on Connection)": ["Accounts", "Usage"],
   "connection tab (operator, private dashboard)": ["Starting a tunnel makes", "password"],
   "overview (basic)": ["Accounts", "Usage"],
+  "context chip": ["186k", "1M"],
+  "context chip (nearly full)": ["190k", "200k"],
+  "context chip (router down)": ["186k"],
+  "providers tab (basic, narrow)": ["Agent providers on this daemon", "Enabled", "Disabled"],
+  "tips tab (operator)": ["paseo plugin add npm:@omercnet/paseo-tell-agent"],
   "overview (routing off)": ["Route Claude agents through AI Router", "Turn Claude routing off"],
   "providers tab (basic, narrow)": ["Not supported", "AI Router Codex"],
   "providers tab (own sign-in asks first, cancel)": ["If this daemon has none, they won't answer", "Use own sign-in", "Claude back on its own sign-in"],
@@ -172,7 +177,7 @@ const notConnected = ["Connect a router first", "Not connected yet: no endpoint 
 const expectedTabs = {
   "tab walk (basic)": {
     Overview: [H.Overview, "Key only"],
-    Activity: [H.Activity, "Agent sessions on this daemon", "More with a read token"],
+    Traffic: [H.Activity, "Agent sessions on this daemon", "More with a read token"],
     Models: [H.Models, "Your access"],
     Providers: [H.Providers, "Tidy up"],
     Settings: [H.Settings, "In Paseo", "A read token shows how the router compresses prompts"],
@@ -181,18 +186,18 @@ const expectedTabs = {
   },
   "tab walk (operator)": {
     Overview: [H.Overview, "Up · 12 ms", "Read token"],
-    Activity: [H.Activity, "Requests through the router", "Agent: Fix the login bug"],
+    Traffic: [H.Activity, "Requests through the router", "Agent: Fix the login bug"],
     Models: [H.Models, "In Paseo's model picker", "GPT-5.6 Terra"],
-    Providers: [H.Providers, "Agent providers on this daemon"],
+    Providers: [H.Providers, "Re-route providers", "Through OmniRoute"],
     Accounts: [H.Accounts, "3 accounts · 3 healthy"],
     Usage: [H.Usage, "Requests per day", "By account"],
     Settings: [H.Settings, "In Paseo", "Context compression", "More in OmniRoute"],
     Connection: [H.Connection, "More access (optional)", "Check now"],
-    Tips: [H.Tips, "0 of 6 installed"],
+    Tips: [H.Tips, "0 of 5 installed"],
   },
   "tab walk (admin)": {
     Overview: ["Up · Claude paused", "Accounts →"],
-    Activity: ["Requests through the router", "This daemon"],
+    Traffic: ["Requests through the router", "This daemon"],
     Models: ["Sync models to Paseo", "Test another model"],
     Providers: ["Codex via OmniRoute"],
     Accounts: ["Claude traffic paused by OmniRoute's circuit breaker", "Check all"],
@@ -203,9 +208,9 @@ const expectedTabs = {
   },
   "tab walk (router down)": {
     Overview: ["OmniRoute unreachable — last seen", "Open Connection"],
-    Activity: [H.Activity, "Router unreachable — showing its answer as of"],
+    Traffic: [H.Activity, "Router unreachable — showing its answer as of"],
     Models: [H.Models, "Your access"],
-    Providers: [H.Providers, "Agent providers on this daemon"],
+    Providers: [H.Providers, "Re-route providers"],
     Accounts: [H.Accounts],
     Usage: [H.Usage],
     Settings: [H.Settings, "Context compression"],
@@ -214,9 +219,9 @@ const expectedTabs = {
   },
   "tab walk (not connected)": {
     Overview: [H.Overview, ...notConnected],
-    Activity: [H.Activity, "Agent sessions on this daemon", "Once a router is connected"],
+    Traffic: [H.Activity, "Agent sessions on this daemon", "Once a router is connected"],
     Models: [H.Models, ...notConnected],
-    Providers: [H.Providers, "Agent providers on this daemon"],
+    Providers: [H.Providers, "Re-route providers"],
     Settings: [H.Settings, "In Paseo", "Connect a router to see its settings."],
     Connection: [H.Connection, "1. Choose your router", "4. Test connection & save"],
     Tips: [H.Tips, "Tell Agent"],
@@ -278,7 +283,7 @@ try {
 
 try {
   const bar = await tabBarWidthCheck();
-  for (const label of ["Overview", "Activity", "Settings", "Connection", "Tips"]) assert.ok(bar.wide.includes(label), `wide bar shows "${label}"`);
+  for (const label of ["Overview", "Traffic", "Settings", "Connection", "Tips"]) assert.ok(bar.wide.includes(label), `wide bar shows "${label}"`);
   assert.equal(bar.tight.trim(), "Usage", "at 772 px (a half-width window) only the active tab keeps its label");
   assert.equal(bar.tightIcons, 9, "every tab keeps its icon, so none is cut off");
   console.log("ok   tab bar gives way to icons when the labels do not fit");

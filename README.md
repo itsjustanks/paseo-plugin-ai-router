@@ -5,7 +5,10 @@ provider in Paseo with every model of your connected accounts (Claude and GPT), 
 OmniRoute" provider, and shows the router's accounts, usage and settings to whoever holds the keys for
 them. It only reads what OmniRoute already counts: no pricing tables, no local usage store. Advanced
 routing (combos, fallbacks, per-provider rules) stays in OmniRoute's dashboard. It also puts a
-**context badge** on every chat: how full its context window is, and what fills it.
+**Breakdown** chip on every chat, beside Paseo's own context meter: what fills the context window,
+and a red warning when a router problem reaches that chat. Where Paseo already does something
+(the context meter, provider switches, installing plugins, agent profiles), AI Router builds on it
+instead of repeating it.
 
 ## Install and update
 
@@ -40,14 +43,14 @@ manage key would add.
 | Tab | What it holds |
 | --- | --- |
 | **Overview** | Router up, down or paused; the AI Router provider (the way to use OmniRoute) and its models; built-in Claude on its own sign-in or re-routed (**Re-route providers →**); this daemon's access; the last agent; open dashboard, sync models. When the router is unreachable: when it was last seen, the error, and **Open Connection**. At the bottom, **Check out MCP** (the sister plugin; "Installed" when this daemon has it; **Hide**). |
-| **Activity** | What went through the router. **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it (**Open** jumps to that agent, as it does on each session); filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
+| **Traffic** | What went through the router (not the Activity plugin, which is this daemon's own usage analytics; Traffic points there when it is installed). **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it (**Open** jumps to that agent, as it does on each session); filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
 | **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
-| **Providers** | **Re-route providers**: the AI Router provider (always through OmniRoute), built-in Claude's switch between its own sign-in and OmniRoute (off unless turned on; either way it asks first and says what changes), **Codex via OmniRoute**, and which providers can't be re-routed. Then every Paseo provider on this daemon with its status and an enabled switch. **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
+| **Providers** | **Re-route providers**: the AI Router provider (always through OmniRoute), built-in Claude's switch between its own sign-in and OmniRoute (off unless turned on; either way it asks first and says what changes), **Codex via OmniRoute**, and which providers can't be re-routed. **Tidy up** turns off, in one go, enabled providers that cannot run here. Each provider's own on/off switch is Paseo's (Settings → Providers). **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
 | **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. |
 | **Usage** | **Usage & analytics** for 24 hours, 7 days or 30 days: requests, tokens, estimated cost and latency; requests per day; tokens per day stacked by provider; the provider split; top models; by daemon and by account; failed requests by kind; a year of activity. |
-| **Settings** | Every tier: **In Paseo**, the context badge and MCP card switches. With a read token: context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
+| **Settings** | Every tier: **In Paseo**, the Breakdown chip and MCP card switches. With a read token: context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
 | **Connection** | Router, endpoint, **public address** and whether it answers, key, where they come from; **Share this router** (how others connect through the public address, never with a key); the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
-| **Tips** | **Recommended plugins** from [Paseo Cafe](https://paseo.cafe/plugins/): Paseo MCP, Shared Browser, Activity, Advanced Markdown, Remote Editor and Tell Agent, each with its Cafe page and the install command Cafe publishes, or "Installed". |
+| **Tips** | **Recommended plugins** from [Paseo Cafe](https://paseo.cafe/plugins/): Paseo MCP, Shared Browser, Activity, Advanced Markdown, Remote Editor and Tell Agent, each with its Cafe page and the install command Cafe publishes, or "Installed". Installing is Paseo's own (Settings → Plugins, or the CLI); Paseo has no catalogue, so this is the list. A plugin that does not build on the running Paseo says so instead of offering a command (Tell Agent on Paseo 0.9.1). |
 
 The plugin never stores, shows or asks for OmniRoute's admin password. The panel says "Dashboard
 login: ask your router admin" where it matters.
@@ -62,9 +65,9 @@ this daemon holds, and a key never sees another key's data.
 | Routing Claude and the AI Router provider, the hook | yes | yes | yes |
 | Router up/down and latency | `GET /api/health/ping` (public) | same | same |
 | Public address status | `GET <public address>/api/health/ping` (public, no credentials sent) | same | same |
-| Activity: agent sessions on this daemon | yes (this daemon's own hook; no router call) | yes | yes |
-| Activity: requests | — | `GET /api/usage/call-logs`, `GET /api/keys` | same |
-| Activity: why a request went where it did | — | `GET /api/routing/decisions/{callLogId}` | same |
+| Traffic: agent sessions on this daemon | yes (this daemon's own hook; no router call) | yes | yes |
+| Traffic: requests | — | `GET /api/usage/call-logs`, `GET /api/keys` | same |
+| Traffic: why a request went where it did | — | `GET /api/routing/decisions/{callLogId}` | same |
 | Version, uptime, paused providers | — | `GET /api/monitoring/health` | same |
 | Model list for the AI Router provider | `GET /v1/models?configuredOnly=true` (OmniRoute limits it to active accounts and the key's allowed models) | `GET /v1/models` filtered by active accounts in `GET /api/providers` | same |
 | Test a model | `POST /v1/messages` | same | same |
@@ -78,8 +81,8 @@ this daemon holds, and a key never sees another key's data.
 | Apply recommended compression | — | — | `GET` then `PUT /api/settings/compression` |
 | Account actions | — | — | `POST /api/providers/{id}/test`, `/api/providers/{id}/refresh`, `/api/providers/test-batch` |
 | Tunnels | — | — | `GET /api/tunnels/{cloudflared,ngrok,tailscale}`, `POST /api/tunnels/{cloudflared,ngrok}`, `POST /api/tunnels/tailscale/{enable,disable}` |
-| Context badge: the chip, and the breakdown's estimates | yes (Paseo's own agent updates and the chat's timeline, read on this daemon; no router call) | yes | yes |
-| Context badge: what OmniRoute measured for the chat | — | `GET /api/usage/call-logs?limit=201&excludeTests=1&apiKey=<this key>`, rows matched by session tag | same |
+| Breakdown chip and its estimates | yes (Paseo's own agent updates and the chat's timeline, read on this daemon; no router call) | yes | yes |
+| Breakdown: what OmniRoute measured for the chat | — | `GET /api/usage/call-logs?limit=201&excludeTests=1&apiKey=<this key>`, rows matched by session tag | same |
 | Tips and the MCP card: "Installed" | yes (`$PASEO_HOME/plugins/sources.json`) | yes | yes |
 
 A manage key can also read, so an admin needs no separate read token. OmniRoute refuses read tokens
@@ -176,7 +179,7 @@ refused with 400 "messages.1.output_config: Extra inputs are not permitted".
 
 `ANTHROPIC_CUSTOM_HEADERS` holds newline-separated `Name: value` lines that Claude Code sends with
 every request. The hook keeps any lines already there and adds `x-omniroute-session-id`, unless one is
-already set; OmniRoute records it as the request's `sessionTag`, which is how Activity names the agent
+already set; OmniRoute records it as the request's `sessionTag`, which is how Traffic names the agent
 behind each request exactly. It carries only the Paseo agent id.
 
 **Codex via OmniRoute.** Built-in Codex builds its model provider from config, not from launch env,
@@ -208,7 +211,7 @@ and `bodyAdapter.ts`. **Apply recommended…** (manage key, after a confirmation
 other engine off, and adds the exclusions when the router's compression settings support them. It is
 never applied on its own.
 
-## Activity
+## Traffic
 
 **Agent sessions on this daemon**, for every tier: each time an agent starts or resumes, the hook
 records the agent id, the provider, whether it was routed, and if not, why. The last 200 are kept in
@@ -241,12 +244,13 @@ Codex via OmniRoute cannot carry a header (Paseo builds its model provider), so 
 as **likely**: this daemon's key, the agent whose model matches, and the most recent routed session
 that opened before the request. Other daemons' requests are never matched.
 
-## Context badge
+## Context breakdown
 
-Every chat that has reported its context window gets a chip beside its message box: **186k / 1M**,
-grey until 60 % full, amber until 85 %, then red with a warning icon (so colour is not the only
-signal). Tap it for the **Context** panel; the command palette's "Context used in this chat" opens it
-too. **Settings → In Paseo** turns the badge off and on for the daemon (on by default, every tier).
+Paseo already shows how full a chat's context window is: a meter in the message box, with the tokens
+and the session's cost on hover. AI Router does not repeat that number. Every chat that has reported
+its window gets a **Breakdown** chip beside it; tap it for the **Context** panel (the command palette's
+"What fills this chat's context" opens it too). **Settings → In Paseo** turns the chip off and on for
+the daemon (on by default, every tier).
 
 What it can honestly say:
 
@@ -335,7 +339,7 @@ forward** (router host, remote port 20128).
 
 The panel opens at once whatever the router does. The status call waits at most 1.5 s for a health
 check, then answers with the previous result marked "checking"; every router request has a timeout
-(4 s for health, 10 s for reads). Once a check has found the router down, the Activity, Accounts, Usage and
+(4 s for health, 10 s for reads). Once a check has found the router down, the Traffic, Accounts, Usage and
 Settings tabs answer immediately with their last good answer, marked "Router unreachable — showing its
 answer as of HH:MM", or with the error if there is none. The Overview says when the router was last
 seen (kept across restarts) and offers **Open Connection**, where the health check, editing the
@@ -373,7 +377,7 @@ apps/paseo/
   server/routers/index.ts             the router registry and the adapter interface
   server/routers/omniroute/           OmniRoute: adapter and HTTP reads
   shared/                             contracts and pure logic, the only code the client imports
-  shared/context.ts                   the context badge's counting (pure; the server runs it)
+  shared/context.ts                   the context breakdown's counting (pure; the server runs it)
   shared/plugins.ts                   the Tips tab's recommended plugins
   shared/routers/                     each router's UI copy and response parsers
 ```

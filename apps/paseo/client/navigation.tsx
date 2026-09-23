@@ -15,9 +15,9 @@ const RANK: Record<AccessTier, number> = { none: 0, basic: 1, operator: 2, admin
  */
 export const TABS = [
   { id: "overview", label: "Overview", icon: "LayoutDashboard", minTier: "none", heading: "Is traffic going through the router, and what to do next." },
-  { id: "activity", label: "Activity", icon: "History", minTier: "none", heading: "What went through the router: each agent session on this daemon and, with a read token, every request and where it was sent." },
+  { id: "activity", label: "Traffic", icon: "ArrowLeftRight", minTier: "none", heading: "What went through the router: each agent session on this daemon and, with a read token, every request and where it was sent." },
   { id: "models", label: "Models", icon: "Boxes", minTier: "none", heading: "The models this key can use through the router, and a quick test for any of them." },
-  { id: "providers", label: "Providers", icon: "Plug", minTier: "none", heading: "Every agent provider on this daemon, and which ones can go through OmniRoute." },
+  { id: "providers", label: "Providers", icon: "Plug", minTier: "none", heading: "Which agent providers can go through OmniRoute, and tidying away the ones that can't run here. Each provider's own switch is in Paseo's Settings → Providers." },
   { id: "accounts", label: "Accounts", icon: "Users", minTier: "operator", heading: "Each connected subscription, how much it has left, and the router's health." },
   { id: "usage", label: "Usage", icon: "Activity", minTier: "operator", heading: "Usage & analytics: requests, tokens, cost and failures across the router, by day, provider, model, daemon and account." },
   { id: "settings", label: "Settings", icon: "SlidersHorizontal", minTier: "none", heading: "What AI Router adds to Paseo, and, with a read token, how the router compresses prompts and a few settings worth knowing." },

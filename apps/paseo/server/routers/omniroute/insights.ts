@@ -15,6 +15,8 @@ import {
   buildModelList,
   compressionPayload,
   describeManagementStatus,
+  describeConsoleLock,
+  isBasicAuthChallenge,
   lastCallError,
   parseSettings,
   preferClaudeCodePayload,
@@ -61,8 +63,10 @@ async function read(connection: Connection, path: string, write?: { method: stri
   try {
     const headers = { ...bearer(secret ?? ""), ...(write?.body !== undefined ? { "content-type": "application/json" } : {}) };
     const init = write ? { method: write.method, ...(write.body !== undefined ? { body: JSON.stringify(write.body) } : {}) } : {};
-    const { status, body } = await getJson(url, headers, timeoutMs, init);
-    return status === 200 ? { ok: true, body } : { ok: false, error: describeManagementStatus(status, body, path, write || !connection.token ? "manage key" : "read token") };
+    const { status, body, challenge } = await getJson(url, headers, timeoutMs, init);
+    if (status === 200) return { ok: true, body };
+    if (status === 401 && isBasicAuthChallenge(challenge)) return { ok: false, error: describeConsoleLock(url, path) };
+    return { ok: false, error: describeManagementStatus(status, body, path, write || !connection.token ? "manage key" : "read token") };
   } catch (error) {
     return { ok: false, error: describeFetchError(error, url, timeoutMs) };
   }
@@ -182,7 +186,7 @@ async function loadUsage(connection: Connection, range: AnalyticsRangeId, empty:
  * Read-token calls; null (fall back to the core auto combos) if either fails.
  * The bodies come back too, for the combo descriptions on agent profiles.
  */
-async function dashboardCombos(connection: Connection): Promise<{ ids: string[] | null; auto: unknown; custom: unknown }> {
+async function dashboardCombos(connection: Connection): Promise<{ ids: string[] | null; auto: unknown; custom: unknown; error: string | null }> {
   // Auto combos are addressed by id ("auto/coding"); custom combos by their name ("Kimi Coding"),
   // which is what /v1/models lists — their id is an internal UUID.
   const names = (body: unknown, key: "id" | "name"): string[] => {
@@ -195,11 +199,11 @@ async function dashboardCombos(connection: Connection): Promise<{ ids: string[] 
   const [auto, custom] = await Promise.all([read(connection, "/api/combos/auto"), read(connection, "/api/combos")]);
   const autoBody = auto.ok ? auto.body : null;
   const customBody = custom.ok ? custom.body : null;
-  if (!auto.ok) return { ids: null, auto: autoBody, custom: customBody };
+  if (!auto.ok) return { ids: null, auto: autoBody, custom: customBody, error: auto.error };
   // The dashboard's core auto combos, then combos a person made. The built-in "auto/…" variants that
   // /api/combos returns for admins are left out, so the list (and the combo profiles) stay short.
   const own = custom.ok ? names(custom.body, "name").filter((name) => name !== "auto" && !name.startsWith("auto/")) : [];
-  return { ids: [...names(auto.body, "id"), ...own], auto: autoBody, custom: customBody };
+  return { ids: [...names(auto.body, "id"), ...own], auto: autoBody, custom: customBody, error: null };
 }
 
 /** More than this after `?configuredOnly=true` means the router ignored the filter (an older OmniRoute). */
@@ -231,10 +235,10 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
     if (!providers.ok) return { ok: false, error: `Connected accounts: ${providers.error}` };
     active = activeProviders(providers.body);
   }
-  const dashboard = operator ? await dashboardCombos(connection) : { ids: null, auto: null, custom: null };
-  // With a read token the combo list comes from the dashboard. If that read fails for a moment, don't
-  // fall back to the short list: that would drop combos and their profiles until the next sync.
-  if (operator && dashboard.ids === null) return { ok: false, error: "Couldn't read OmniRoute's combo list just now; kept the current models and profiles. Will retry." };
+  const dashboard = operator ? await dashboardCombos(connection) : { ids: null, auto: null, custom: null, error: null };
+  // With a read token the combo list comes from the dashboard. If that read fails, don't fall back to
+  // the short list: that would drop combos and their profiles until the next sync. Say why it failed.
+  if (operator && dashboard.ids === null) return { ok: false, error: `Couldn't read OmniRoute's combo list (${dashboard.error ?? "no answer"}); kept the current models and profiles. Will retry.` };
   const list = buildModelList(models.body, active, dashboard.ids);
   if (!list.length) return { ok: false, error: active ? `OmniRoute lists no models for the active accounts (${[...active].join(", ") || "none"}).` : "OmniRoute lists no models this key can use on connected accounts." };
   if (!active && list.length > UNFILTERED_MODELS) {

@@ -4,7 +4,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings, type PluginAgentPanelProps, type PluginClientContext, type PluginComposerPillProps } from "@getpaseo/plugin/client";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { badge, context, type ContextView } from "../shared/contracts";
-import { badgeLabel, contextTone, formatTokens, usageOf, type ChatAlert, type ContextUsage } from "../shared/context";
+import { contextTone, formatTokens, usageOf, type ChatAlert, type ContextUsage } from "../shared/context";
 import { routingSettings } from "../shared/settings";
 import { HostIcon } from "./navigation";
 import { errorText } from "./setup";
@@ -120,7 +120,7 @@ export function registerContextBadges(client: PluginClientContext, store: BadgeS
         agentId,
         client.addComposerPill({
           id: "context-badge",
-          title: "Context used in this chat",
+          title: "What fills this chat's context",
           workspaceId,
           agentId,
           Component: ChipBody,
@@ -217,23 +217,22 @@ export function registerContextBadges(client: PluginClientContext, store: BadgeS
 }
 
 /**
- * The chip: "186k / 1M", tinted as it fills; "Router down · 186k / 1M" in red
- * when a router problem reaches this chat. The icon changes too at the red
- * end, so colour is not the only signal.
+ * The chip, beside Paseo's own context meter (which already shows how full
+ * the window is): "Breakdown" opens what fills it; "Router down" or "Claude
+ * paused" in red when a router problem reaches this chat, with a warning icon
+ * so colour is not the only signal. It never repeats Paseo's number.
  */
 export function makeContextChip(store: BadgeStore) {
   return function ContextChip({ theme, agentId }: PluginComposerPillProps) {
     const usage = useUsage(store, agentId);
     const alert = useAlert(store, agentId);
     if (!usage && !alert) return null;
-    const tone = alert ? "danger" : contextTone(usage!.used, usage!.max);
-    const color = tone === "neutral" ? theme.colors.foregroundMuted : toneColor(theme, tone);
-    const size = usage ? badgeLabel(usage.used, usage.max) : null;
-    const label = [alert?.text, size].filter(Boolean).join(" · ");
-    const spoken = [alert?.text, usage ? `context ${percent(usage.used / usage.max)} full: ${size} tokens` : null].filter(Boolean).join("; ");
+    const color = alert ? toneColor(theme, "danger") : theme.colors.foregroundMuted;
+    const label = alert ? alert.text : "Breakdown";
+    const spoken = alert ? `${alert.text}: open the details` : "What is filling this chat's context";
     return (
       <>
-        {HostIcon ? <HostIcon name={tone === "danger" ? "TriangleAlert" : "Gauge"} size={14} color={color} /> : null}
+        {HostIcon ? <HostIcon name={alert ? "TriangleAlert" : "ChartPie"} size={14} color={color} /> : null}
         <Text numberOfLines={1} accessibilityLabel={spoken} style={{ color, flexShrink: 1 }}>
           {label}
         </Text>
@@ -308,7 +307,7 @@ export function ContextBody({ theme, data, onRefresh, refreshing, onHide }: { th
   const actions = (
     <Row>
       <Button theme={theme} label="Refresh" busy={refreshing} onPress={onRefresh} />
-      {onHide ? <Link theme={theme} label="Hide the context badge" onPress={onHide} /> : null}
+      {onHide ? <Link theme={theme} label="Hide the Breakdown chip" onPress={onHide} /> : null}
     </Row>
   );
   if (data.state !== "ok" || data.usedTokens === null || data.maxTokens === null) {
@@ -392,7 +391,7 @@ export function makeContextPanel(store: BadgeStore, openSurface: ((id: string) =
           <ActivityIndicator color={theme.colors.accent} />
         )}
         {refresh.error ? <Note theme={theme} tone="danger">{errorText(refresh.error)}</Note> : null}
-        {hidden ? <Note theme={theme}>Context badge off for this daemon. AI Router → Settings → In Paseo turns it back on.</Note> : null}
+        {hidden ? <Note theme={theme}>Breakdown chip off for this daemon. AI Router → Settings → In Paseo turns it back on.</Note> : null}
       </ScrollView>
     );
   };

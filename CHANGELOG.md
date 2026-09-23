@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.0 — 2026-09-24
+
+Building on what Paseo already does, instead of repeating it (checked against the Paseo 0.9.1 app).
+
+- **Breakdown chip.** Paseo's message box already has a context meter (percentage, tokens and session
+  cost), so the chip no longer shows the same number. It reads **Breakdown** and opens what fills the
+  chat; it still turns red with the reason ("Router down", "Claude paused") when a router problem
+  reaches a routed chat.
+- **Traffic, not Activity.** The tab showing what went through OmniRoute is now **Traffic**, so it is
+  not confused with the Activity plugin (this daemon's own usage analytics); when that plugin is
+  installed, Traffic points to it.
+- **Providers.** The per-provider on/off table is gone: that is Paseo's Settings → Providers. The tab
+  keeps what Paseo lacks: which providers can go through OmniRoute (re-routing Claude asks first) and
+  **Tidy up**.
+- **Tips.** Tell Agent does not build on Paseo 0.9.1 yet, so it says that instead of offering a
+  command; the count covers the installable ones. Installing points to Paseo's own Settings → Plugins
+  as well as the CLI.
+- **Sync failures say why.** "Couldn't read OmniRoute's combo list" now carries the reason with its
+  HTTP status, and a 401 from a web server's console lock (basic auth) in front of OmniRoute is named
+  as such, instead of reading as a rejected read token. The same goes for the read-token check.
+
 ## 0.10.1 — 2026-09-24
 
 **No tab cut off.** In a half-width desktop window or on a tablet, the nine tabs no longer run off the

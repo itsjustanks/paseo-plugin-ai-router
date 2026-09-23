@@ -46,6 +46,23 @@ export function describeManagementStatus(status: number, body: unknown, path: st
   return `${status} — ${path} failed${detail}`;
 }
 
+/** A `WWW-Authenticate: Basic …` challenge: a web server's login in front of OmniRoute, not OmniRoute. */
+export const isBasicAuthChallenge = (challenge: string | null | undefined) => typeof challenge === "string" && /^\s*basic\b/i.test(challenge);
+
+/**
+ * The 401 came from the console lock (basic auth) on the web server in front
+ * of OmniRoute, before OmniRoute saw the token: that path is not let through.
+ */
+export function describeConsoleLock(url: string, path: string): string {
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    // keep the URL as given
+  }
+  return `401 from the console lock (basic auth) in front of OmniRoute at ${host}, not from OmniRoute: ${path} is not let through it, so the token never reached the router`;
+}
+
 // --------------------------------------------------------------- accounts
 
 export type Quota = { name: string; remainingPct: number; resetAt: string | null };
