@@ -4,6 +4,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { codexRouter, providerEnable, providersList, providersTidy, type Providers, type Status } from "../shared/contracts";
+import { AI_ROUTER_PROVIDER_ID } from "../shared/logic";
 import { routingSettings } from "../shared/settings";
 import { AdvancedBanner } from "./dashboard";
 import { STATUS_KEY, errorText, type Message } from "./setup";
@@ -21,15 +22,51 @@ const STATUS_WORDS: Record<ProviderRowData["status"], { label: string; tone: Ton
   unavailable: { label: "Not installed", tone: "neutral" },
 };
 
-/** Built-in Claude: the routing switch, the same one Overview has. */
-function ClaudeThrough({ theme }: { theme: Theme }) {
+/**
+ * Built-in Claude: its own sign-in, or OmniRoute's accounts. Off unless a
+ * person turns it on, and either way the switch asks first and says what
+ * changes; nothing is saved until they confirm.
+ */
+function ClaudeReroute({ theme, say }: { theme: Theme; say: Say }) {
   const settings = useSettings(routingSettings);
+  const [asking, setAsking] = useState<boolean | null>(null);
   const on = settings.status === "ready" ? settings.values.routeAgents : false;
+  const confirm = () => {
+    if (settings.status !== "ready" || asking === null) return;
+    const next = asking;
+    void settings.save({ ...settings.values, routeAgents: next }, settings.revision).then((saved) => {
+      setAsking(null);
+      say(saved
+        ? { text: next ? "Claude re-routed: new Claude chats use OmniRoute." : "Claude back on its own sign-in for new chats.", tone: "success" }
+        : { text: "The switch was changed elsewhere; try again.", tone: "warning" });
+    });
+  };
   return (
-    <Row>
-      <Toggle theme={theme} label="Route Claude agents through OmniRoute" value={on} busy={settings.saving} disabled={settings.status !== "ready"} onChange={(next) => { if (settings.status === "ready") void settings.save({ ...settings.values, routeAgents: next }, settings.revision); }} />
-      <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{on ? "Routed" : "Own sign-in"}</Text>
-    </Row>
+    <View style={{ gap: 6, flexShrink: 1 }}>
+      <Row>
+        <Toggle theme={theme} label="Re-route Claude through OmniRoute" value={on} busy={settings.saving} disabled={settings.status !== "ready" || asking !== null} onChange={(next) => setAsking(next)} />
+        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{on ? "Through OmniRoute" : "Own sign-in"}</Text>
+      </Row>
+      {asking === true ? (
+        <>
+          <Note theme={theme} tone="warning">New Claude chats on this daemon will use OmniRoute's accounts instead of this daemon's own Claude sign-in. Open chats switch when they reopen. ~/.claude is not changed, and if OmniRoute is down a chat keeps its own sign-in.</Note>
+          <Row>
+            <Button theme={theme} label="Re-route Claude" primary busy={settings.saving} onPress={confirm} />
+            <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />
+          </Row>
+        </>
+      ) : null}
+      {asking === false ? (
+        <>
+          <Note theme={theme} tone="warning">New Claude chats will use this daemon's own Claude sign-in. If this daemon has none, they won't answer: pick the AI Router provider for Claude through OmniRoute instead.</Note>
+          <Row>
+            <Button theme={theme} label="Use own sign-in" primary busy={settings.saving} onPress={confirm} />
+            <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />
+          </Row>
+        </>
+      ) : null}
+      {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
+    </View>
   );
 }
 
@@ -57,14 +94,36 @@ function CodexThrough({ theme, data, say }: { theme: Theme; data: Status; say: S
   );
 }
 
-function Through({ theme, row, data, say }: { theme: Theme; row: ProviderRowData; data: Status; say: Say }) {
-  if (row.through === "claude-toggle") return <ClaudeThrough theme={theme} />;
-  if (row.through === "codex-provider") return <CodexThrough theme={theme} data={data} say={say} />;
-  if (row.through === "is-router") return <Chip theme={theme} label="Always through OmniRoute" tone="success" />;
-  return <Note theme={theme}>Not supported — use the AI Router provider for its models.</Note>;
+/**
+ * The providers that can go through OmniRoute, and how. The AI Router
+ * provider is the way to use OmniRoute; a built-in provider keeps its own
+ * sign-in unless a person re-routes it here.
+ */
+function RerouteCard({ theme, rows, data, say }: { theme: Theme; rows: readonly ProviderRowData[]; data: Status; say: Say }) {
+  const router = rows.find((row) => row.id === AI_ROUTER_PROVIDER_ID);
+  const claude = rows.find((row) => row.through === "claude-toggle");
+  const codex = rows.find((row) => row.through === "codex-provider");
+  const others = rows.filter((row) => row.through === "none").map((row) => row.label);
+  const line = (label: string, body: React.ReactNode) => (
+    <View style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+      <Text style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: "600" }}>{label}</Text>
+      {body}
+    </View>
+  );
+  return (
+    <Card theme={theme} title="Re-route providers">
+      <Note theme={theme}>The AI Router provider is the way to use OmniRoute: pick it in Paseo's menu and every connected model is there. A built-in provider keeps its own sign-in unless you re-route it here.</Note>
+      {line(router?.label ?? "AI Router", data.aiProvider.present
+        ? <Row><Chip theme={theme} label="Always through OmniRoute" tone="success" /><Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{`${data.aiProvider.modelCount} models`}</Text></Row>
+        : <Note theme={theme}>Not in Paseo yet: Models → Sync models to Paseo adds it.</Note>)}
+      {claude ? line(claude.label, <ClaudeReroute theme={theme} say={say} />) : null}
+      {codex ? line(codex.label, <CodexThrough theme={theme} data={data} say={say} />) : null}
+      {others.length ? <Note theme={theme}>{`Can't be re-routed: ${others.join(", ")}. Their models are in the AI Router provider when OmniRoute has an account for them.`}</Note> : null}
+    </Card>
+  );
 }
 
-function ProviderRow({ theme, row, data, say, compact, first, onEnable, busy }: { theme: Theme; row: ProviderRowData; data: Status; say: Say; compact: boolean; first: boolean; onEnable: (enabled: boolean) => void; busy: boolean }) {
+function ProviderRow({ theme, row, compact, first, onEnable, busy }: { theme: Theme; row: ProviderRowData; compact: boolean; first: boolean; onEnable: (enabled: boolean) => void; busy: boolean }) {
   const status = STATUS_WORDS[row.status];
   return (
     <View style={{ flexDirection: compact ? "column" : "row", alignItems: compact ? "stretch" : "center", gap: compact ? 8 : 16, borderTopWidth: first ? 0 : 1, borderColor: theme.colors.border, paddingTop: first ? 0 : 12 }}>
@@ -80,9 +139,6 @@ function ProviderRow({ theme, row, data, say, compact, first, onEnable, busy }: 
         <Toggle theme={theme} label={`${row.label} enabled`} value={row.enabled} busy={busy} onChange={onEnable} />
         <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, width: compact ? undefined : 52 }}>{row.enabled ? "Enabled" : "Disabled"}</Text>
       </Row>
-      <View style={{ flex: compact ? undefined : 1.4 }}>
-        <Through theme={theme} row={row} data={data} say={say} />
-      </View>
     </View>
   );
 }
@@ -107,6 +163,7 @@ export function ProvidersTab({ theme, data, say, compact }: { theme: Theme; data
   const candidates = list?.rows.filter((row) => row.tidy !== null) ?? [];
   return (
     <>
+      {list?.state === "ok" ? <RerouteCard theme={theme} rows={list.rows} data={data} say={say} /> : null}
       <AdvancedBanner theme={theme} data={data} say={say} />
       {!list ? (
         <Card theme={theme} title="Agent providers on this daemon">
@@ -119,14 +176,12 @@ export function ProvidersTab({ theme, data, say, compact }: { theme: Theme; data
         </Banner>
       ) : (
         <Card theme={theme} title="Agent providers on this daemon">
-          <Note theme={theme}>Off hides a provider from Paseo's menu on this daemon. "Through OmniRoute" is what the router can do for it.</Note>
+          <Note theme={theme}>Off hides a provider from Paseo's menu on this daemon.</Note>
           {list.rows.map((row, index) => (
             <ProviderRow
               key={row.id}
               theme={theme}
               row={row}
-              data={data}
-              say={say}
               compact={compact}
               first={index === 0}
               busy={enable.isPending && enable.variables?.id === row.id}

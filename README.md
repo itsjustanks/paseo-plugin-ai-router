@@ -38,10 +38,10 @@ manage key would add.
 
 | Tab | What it holds |
 | --- | --- |
-| **Overview** | Router up, down or paused; Claude routing; models in Paseo; this daemon's access; the last agent; open dashboard, sync models, routing on or off. When the router is unreachable: when it was last seen, the error, and **Open Connection**. At the bottom, **Check out MCP** (the sister plugin; "Installed" when this daemon has it; **Hide**). |
+| **Overview** | Router up, down or paused; the AI Router provider (the way to use OmniRoute) and its models; built-in Claude on its own sign-in or re-routed (**Re-route providers →**); this daemon's access; the last agent; open dashboard, sync models. When the router is unreachable: when it was last seen, the error, and **Open Connection**. At the bottom, **Check out MCP** (the sister plugin; "Installed" when this daemon has it; **Hide**). |
 | **Activity** | What went through the router. **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it (**Open** jumps to that agent, as it does on each session); filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
 | **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
-| **Providers** | Every Paseo provider on this daemon with its status and an enabled switch, and what OmniRoute can do for it: Claude's routing switch, **Codex via OmniRoute**, or "not supported". **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
+| **Providers** | **Re-route providers**: the AI Router provider (always through OmniRoute), built-in Claude's switch between its own sign-in and OmniRoute (off unless turned on; either way it asks first and says what changes), **Codex via OmniRoute**, and which providers can't be re-routed. Then every Paseo provider on this daemon with its status and an enabled switch. **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
 | **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. |
 | **Usage** | **Usage & analytics** for 24 hours, 7 days or 30 days: requests, tokens, estimated cost and latency; requests per day; tokens per day stacked by provider; the provider split; top models; by daemon and by account; failed requests by kind; a year of activity. |
 | **Settings** | Every tier: **In Paseo**, the context badge and MCP card switches. With a read token: context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
@@ -155,7 +155,7 @@ The `agent.session_open` hook only edits the launch environment.
 
 | Session | Rewritten when | Environment added |
 | --- | --- | --- |
-| Built-in `claude` provider | routing is on | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, and `x-omniroute-session-id: paseo-<agent id>` added to `ANTHROPIC_CUSTOM_HEADERS` |
+| Built-in `claude` provider | re-routed on Providers (off by default; turning it on asks first) | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, and `x-omniroute-session-id: paseo-<agent id>` added to `ANTHROPIC_CUSTOM_HEADERS` |
 | `ai-router` provider | always (choosing it is the opt-in) | the same |
 | `codex-ai-router` ("Codex via OmniRoute") | always, while its entry points at the endpoint | `OPENAI_API_KEY=<key>` |
 | `ai-router-codex` (0.1.0, legacy; syncing removes it) | the same | `OPENAI_API_KEY=<key>` |
@@ -234,7 +234,7 @@ survive a restart. Titles come from Paseo's `agents.list`.
 - Prompts and responses are never read or shown. `/api/usage/call-logs/{id}` is not used, because it
   returns the request and response bodies.
 
-**Which agent sent it.** Claude sessions (built-in Claude while routing is on, and the AI Router
+**Which agent sent it.** Claude sessions (built-in Claude while it is re-routed, and the AI Router
 provider) send `x-omniroute-session-id: paseo-<agent id>`, so those rows name their agent exactly.
 Codex via OmniRoute cannot carry a header (Paseo builds its model provider), so its rows are matched
 as **likely**: this daemon's key, the agent whose model matches, and the most recent routed session

@@ -86,16 +86,17 @@ function MoreAccessLine({ theme, data, go }: { theme: Theme; data: Status; go: G
 
 // ------------------------------------------------------------------ Overview
 
-/** Up or down, Claude routing, models in Paseo, access; the three actions; the last agent. */
+/**
+ * Up or down, the AI Router provider (the way to use OmniRoute), built-in
+ * Claude's own sign-in or re-route, access; the actions; the last agent.
+ * Re-routing Claude lives on Providers, where it asks first.
+ */
 function OverviewTab({ theme, data, go, say }: { theme: Theme; data: Status; go: Go; say: Say }) {
   const settings = useSettings(routingSettings);
   const sync = useSync(say);
   const name = ROUTERS[data.connection.router].label;
   const check = useCheck(say, name);
   const on = settings.status === "ready" ? settings.values.routeAgents : data.routeAgents;
-  const toggle = () => {
-    if (settings.status === "ready") void settings.save({ ...settings.values, routeAgents: !on }, settings.revision);
-  };
   const health = healthLine(data);
   const down = data.health?.up === false;
   const { present, modelCount } = data.aiProvider;
@@ -105,14 +106,14 @@ function OverviewTab({ theme, data, go, say }: { theme: Theme; data: Status; go:
     ? { value: `${health.label.split(" · ")[0]} · ${paused.join(", ")} paused`, tone: "danger" as const, hint: `${paused.join(" and ")} requests fail until ${name} retries`, action: data.tier === "operator" || data.tier === "admin" ? { label: "Accounts", onPress: () => go("accounts") } : null }
     : { value: health.label, tone: health.tone, hint: null, action: null };
   // One primary button: the next thing to do, else the dashboard. While the router is down, the banner's Open Connection is it.
-  const next = down ? null : !on ? "routing" : !present ? "sync" : "dashboard";
+  const next = down ? null : !present ? "sync" : "dashboard";
   const last = data.lastSession;
   return (
     <>
       {down ? (
         <Banner theme={theme} tone="danger" title={`${name} unreachable — ${data.lastSeenAt ? `last seen ${when(data.lastSeenAt)}` : "not seen since this plugin started"}`}>
           <Note theme={theme}>{data.health?.error ?? "No answer."}</Note>
-          <Note theme={theme}>Until it answers, Claude agents keep their own sign-in and AI Router agents will not start.</Note>
+          <Note theme={theme}>{`Until it answers, AI Router agents will not start${on ? ", and re-routed Claude agents keep their own sign-in" : ""}.`}</Note>
           <Row>
             <Button theme={theme} label="Open Connection" primary onPress={() => go("connection")} />
             <Button theme={theme} label="Check again" busy={check.isPending} onPress={() => check.mutate()} />
@@ -121,8 +122,8 @@ function OverviewTab({ theme, data, go, say }: { theme: Theme; data: Status; go:
       ) : null}
       <Card theme={theme}>
         {!down ? <StatusLine theme={theme} label="Router" value={router.value} tone={router.tone} hint={router.hint} action={router.action} /> : null}
-        <StatusLine theme={theme} label="Claude routing" value={on ? "On" : "Off"} tone={on ? "success" : "neutral"} hint={on ? "Claude agents go through the router" : "Claude agents use their own sign-in"} />
-        <StatusLine theme={theme} label="Models in Paseo" value={present ? `${modelCount} synced` : "Not synced"} tone={present ? "success" : "neutral"} action={{ label: "Models", onPress: () => go("models") }} />
+        <StatusLine theme={theme} label="AI Router provider" value={present ? `${modelCount} models` : "Not synced"} tone={present ? "success" : "neutral"} hint={present ? "pick it in Paseo to use OmniRoute" : null} action={{ label: "Models", onPress: () => go("models") }} />
+        <StatusLine theme={theme} label="Built-in Claude" value={on ? "Re-routed" : "Own sign-in"} tone={on ? "success" : "neutral"} hint={on ? "its chats go through OmniRoute" : null} action={{ label: "Re-route providers", onPress: () => go("providers") }} />
         <StatusLine theme={theme} label="Access" value={TIER_LABELS[data.tier]} tone="neutral" action={{ label: "Connection", onPress: () => go("connection") }} />
         {last ? (
           <Pressable accessibilityRole="link" accessibilityLabel="See every agent session in Activity" onPress={() => go("activity")}>
@@ -137,11 +138,8 @@ function OverviewTab({ theme, data, go, say }: { theme: Theme; data: Status; go:
         <Row>
           <OpenDashboardButton theme={theme} data={data} say={say} primary={next === "dashboard"} />
           <Button theme={theme} label={present ? "Sync models again" : "Sync models to Paseo"} primary={next === "sync"} busy={sync.isPending} disabled={down} onPress={() => sync.mutate(true)} />
-          <Button theme={theme} label={on ? "Turn Claude routing off" : "Route Claude agents through AI Router"} primary={next === "routing"} busy={settings.saving} disabled={settings.status !== "ready"} onPress={toggle} />
         </Row>
-        <Note theme={theme}>If the router is down or the key is missing, Claude agents keep their own sign-in. ~/.claude is never changed.</Note>
-        {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
-        {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
+        <Note theme={theme}>Pick "AI Router" in Paseo's provider menu to use OmniRoute's models. Built-in Claude keeps its own sign-in unless you re-route it on Providers. ~/.claude is never changed.</Note>
       </Card>
       <MoreAccessLine theme={theme} data={data} go={go} />
       <View style={{ marginTop: 16 }}>
@@ -394,7 +392,7 @@ function ConnectionTab({ theme, data, configured, say }: { theme: Theme; data: S
       <Card theme={theme} title={configured ? "Edit connection" : "Set up"}>
         {warnings}
         {connection.source === "none" && !configured ? (
-          <Note theme={theme}>Four steps, about two minutes. Nothing changes for your agents until you turn routing on in Overview.</Note>
+          <Note theme={theme}>Four steps, about two minutes. Nothing changes for your agents: afterwards, pick the AI Router provider to use OmniRoute.</Note>
         ) : data.problem ? (
           <Note theme={theme} tone="warning">{`Not connected yet: ${data.problem}.`}</Note>
         ) : null}

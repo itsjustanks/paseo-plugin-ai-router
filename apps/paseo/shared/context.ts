@@ -328,10 +328,10 @@ export function chatAlerts(input: { down: string | null; paused: readonly string
     }
     const own = session.kind === "claude" ? "claude" : session.kind === "codex" ? "codex" : null;
     if (own && paused.includes(own)) {
-      alerts.push({ agentId: session.agentId, text: `${label(own)} paused`, detail: `OmniRoute has paused ${label(own)} after repeated failures, so this chat's requests fail until OmniRoute retries it.` });
+      alerts.push({ agentId: session.agentId, text: `${label(own)} paused`, detail: `OmniRoute has paused ${label(own)} after repeated failures. This chat's requests fail until OmniRoute retries it, unless its combos or fallbacks send them elsewhere.` });
     } else if (session.kind === "provider") {
       const names = paused.map(label).join(" and ");
-      alerts.push({ agentId: session.agentId, text: `${names} paused`, detail: `OmniRoute has paused ${names} after repeated failures. If this chat's model runs there, its requests fail until OmniRoute retries it.` });
+      alerts.push({ agentId: session.agentId, text: `${names} paused`, detail: `OmniRoute has paused ${names} after repeated failures. If this chat's model runs there, its requests fail until OmniRoute retries it, unless its combos or fallbacks send them elsewhere.` });
     }
   }
   return alerts;

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0 — 2026-09-23
+
+**The AI Router provider is the way in.** Overview now leads with the AI Router provider and its
+models ("pick it in Paseo to use OmniRoute"); its actions are Open dashboard and Sync models. Built-in
+Claude shows "Own sign-in" or "Re-routed", with a link to Providers.
+
+**Re-route providers, asking first.** A new card at the top of Providers lists the providers that can
+go through OmniRoute: AI Router (always), Claude (its own sign-in unless re-routed), Codex (through the
+separate Codex via OmniRoute provider), and which can't. Switching Claude either way now asks first and
+says what changes; nothing is saved until confirmed. Nothing is migrated: every daemon keeps the choice
+it has saved.
+
+**"Claude paused" is less absolute.** The chip's detail now says requests fail unless OmniRoute's own
+combos or fallbacks send them elsewhere.
+
 ## 0.9.0 — 2026-09-23
 
 **Router alerts in the chat.** The context chip turns red with the reason when a router problem
