@@ -9,9 +9,9 @@ type Theme = PluginTheme;
 const RANK: Record<AccessTier, number> = { none: 0, basic: 1, operator: 2, admin: 3 };
 
 /**
- * Eight tabs, one job each, in one row. Icons are Lucide names, drawn by the
- * Paseo app. Accounts, Usage and Settings need a read token, so they are not
- * shown without one.
+ * Nine tabs, one job each, in one row. Icons are Lucide names, drawn by the
+ * Paseo app. Accounts and Usage need a read token, so they are not shown
+ * without one; Settings always shows, for the switches that need no router.
  */
 export const TABS = [
   { id: "overview", label: "Overview", icon: "LayoutDashboard", minTier: "none", heading: "Is traffic going through the router, and what to do next." },
@@ -20,8 +20,9 @@ export const TABS = [
   { id: "providers", label: "Providers", icon: "Plug", minTier: "none", heading: "Every agent provider on this daemon, and which ones can go through OmniRoute." },
   { id: "accounts", label: "Accounts", icon: "Users", minTier: "operator", heading: "Each connected subscription, how much it has left, and the router's health." },
   { id: "usage", label: "Usage", icon: "Activity", minTier: "operator", heading: "Usage & analytics: requests, tokens, cost and failures across the router, by day, provider, model, daemon and account." },
-  { id: "settings", label: "Settings", icon: "SlidersHorizontal", minTier: "operator", heading: "How the router compresses prompts, a few settings worth knowing, and what else it can do." },
+  { id: "settings", label: "Settings", icon: "SlidersHorizontal", minTier: "none", heading: "What AI Router adds to Paseo, and, with a read token, how the router compresses prompts and a few settings worth knowing." },
   { id: "connection", label: "Connection", icon: "Link", minTier: "none", heading: "Which router this daemon uses, the keys it holds, and how to reach the dashboard." },
+  { id: "tips", label: "Tips", icon: "Lightbulb", minTier: "none", heading: "Recommended plugins to level up your Paseo, from Paseo Cafe." },
 ] as const;
 export type TabId = (typeof TABS)[number]["id"];
 
@@ -30,7 +31,7 @@ export function visibleTabs(tier: AccessTier): TabId[] {
 }
 
 /** The app's icon component, when the host provides one (Paseo 0.9 does). */
-const HostIcon = (HostRN as unknown as { Icon?: React.ComponentType<{ name: string; size?: number; color?: string }> }).Icon;
+export const HostIcon = (HostRN as unknown as { Icon?: React.ComponentType<{ name: string; size?: number; color?: string }> }).Icon;
 
 /**
  * An underline tab bar in one row. Narrow screens show every tab's icon and

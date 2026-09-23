@@ -941,7 +941,7 @@ export type RequestRow = {
 };
 
 /** `cc/claude-sonnet-5` and `claude-sonnet-5` are the same model for comparing requested and served. */
-const bareModel = (id: string | null) => (id ? id.slice(id.lastIndexOf("/") + 1).toLowerCase() : null);
+export const bareModel = (id: string | null) => (id ? id.slice(id.lastIndexOf("/") + 1).toLowerCase() : null);
 
 /**
  * `/api/usage/call-logs` rows → what Activity shows. Only routing metadata is

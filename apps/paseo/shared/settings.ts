@@ -12,6 +12,10 @@ export const RoutingSettingsSchema = z.object({
   routeAgents: z.boolean().default(ROUTING_DEFAULTS.routeAgents),
   /** Keep one Paseo agent profile per OmniRoute combo (ids start with "ai-router:"). */
   comboProfiles: z.boolean().default(ROUTING_DEFAULTS.comboProfiles),
+  /** Show how full each chat's context window is, next to its message box. Needs no router. */
+  contextBadge: z.boolean().default(ROUTING_DEFAULTS.contextBadge),
+  /** The "Check out MCP" card at the bottom of Overview; "Hide" turns it off. */
+  mcpCard: z.boolean().default(ROUTING_DEFAULTS.mcpCard),
 });
 
 export type RoutingSettings = z.infer<typeof RoutingSettingsSchema>;

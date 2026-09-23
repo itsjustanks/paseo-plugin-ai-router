@@ -3,8 +3,9 @@
 Routes the agents a Paseo daemon launches through one OmniRoute endpoint. It keeps an "AI Router"
 provider in Paseo with every model of your connected accounts (Claude and GPT), can add a "Codex via
 OmniRoute" provider, and shows the router's accounts, usage and settings to whoever holds the keys for
-them. It only reads what OmniRoute already counts: no transcript parsing, no pricing tables, no
-local usage store. Advanced routing (combos, fallbacks, per-provider rules) stays in OmniRoute's dashboard.
+them. It only reads what OmniRoute already counts: no pricing tables, no local usage store. Advanced
+routing (combos, fallbacks, per-provider rules) stays in OmniRoute's dashboard. It also puts a
+**context badge** on every chat: how full its context window is, and what fills it.
 
 ## Install and update
 
@@ -31,20 +32,21 @@ AI_ROUTER_CONSOLE_URL=https://ai-router.example.com         # optional: the publ
 
 ## The panel
 
-Eight tabs in one row; at narrow widths each shows its icon and the active one its name too. Tabs
+Nine tabs in one row; at narrow widths each shows its icon and the active one its name too. Tabs
 that need more access than the daemon has are not shown, and one small line says what a read token or
 manage key would add.
 
 | Tab | What it holds |
 | --- | --- |
-| **Overview** | Router up, down or paused; Claude routing; models in Paseo; this daemon's access; the last agent; open dashboard, sync models, routing on or off. When the router is unreachable: when it was last seen, the error, and **Open Connection**. |
+| **Overview** | Router up, down or paused; Claude routing; models in Paseo; this daemon's access; the last agent; open dashboard, sync models, routing on or off. When the router is unreachable: when it was last seen, the error, and **Open Connection**. At the bottom, **Check out MCP** (the sister plugin; "Installed" when this daemon has it; **Hide**). |
 | **Activity** | What went through the router. **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it; filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
 | **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
 | **Providers** | Every Paseo provider on this daemon with its status and an enabled switch, and what OmniRoute can do for it: Claude's routing switch, **Codex via OmniRoute**, or "not supported". **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
 | **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. |
 | **Usage** | **Usage & analytics** for 24 hours, 7 days or 30 days: requests, tokens, estimated cost and latency; requests per day; tokens per day stacked by provider; the provider split; top models; by daemon and by account; failed requests by kind; a year of activity. |
-| **Settings** | Context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
+| **Settings** | Every tier: **In Paseo**, the context badge and MCP card switches. With a read token: context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
 | **Connection** | Router, endpoint, **public address** and whether it answers, key, where they come from; **Share this router** (how others connect through the public address, never with a key); the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
+| **Tips** | **Recommended plugins** from [Paseo Cafe](https://paseo.cafe/plugins/): Paseo MCP, Smart Session, Shared Browser, Activity, Advanced Markdown, Remote Editor and Tell Agent, each with its Cafe page and the install command Cafe publishes, or "Installed". |
 
 The plugin never stores, shows or asks for OmniRoute's admin password. The panel says "Dashboard
 login: ask your router admin" where it matters.
@@ -75,6 +77,9 @@ this daemon holds, and a key never sees another key's data.
 | Apply recommended compression | — | — | `GET` then `PUT /api/settings/compression` |
 | Account actions | — | — | `POST /api/providers/{id}/test`, `/api/providers/{id}/refresh`, `/api/providers/test-batch` |
 | Tunnels | — | — | `GET /api/tunnels/{cloudflared,ngrok,tailscale}`, `POST /api/tunnels/{cloudflared,ngrok}`, `POST /api/tunnels/tailscale/{enable,disable}` |
+| Context badge: the chip, and the breakdown's estimates | yes (Paseo's own agent updates and the chat's timeline, read on this daemon; no router call) | yes | yes |
+| Context badge: what OmniRoute measured for the chat | — | `GET /api/usage/call-logs?limit=201&excludeTests=1&apiKey=<this key>`, rows matched by session tag | same |
+| Tips and the MCP card: "Installed" | yes (`$PASEO_HOME/plugins/sources.json`) | yes | yes |
 
 A manage key can also read, so an admin needs no separate read token. OmniRoute refuses read tokens
 on its tunnel routes; they need a key with the `manage` scope. **Refresh token** uses
@@ -235,6 +240,47 @@ Codex via OmniRoute cannot carry a header (Paseo builds its model provider), so 
 as **likely**: this daemon's key, the agent whose model matches, and the most recent routed session
 that opened before the request. Other daemons' requests are never matched.
 
+## Context badge
+
+Every chat that has reported its context window gets a chip beside its message box: **186k / 1M**,
+grey until 60 % full, amber until 85 %, then red with a warning icon (so colour is not the only
+signal). Tap it for the **Context** panel; the command palette's "Context used in this chat" opens it
+too. **Settings → In Paseo** turns the badge off and on for the daemon (on by default, every tier).
+
+What it can honestly say:
+
+- **The total is exact.** It is `lastUsage.contextWindowUsedTokens` / `contextWindowMaxTokens`, which
+  the agent's own CLI reports after each turn and Paseo keeps on the agent.
+- **The parts are estimates (≈).** The panel asks the daemon (`ai-router.context`), which reads the
+  chat's timeline newest first and counts about 4 characters per token, grouped as files read, command
+  output, MCP tool results (by server), web pages and searches, code searches, edits and new files,
+  sub-agent reports, other tool calls, your messages and agent replies, each with its biggest few
+  names. Names are file paths, program names (`npm`, never a command's arguments), tool names, MCP
+  server names, sites' hosts and sub-agent types: never a command line, a query, a URL's path or a
+  description, which can carry a key or a prompt. It stops at the last compaction: what came before
+  was summarised away. Thinking, Paseo's own worktree setup and plugin items are not counted. If the
+  timeline changes while it is read (the agent reloaded), the count starts over once.
+- **The rest** is the exact total minus those estimates: what never shows in the timeline, i.e. the
+  system prompt, tool definitions (including every MCP server's tools), CLAUDE.md or AGENTS.md, and
+  after a compaction its summary.
+- **With a read token**, for chats whose requests carry the session tag, OmniRoute's call log gives the
+  chat's first and latest request sizes (`tokens.in` counts cached input too). While no compaction has
+  replaced the start (and the count reached it), the first request, less its first message (already
+  counted under your messages), is shown as the start, **measured**, and whatever is still
+  unexplained gets its own line, "Not in the chat's history" (images, attachments, tool output Paseo
+  keeps shorter than the agent saw). Only this daemon's latest 200 requests are read, so on a busy
+  daemon a long chat's first request may be out of reach; the panel says so.
+- One tip for the biggest part, e.g. "turn off MCP servers this chat doesn't use" or "compact the chat
+  (/compact)", and a warning once the window is nearly full.
+
+What it costs: the chip makes no call at all; it reads the agent updates the app already receives.
+The switch is read once a minute while a chat is open (backing off to 15 minutes if the daemon does not
+answer). The breakdown is worked out only when the panel is open, on the daemon (at most 10 pages of
+200 timeline entries; only a small summary crosses to the app, never the chat's text), and reused
+while the chat's total is unchanged (up to 5 minutes). A failed read backs off from 30 seconds to 10
+minutes unless **Refresh** is pressed; an answer whose router read failed is reused for 30 seconds
+only. At most one switch read is ever out at a time.
+
 ## Public address and dashboard access
 
 OmniRoute can have a **public address** (custom domain), such as `https://ai-router.example.com`.
@@ -301,6 +347,9 @@ endpoint and keys, Test & save and Disconnect all work without the router.
   another source or to localhost.
 - The environment never supplies a manage key and never turns routing on. `routeAgents` lives in the
   Paseo settings document `$PASEO_HOME/plugin-settings/ai-router/routing.json` and defaults to off.
+  The same document holds `comboProfiles`, `contextBadge` and `mcpCard` (each on unless turned off).
+  Its version stays 1: new switches get defaults instead, because a new version would read every saved
+  document as "newer" and switch routing off.
 - `PASEO_HOME` defaults to `~/.paseo`. Keys are kept out of the settings document on purpose: Paseo
   sends settings documents to every client, and a key must never reach one.
 
@@ -314,6 +363,8 @@ apps/paseo/
   server/routers/index.ts             the router registry and the adapter interface
   server/routers/omniroute/           OmniRoute: adapter and HTTP reads
   shared/                             contracts and pure logic, the only code the client imports
+  shared/context.ts                   the context badge's counting (pure; the server runs it)
+  shared/plugins.ts                   the Tips tab's recommended plugins
   shared/routers/                     each router's UI copy and response parsers
 ```
 
@@ -330,9 +381,14 @@ with the Lucide icons the Paseo app draws. States: `setup`, `overview`, `overvie
 `providers`, `providers-admin`, `accounts-operator`, `accounts-admin`, `accounts-claude-paused`,
 `models-profiles-off`, `usage-populated`, `usage-30-days`, `usage-24-hours`, `usage-empty`, `usage-router-down`, `settings-operator`, `settings-manage-key`, `settings-recommended`,
 `connection`, `connection-basic`, `connection-admin`, `connection-router-down`,
-`connection-misconfigured`, `connection-public`, `connection-public-pending`. `npm run screenshots` renders every state in light and dark at 1280 px and
-420 px into `docs/screenshots/`, using the installed Google Chrome. `docs/screenshots/before/` holds
-three 0.3.4 views under the name of the current screenshot they compare with.
+`connection-misconfigured`, `connection-public`, `connection-public-pending`, `settings-basic`, `tips`,
+`tips-admin`, and the context panel with its chip: `context`, `context-full`, `context-basic`.
+`npm run screenshots` renders every state in light and dark at 1280 px and 420 px into
+`docs/screenshots/` (or a folder given after `--`), using the installed Google Chrome;
+`PREVIEW_PORT=43299` when another plugin's preview holds 43199. `docs/screenshots/before/` holds three
+0.3.4 views under the name of the current screenshot they compare with. The committed screenshots are
+from 0.7.0: every daemon downloads this repository on install and update, so 0.8.0's were rendered and
+checked but not committed.
 
 ## Development
 

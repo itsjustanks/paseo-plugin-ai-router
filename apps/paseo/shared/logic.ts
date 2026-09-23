@@ -275,17 +275,23 @@ export function mergeConnection(
 
 // --------------------------------------------------------------- settings
 
-/** `comboProfiles`: keep one Paseo agent profile per OmniRoute combo. On unless a person turns it off. */
-export type RoutingSettingsShape = { routeAgents: boolean; comboProfiles: boolean };
-export const ROUTING_DEFAULTS: RoutingSettingsShape = { routeAgents: false, comboProfiles: true };
+/**
+ * `comboProfiles`: keep one Paseo agent profile per OmniRoute combo. `contextBadge`: the
+ * context badge on each chat. `mcpCard`: the "Check out MCP" card on Overview. All three
+ * are on unless a person turns them off. New switches get a default and keep the
+ * version: a new version would read as "newer" everywhere and turn routing off.
+ */
+export type RoutingSettingsShape = { routeAgents: boolean; comboProfiles: boolean; contextBadge: boolean; mcpCard: boolean };
+export const ROUTING_DEFAULTS: RoutingSettingsShape = { routeAgents: false, comboProfiles: true, contextBadge: true, mcpCard: true };
 
-/** Decode the daemon's `{ version, values }` envelope. Missing, malformed or newer = routing off, combo profiles on. */
+/** Decode the daemon's `{ version, values }` envelope. Missing, malformed or newer = routing off, the rest on. */
 export function parseRoutingEnvelope(raw: string | null): RoutingSettingsShape {
   if (raw === null) return ROUTING_DEFAULTS;
   try {
-    const envelope = JSON.parse(raw) as { version?: unknown; values?: { routeAgents?: unknown; comboProfiles?: unknown } };
+    const envelope = JSON.parse(raw) as { version?: unknown; values?: { routeAgents?: unknown; comboProfiles?: unknown; contextBadge?: unknown; mcpCard?: unknown } };
     if (envelope.version !== ROUTING_SETTINGS_VERSION) return ROUTING_DEFAULTS;
-    return { routeAgents: envelope.values?.routeAgents === true, comboProfiles: envelope.values?.comboProfiles !== false };
+    const values = envelope.values;
+    return { routeAgents: values?.routeAgents === true, comboProfiles: values?.comboProfiles !== false, contextBadge: values?.contextBadge !== false, mcpCard: values?.mcpCard !== false };
   } catch {
     return ROUTING_DEFAULTS;
   }

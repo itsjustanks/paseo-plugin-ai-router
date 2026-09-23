@@ -852,6 +852,176 @@ try {
     passed += 1;
   }
 
+  // ----------------------------------------------------------- context badge
+  // A fake Paseo agent with a timeline in pages, newest first, and a compaction on the second page.
+  const tl = (item, seq) => ({ provider: "claude", item, timestamp: new Date(Date.parse("2026-09-23T10:00:00.000Z") + seq * 1000).toISOString(), seqStart: seq, seqEnd: seq, sourceSeqRanges: [], collapsed: [] });
+  const call = (name, detail) => ({ type: "tool_call", callId: `c-${name}`, name, status: "completed", error: null, detail });
+  const fakeAgent = (t, agent, pages, counter = { reads: 0 }) => {
+    t.api.agents = {
+      list: async () => ({ entries: [] }),
+      ref: (id) => ({
+        refresh: async () => (id === agent.id ? { agent, project: null } : null),
+        timeline: {
+          refetch: async (options) => {
+            counter.reads += 1;
+            if (typeof pages === "function") return pages(options, counter.reads);
+            if (options.direction === "tail") return pages[0];
+            assert.equal(options.direction, "before", "older pages are asked for before a cursor");
+            const index = pages.findIndex((page, i) => i > 0 && pages[i - 1].startCursor?.seq === options.cursor.seq);
+            assert.ok(index > 0, `a cursor from the previous page (${options.cursor.seq})`);
+            return pages[index];
+          },
+        },
+      }),
+    };
+    return counter;
+  };
+  const page = (entries, older) => ({ direction: "tail", projection: "projected", epoch: "e1", reset: false, staleCursor: false, gap: false, window: { minSeq: 0, maxSeq: 9, nextSeq: 10 }, startCursor: older ? { epoch: "e1", seq: entries[0].seqStart } : null, endCursor: null, hasOlder: older, hasNewer: false, entries, error: null });
+  {
+    const t = await fresh("context", full);
+    routingDoc(t.dir, { routeAgents: true });
+    let hook;
+    t.mod.registerRoutingHooks({ before: (name, handler) => { if (name === "agent.session_open") hook = handler; }, on() {} });
+    const agent = { id: "agent-1", provider: "claude", cwd: "/home/paseo/app", model: "cc/claude-sonnet-5", title: "Fix the login bug", createdAt: new Date(Date.now() - 3_600_000).toISOString(), lastUsage: { contextWindowUsedTokens: 60_000, contextWindowMaxTokens: 200_000 } };
+    const SECRET = "sk-live-SECRET-0123";
+    const newer = [
+      tl({ type: "user_message", text: "x".repeat(4_000) }, 5),
+      tl(call("Read", { type: "read", filePath: "/home/paseo/app/src/big.ts", content: "x".repeat(80_000) }), 6),
+      tl({ type: "assistant_message", text: LEAK }, 7),
+      tl(call("Bash", { type: "shell", command: `curl -H "Authorization: Bearer ${SECRET}" ${LEAK}`, output: "ok" }), 8),
+      tl(call("Grep", { type: "search", toolName: "grep", query: `${SECRET} ${LEAK}`, content: "" }), 9),
+      tl(call("WebFetch", { type: "fetch", url: `https://docs.example.com/${SECRET}`, result: "" }), 10),
+      tl(call("Task", { type: "sub_agent", subAgentType: "general-purpose", description: LEAK, log: "" }), 11),
+    ];
+    const older = [tl({ type: "user_message", text: "x".repeat(900_000) }, 1), tl({ type: "compaction", status: "completed", trigger: "auto", preTokens: 180_000 }, 2), tl(call("mcp__linear__list_issues", { type: "unknown", input: {}, output: "x".repeat(40_000) }), 3)];
+    const pages = [page(newer, true), page(older, true)];
+    const reads = fakeAgent(t, agent, pages);
+    await hook({ request: { agentId: "agent-1", workspaceId: null, provider: "claude", cwd: "/tmp", reason: "create", purpose: "interactive", env: {} } }, { paseo: t.api, signal: new AbortController().signal });
+    callLogQueries.length = 0;
+
+    const view = t.mod.ContextSchema.parse(await t.mod.handleContext({ agentId: "agent-1" }, { paseo: t.api }));
+    assert.equal(view.state, "ok");
+    assert.deepEqual([view.usedTokens, view.maxTokens, view.agent.title], [60_000, 200_000, "Fix the login bug"]);
+    assert.equal(reads.reads, 2, "the second page holds the compaction, so the count stops there");
+    assert.deepEqual(view.parts.map((p) => [p.id, p.kind]), [["base", "rest"], ["files", "estimate"], ["mcp", "estimate"], ["user", "estimate"]], "biggest first; the 900k-character message before the compaction is left out");
+    const filesTokens = Math.round((80_000 + "/home/paseo/app/src/big.ts".length) / 4);
+    assert.deepEqual(view.parts[1].top, [{ name: "src/big.ts", tokens: filesTokens }]);
+    assert.deepEqual(view.parts[2].top.map((x) => x.name), ["linear"]);
+    const listed = view.parts.slice(1).reduce((sum, p) => sum + p.tokens, 0);
+    const unlisted = 60_000 - listed - view.parts[0].tokens;
+    assert.ok(unlisted >= 0 && unlisted < 200, `the rest is the exact total minus every estimate, the few unlisted small ones included (${unlisted})`);
+    assert.equal(view.counted.overshoot, false);
+    assert.equal(view.counted.compactedAt, tl({}, 2).timestamp);
+    assert.match(view.hint, /turn off MCP servers this chat doesn't use/);
+    assert.deepEqual(callLogQueries.at(-1), { limit: "201", excludeTests: "1", apiKey: "k1" }, "this daemon's latest 200 requests, once");
+    assert.equal(view.router.state, "ok");
+    assert.deepEqual([view.router.requests, view.router.latest.tokensIn, view.router.first.tokensIn, view.router.complete], [1, 12_000, 12_000, true], "the session tag finds the chat's own request");
+    for (const text of [LEAK, SECRET]) assert.equal(JSON.stringify(view).includes(text), false, "only lengths and plain names leave the daemon: no command line, query, URL path or description");
+    noSecrets(view);
+
+    const queries = callLogQueries.length;
+    await t.mod.handleContext({ agentId: "agent-1" }, { paseo: t.api });
+    assert.deepEqual([reads.reads, callLogQueries.length], [2, queries], "the same total is served from memory");
+    await t.mod.handleContext({ agentId: "agent-1", refresh: true }, { paseo: t.api });
+    assert.equal(reads.reads, 4, "Refresh reads it again");
+    agent.lastUsage = { contextWindowUsedTokens: 400_000, contextWindowMaxTokens: 1_000_000 };
+    const moved = await t.mod.handleContext({ agentId: "agent-1" }, { paseo: t.api });
+    assert.deepEqual([reads.reads, moved.usedTokens, moved.parts[0].tokens > view.parts[0].tokens], [6, 400_000, true], "a new total is a new count");
+
+    // No compaction: OmniRoute's first request (12,000 in) measures the start; the gap is its own line.
+    agent.lastUsage = { contextWindowUsedTokens: 60_000, contextWindowMaxTokens: 200_000 };
+    fakeAgent(t, agent, [page(newer, false)]);
+    const measured = t.mod.ContextSchema.parse(await t.mod.handleContext({ agentId: "agent-1", refresh: true }, { paseo: t.api }));
+    assert.deepEqual(measured.parts.map((p) => [p.id, p.kind]), [["unseen", "rest"], ["files", "estimate"], ["base", "measured"], ["user", "estimate"]]);
+    assert.equal(measured.parts.find((p) => p.id === "base").tokens, 11_000, "12,000 measured less the chat's 1,000-token first message");
+
+    // A chat the router never saw: no router call at all.
+    const quiet = { ...agent, id: "agent-9", title: null };
+    fakeAgent(t, quiet, pages);
+    const before = callLogQueries.length;
+    const local = await t.mod.handleContext({ agentId: "agent-9" }, { paseo: t.api });
+    assert.deepEqual([local.state, local.router.state, callLogQueries.length], ["ok", "not-routed", before]);
+
+    // No turn yet: says so, reads nothing, and does not hold back the first real answer.
+    const fresh0 = { ...agent, id: "agent-new", lastUsage: undefined };
+    const noUse = fakeAgent(t, fresh0, pages);
+    const empty = await t.mod.handleContext({ agentId: "agent-new" }, { paseo: t.api });
+    assert.deepEqual([empty.state, noUse.reads], ["no-usage", 0]);
+    fresh0.lastUsage = { contextWindowUsedTokens: 30_000, contextWindowMaxTokens: 200_000 };
+    assert.equal((await t.mod.handleContext({ agentId: "agent-new" }, { paseo: t.api })).state, "ok", "no back-off after a no-usage answer");
+
+    // Paseo fails to read the timeline: an error, then a back-off until Refresh.
+    const broken = { ...agent, id: "agent-broken" };
+    const tries = fakeAgent(t, broken, async () => { throw new Error("daemon busy"); });
+    const failed = await t.mod.handleContext({ agentId: "agent-broken" }, { paseo: t.api });
+    assert.deepEqual([failed.state, failed.message], ["error", "daemon busy"]);
+    await t.mod.handleContext({ agentId: "agent-broken" }, { paseo: t.api });
+    assert.equal(tries.reads, 1, "backing off: no second read");
+    await t.mod.handleContext({ agentId: "agent-broken", refresh: true }, { paseo: t.api });
+    assert.equal(tries.reads, 2, "Refresh tries again at once");
+
+    // A very long chat: each page asks before the last one's start; ten pages, then it stops and says so.
+    const long = { ...agent, id: "agent-long" };
+    const cursors = [];
+    const pagesRead = fakeAgent(t, long, (options) => {
+      cursors.push(options.direction === "tail" ? "tail" : options.cursor.seq);
+      const top = options.direction === "tail" ? 5_000 : options.cursor.seq - 1;
+      return page([tl({ type: "assistant_message", text: "x".repeat(400) }, top - 1), tl({ type: "assistant_message", text: "x".repeat(400) }, top)], true);
+    });
+    const capped = await t.mod.handleContext({ agentId: "agent-long" }, { paseo: t.api });
+    assert.deepEqual([pagesRead.reads, capped.counted.capped, capped.counted.items], [10, true, 20]);
+    assert.deepEqual(cursors, ["tail", 4_999, 4_997, 4_995, 4_993, 4_991, 4_989, 4_987, 4_985, 4_983], "each page starts where the last one began");
+
+    // The timeline changes between pages (the agent reloaded): the count starts over once, then gives up with a reason.
+    const moving = { ...agent, id: "agent-moving" };
+    let resets = 1;
+    const movingReads = fakeAgent(t, moving, (options) => (options.direction === "tail"
+      ? page([tl({ type: "user_message", text: "x".repeat(4_000) }, 9)], true)
+      : { ...page([tl({ type: "user_message", text: "x".repeat(4_000) }, 3)], false), reset: resets-- > 0 }));
+    const moved2 = await t.mod.handleContext({ agentId: "agent-moving" }, { paseo: t.api });
+    assert.deepEqual([moved2.state, movingReads.reads, moved2.parts.find((p) => p.id === "user").tokens], ["ok", 4, 2_000], "counted once, after one restart");
+    const always = { ...agent, id: "agent-always-moving" };
+    fakeAgent(t, always, (options) => (options.direction === "tail" ? page([tl({ type: "user_message", text: "x" }, 9)], true) : { ...page([], false), staleCursor: true }));
+    const gaveUp = await t.mod.handleContext({ agentId: "agent-always-moving" }, { paseo: t.api });
+    assert.deepEqual([gaveUp.state, gaveUp.message], ["error", "The chat's history changed while it was being read; try Refresh."]);
+
+    const gone = await t.mod.handleContext({ agentId: "agent-missing" }, { paseo: t.api });
+    assert.equal(gone.state, "error");
+    assert.match(gone.message, /no such agent/);
+    assert.deepEqual(await t.mod.handleBadge(), { enabled: true }, "the badge is on by default");
+    routingDoc(t.dir, { routeAgents: true, contextBadge: false });
+    assert.deepEqual(await t.mod.handleBadge(), { enabled: false });
+    t.restore();
+    passed += 1;
+  }
+  {
+    // Key only: the breakdown still works; the router part says what a read token adds, and asks nothing.
+    const t = await fresh("context-basic", { router: "omniroute", endpoint: LIVE, apiKey: KEY });
+    routingDoc(t.dir, { routeAgents: true });
+    let hook;
+    t.mod.registerRoutingHooks({ before: (name, handler) => { if (name === "agent.session_open") hook = handler; }, on() {} });
+    const agent = { id: "agent-b", provider: "claude", cwd: "/tmp", model: "claude-sonnet-5", title: null, createdAt: new Date().toISOString(), lastUsage: { contextWindowUsedTokens: 42_000, contextWindowMaxTokens: 200_000 } };
+    fakeAgent(t, agent, [page([tl({ type: "user_message", text: "hi" }, 1)], false)]);
+    await hook({ request: { agentId: "agent-b", workspaceId: null, provider: "claude", cwd: "/tmp", reason: "create", purpose: "interactive", env: {} } }, { paseo: t.api, signal: new AbortController().signal });
+    const before = callLogQueries.length;
+    const view = t.mod.ContextSchema.parse(await t.mod.handleContext({ agentId: "agent-b" }, { paseo: t.api }));
+    assert.deepEqual([view.state, view.router.state, callLogQueries.length], ["ok", "no-token", before]);
+    assert.deepEqual(view.parts.map((p) => [p.id, p.tokens]), [["base", 41_999]], "a fresh chat: nearly all of it is loaded before anything is said");
+    t.restore();
+    passed += 1;
+  }
+  {
+    // Recommended plugins already on this daemon, from its plugin sources.
+    const t = await fresh("plugins", full);
+    t.restore();
+    assert.deepEqual((await t.mod.handleStatus({}, { paseo: t.api })).plugins, { installed: [] }, "no sources file: nothing installed");
+    mkdirSync(join(t.dir, "plugins"), { recursive: true });
+    writeFileSync(join(t.dir, "plugins", "sources.json"), JSON.stringify({ "paseo-mcp": { source: "git:x" }, "shared-browser": { source: "npm:y" }, "ai-router": { source: "git:z" } }));
+    const status = t.mod.StatusSchema.parse(await t.mod.handleStatus({}, { paseo: t.api }));
+    assert.deepEqual(status.plugins, { installed: ["paseo-mcp", "shared-browser"] }, "only recommended ids, in the Tips order");
+    passed += 1;
+  }
+
   // ---------------------------------------------------------- public address
   {
     // A working public address: "HTTP OK" (the fake is plain http), and Open dashboard goes there.

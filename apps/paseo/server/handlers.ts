@@ -2,12 +2,13 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput } from "@getpaseo/plugin";
 import type { Status, connectionTest } from "../shared/contracts";
 import { accessTier, agentIdFromTag, connectionProblem, maskSecret, mergeConnection, privateDashboardUrl, publicAddress, tunnelDashboardUrl } from "../shared/logic";
+import { RECOMMENDED_PLUGINS } from "../shared/plugins";
 import { linkAgents } from "../shared/routers/omniroute/parsers";
 import { getLastSession } from "./hooks";
 import { checkAutoSync, listOwnProfiles, noteActivity, providerState, setCodexRouter, syncAiProvider, testProviderModel } from "./provider";
 import { listProviders, setProviderEnabled, tidyProviders } from "./providers";
 import { adapterFor } from "./routers";
-import { clearConnection, readConnection, readProviderEntries, readRoutingSettings, readSessionLog, settingsDir, writeConnection } from "./store";
+import { clearConnection, installedPluginIds, readConnection, readProviderEntries, readRoutingSettings, readSessionLog, settingsDir, writeConnection } from "./store";
 
 /** The panel polls every 20s; a check younger than this is served from cache. */
 const PANEL_HEALTH_MAX_AGE_MS = 15_000;
@@ -32,6 +33,7 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
   ]);
   clearTimeout(timer);
   const tunnel = router.knownTunnel(connection);
+  const installed = installedPluginIds();
   return {
     connection: {
       source: connection.source,
@@ -66,6 +68,7 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
     },
     codexRouter: { present: entries?.codexRouter.present ?? false, modelCount: entries?.codexRouter.modelCount ?? 0 },
     settingsDir: settingsDir(),
+    plugins: { installed: RECOMMENDED_PLUGINS.map((plugin) => plugin.id).filter((id) => installed.has(id)) },
   };
 }
 
@@ -142,9 +145,25 @@ export const handleAccess = async ({ refresh }: { refresh?: boolean }) => { cons
 export const handleCompression = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).compression(c, refresh === true); };
 export const handleCompressionApply = async () => { const c = await current(); return adapterFor(c.router).applyRecommendedCompression(c); };
 
-/** Agent titles and models from Paseo, for naming sessions and requests. Never waits more than 2 s. */
-async function agentsById(paseo: PluginHandlerContext["paseo"]): Promise<Map<string, { title: string | null; model: string | null }>> {
-  const byId = new Map<string, { title: string | null; model: string | null }>();
+type AgentNames = Map<string, { title: string | null; model: string | null }>;
+/** Activity refreshes every 10 s; Paseo's whole agent list is read at most this often. */
+const AGENTS_MAX_AGE_MS = 20_000;
+let agentsSeen: { at: number; value: Promise<AgentNames> } | null = null;
+
+/** Agent titles and models from Paseo, shared by Activity polls for 20 s. An empty or late answer is not reused. */
+function agentsById(paseo: PluginHandlerContext["paseo"]): Promise<AgentNames> {
+  if (agentsSeen && Date.now() - agentsSeen.at <= AGENTS_MAX_AGE_MS) return agentsSeen.value;
+  const entry = { at: Date.now(), value: listAgents(paseo) };
+  agentsSeen = entry;
+  void entry.value.then((names) => {
+    if (!names.size && agentsSeen === entry) agentsSeen = null;
+  });
+  return entry.value;
+}
+
+/** Never waits more than 2 s. */
+async function listAgents(paseo: PluginHandlerContext["paseo"]): Promise<AgentNames> {
+  const byId: AgentNames = new Map();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const listed = await Promise.race([

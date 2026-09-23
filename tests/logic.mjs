@@ -451,10 +451,13 @@ try {
     assert.equal(L.withProviderEntries(JSON.stringify({ version: 1, daemon: { agentProfiles: {} } }), {}, [profile]).ok, false);
   });
 
-  check("the combo profiles switch defaults on and survives old settings documents", () => {
-    assert.deepEqual(L.parseRoutingEnvelope(null), { routeAgents: false, comboProfiles: true });
-    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: true } })), { routeAgents: true, comboProfiles: true });
-    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: false, comboProfiles: false } })), { routeAgents: false, comboProfiles: false });
+  check("the switches default on and survive old settings documents; routing stays as saved", () => {
+    const on = { contextBadge: true, mcpCard: true };
+    assert.deepEqual(L.parseRoutingEnvelope(null), { routeAgents: false, comboProfiles: true, ...on });
+    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: true } })), { routeAgents: true, comboProfiles: true, ...on }, "a 0.7 document keeps routing on and gains the new switches");
+    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: false, comboProfiles: false } })), { routeAgents: false, comboProfiles: false, ...on });
+    assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: true, contextBadge: false, mcpCard: false } })), { routeAgents: true, comboProfiles: true, contextBadge: false, mcpCard: false });
+    assert.equal(L.ROUTING_SETTINGS_VERSION, 1, "a new version would read every saved document as newer and turn routing off");
   });
 
   check("public address: stored as consoleUrl, read as its origin, dashboard beneath it", () => {
@@ -538,6 +541,149 @@ try {
     assert.deepEqual(L.parseSessionLog(JSON.stringify(mixed)).map((e) => [e.agentId, e.routed, e.reason]), [["agent-1", true, null], ["agent-3", false, "no API key set"]], "only well-formed entries are kept");
     const big = Array.from({ length: 250 }, (_, i) => entry(i));
     assert.equal(L.parseSessionLog(JSON.stringify(big)).length, 200, "a longer file is cut to the last 200");
+  });
+
+  // ------------------------------------------------------ context badge
+  const ctxSource = readFileSync(new URL("../apps/paseo/shared/context.ts", import.meta.url), "utf8");
+  writeFileSync(join(staging, "context.mjs"), ts.transpileModule(ctxSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  const X = await import(join(staging, "context.mjs"));
+  const pluginsSource = readFileSync(new URL("../apps/paseo/shared/plugins.ts", import.meta.url), "utf8");
+  writeFileSync(join(staging, "plugins.mjs"), ts.transpileModule(pluginsSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  const P = await import(join(staging, "plugins.mjs"));
+
+  check("badge label, tint and the reported window", () => {
+    assert.deepEqual([950, 4_200, 9_960, 186_204, 999_400, 1_000_000, 1_200_000].map(X.formatTokens), ["950", "4.2k", "10k", "186k", "999k", "1M", "1.2M"]);
+    assert.equal(X.badgeLabel(186_204, 1_000_000), "186k / 1M");
+    assert.deepEqual([[100, 1000], [599, 1000], [600, 1000], [849, 1000], [850, 1000]].map(([u, m]) => X.contextTone(u, m)), ["neutral", "neutral", "warning", "warning", "danger"]);
+    assert.deepEqual(X.usageOf({ contextWindowUsedTokens: 186_204, contextWindowMaxTokens: 1_000_000, inputTokens: 3 }), { used: 186_204, max: 1_000_000 });
+    for (const none of [undefined, null, {}, { contextWindowUsedTokens: 0, contextWindowMaxTokens: 1000 }, { contextWindowUsedTokens: 5 }, { contextWindowUsedTokens: "5", contextWindowMaxTokens: 10 }]) assert.equal(X.usageOf(none), null, JSON.stringify(none));
+  });
+
+  check("MCP tool names: the server is everything up to the last __", () => {
+    assert.equal(X.mcpServerOf("mcp__paseo__create_agent"), "paseo");
+    assert.equal(X.mcpServerOf("mcp__claude_ai_Claude_Docs__batch"), "claude_ai_Claude_Docs");
+    assert.equal(X.mcpServerOf("mcp__IKIT__Attio__create_note"), "IKIT: Attio");
+    assert.equal(X.mcpServerOf("Read"), null);
+    assert.equal(X.mcpServerOf("mcp__broken"), null);
+  });
+
+  const at = (item, seq, timestamp = "2026-09-23T10:00:00.000Z") => ({ item, seqStart: seq, seqEnd: seq, timestamp });
+  const tool = (name, detail) => ({ type: "tool_call", callId: name, name, status: "completed", error: null, detail });
+  const chars = (n) => "x".repeat(n);
+
+  check("the timeline is sorted into parts, newest first, stopping at a compaction", () => {
+    const tally = X.createTally();
+    const cwd = "/home/paseo/projects/app";
+    const newestFirst = [
+      at({ type: "assistant_message", text: chars(400) }, 9),
+      at(tool("mcp__IKIT__Attio__query_records", { type: "unknown", input: { q: "x" }, output: chars(8_000) }), 8),
+      at(tool("Read", { type: "read", filePath: `${cwd}/src/big.ts`, content: chars(40_000) }), 7),
+      at(tool("Read", { type: "read", filePath: "/etc/hosts", content: chars(400) }), 6),
+      at(tool("Bash", { type: "shell", command: "npm test\n# second line", output: chars(12_000) }), 5),
+      at(tool("Edit", { type: "edit", filePath: `${cwd}/src/a.ts`, oldString: chars(100), newString: chars(300) }), 4),
+      at(tool("WebFetch", { type: "fetch", url: "https://docs.example.com/page", result: chars(2_000) }), 3),
+      at(tool("worktree", { type: "worktree_setup", worktreePath: "/w", branchName: "b", log: chars(50_000), commands: [] }), 2),
+      at({ type: "reasoning", text: chars(90_000) }, 2),
+      at({ type: "user_message", text: chars(800) }, 1),
+      at({ type: "compaction", status: "completed", trigger: "auto", preTokens: 700_000 }, 0, "2026-09-23T09:00:00.000Z"),
+      at({ type: "user_message", text: chars(999_999) }, -1),
+    ];
+    let going = true;
+    for (const entry of newestFirst) if (going) going = X.tallyEntry(tally, entry, cwd);
+    assert.equal(going, false, "the compaction ends the count");
+    assert.deepEqual(tally.compaction, { at: "2026-09-23T09:00:00.000Z", preTokens: 700_000 });
+    assert.equal(tally.parts.user.chars, 800, "what came before the compaction is not counted");
+    assert.equal(tally.parts.files.chars, 40_000 + `${cwd}/src/big.ts`.length + 400 + "/etc/hosts".length);
+    assert.deepEqual([...tally.parts.files.by.keys()], ["src/big.ts", "/etc/hosts"], "paths inside the agent's folder are relative");
+    assert.deepEqual([...tally.parts.shell.by.keys()], ["npm"], "a command is named by its program, never its arguments");
+    assert.deepEqual([...tally.parts.mcp.by.keys()], ["IKIT: Attio"]);
+    assert.deepEqual([...tally.parts.web.by.keys()], ["docs.example.com"]);
+    assert.equal(tally.parts.edits.chars, 400);
+    assert.equal(tally.parts.tools.chars, 0, "Paseo's worktree setup never reaches the model");
+    assert.equal(Object.values(tally.parts).some((p) => p.chars >= 90_000), false, "thinking is not counted");
+  });
+
+  check("names never carry chat text: programs, tool names, hosts and agent types only", () => {
+    const SECRET = "sk-live-SECRET-0123";
+    assert.equal(X.programOf(`curl -H "Authorization: Bearer ${SECRET}" https://x`), "curl");
+    assert.equal(X.programOf(`API_KEY=${SECRET} FOO=1 sudo /usr/bin/python3 run.py`), "python3");
+    assert.equal(X.programOf("$(cat secret)"), null);
+    assert.equal(X.programOf(""), null);
+    const tally = X.createTally();
+    X.tallyEntry(tally, at(tool("Bash", { type: "shell", command: `curl -H "Authorization: Bearer ${SECRET}"`, output: "x" }), 5), null);
+    X.tallyEntry(tally, at(tool("Grep", { type: "search", toolName: "grep", query: SECRET, content: "x" }), 4), null);
+    X.tallyEntry(tally, at(tool("WebSearch", { type: "search", toolName: "web_search", query: SECRET, content: "x" }), 3), null);
+    X.tallyEntry(tally, at(tool("WebFetch", { type: "fetch", url: `https://docs.example.com/${SECRET}?key=${SECRET}`, result: "x" }), 2), null);
+    X.tallyEntry(tally, at(tool("WebFetch", { type: "fetch", url: `not a url ${SECRET}`, result: "x" }), 2), null);
+    X.tallyEntry(tally, at(tool("Task", { type: "sub_agent", subAgentType: "general-purpose", description: `use ${SECRET}`, log: "x" }), 1), null);
+    X.tallyEntry(tally, at(tool(`weird tool ${SECRET}`, { type: "unknown", input: {}, output: "x" }), 0), null);
+    const names = Object.values(tally.parts).flatMap((part) => [...part.by.keys()]);
+    assert.deepEqual(names.sort(), ["curl", "docs.example.com", "general-purpose", "grep", "web search"].sort());
+    assert.equal(JSON.stringify(names).includes("SECRET"), false);
+  });
+
+  check("the breakdown: biggest first, the rest from the exact total, one hint for the top part", () => {
+    const tally = X.createTally();
+    X.tallyEntry(tally, at(tool("Read", { type: "read", filePath: "/a/big.ts", content: chars(200_000) }), 3), null);
+    X.tallyEntry(tally, at({ type: "user_message", text: chars(8_000) }, 2), null);
+    X.tallyEntry(tally, at({ type: "assistant_message", text: chars(2_000) }, 1), null);
+    const view = X.buildBreakdown({ used: 100_000, max: 1_000_000, tally });
+    assert.deepEqual(view.parts.map((p) => [p.id, p.tokens, p.kind]), [["files", 50_002, "estimate"], ["base", 47_498, "rest"], ["user", 2_000, "estimate"]], "a 500-token reply (under 1 % and under 1k) is left off the list");
+    assert.equal(view.estimated, 52_502, "but still counted, so the rest stays honest");
+    assert.equal(view.overshoot, false);
+    assert.match(view.hint, /Whole-file reads stay in context/);
+    assert.equal(view.urgent, null);
+    assert.deepEqual(view.parts[0].top, [{ name: "/a/big.ts", tokens: 50_002 }]);
+
+    const bare = X.buildBreakdown({ used: 60_000, max: 200_000, tally: X.createTally(), codex: true });
+    assert.deepEqual(bare.parts.map((p) => p.id), ["base"], "a fresh chat is all system prompt and tools");
+    assert.match(bare.hint, /turn off MCP servers this chat doesn't use/);
+    assert.match(bare.hint, /AGENTS\.md/, "Codex reads AGENTS.md");
+
+    const full = X.buildBreakdown({ used: 190_000, max: 200_000, tally: X.createTally() });
+    assert.match(full.urgent, /Nearly full/);
+
+    const over = X.createTally();
+    X.tallyEntry(over, at({ type: "user_message", text: chars(800_000) }, 1), null);
+    const rough = X.buildBreakdown({ used: 100_000, max: 1_000_000, tally: over });
+    assert.equal(rough.overshoot, true);
+    assert.deepEqual(rough.parts.map((p) => p.id), ["user"], "no negative rest");
+
+    // With OmniRoute's size of the first request, the start is measured and the gap gets its own line.
+    const chat = X.createTally();
+    X.tallyEntry(chat, at(tool("Read", { type: "read", filePath: "/a/big.ts", content: chars(120_000) }), 2), null);
+    const measured = X.buildBreakdown({ used: 100_000, max: 1_000_000, tally: chat, measuredBase: 41_000 });
+    assert.deepEqual(measured.parts.map((p) => [p.id, p.kind, p.tokens]), [["base", "measured", 41_000], ["files", "estimate", 30_002], ["unseen", "rest", 28_998]]);
+    assert.match(measured.parts[0].note, /Measured by OmniRoute/);
+    const tight = X.buildBreakdown({ used: 50_000, max: 1_000_000, tally: chat, measuredBase: 41_000 });
+    assert.deepEqual(tight.parts.map((p) => [p.id, p.tokens]), [["files", 30_002], ["base", 19_998]], "never more than the total leaves room for");
+    // The first request carried the first message too, which "Your messages" counts: it comes off the measurement once.
+    const opened = X.createTally();
+    X.tallyEntry(opened, at(tool("Read", { type: "read", filePath: "/a/big.ts", content: chars(120_000) }), 3), null);
+    X.tallyEntry(opened, at({ type: "user_message", text: chars(400) }, 2), null);
+    X.tallyEntry(opened, at({ type: "user_message", text: chars(8_000) }, 1), null);
+    const lessFirst = X.buildBreakdown({ used: 100_000, max: 1_000_000, tally: opened, measuredBase: 41_000 });
+    assert.equal(lessFirst.parts.find((p) => p.id === "base").tokens, 39_000, "41,000 measured less the 2,000-token first message");
+    assert.equal(lessFirst.parts.find((p) => p.id === "user").tokens, 2_100);
+    opened.capped = true;
+    assert.equal(X.buildBreakdown({ used: 100_000, max: 1_000_000, tally: opened, measuredBase: 41_000 }).parts.find((p) => p.id === "base").kind, "rest", "a count cut short may hide a compaction: no measurement");
+    const compacted = X.createTally();
+    X.tallyEntry(compacted, at({ type: "compaction", status: "completed", preTokens: 150_000 }, 1), null);
+    const after = X.buildBreakdown({ used: 30_000, max: 200_000, tally: compacted, measuredBase: 41_000 });
+    assert.deepEqual(after.parts.map((p) => [p.id, p.kind]), [["base", "rest"]], "after a compaction the first request no longer describes the start");
+    assert.match(after.parts[0].label, /compaction summary/);
+
+    const mcp = X.createTally();
+    X.tallyEntry(mcp, at(tool("mcp__linear__list_issues", { type: "unknown", output: chars(80_000) }), 1), null);
+    assert.match(X.buildBreakdown({ used: 30_000, max: 200_000, tally: mcp }).hint, /MCP results from linear are the biggest part/);
+  });
+
+  check("recommended plugins: Paseo Cafe ids, one install command each", () => {
+    const ids = P.RECOMMENDED_PLUGINS.map((p) => p.id);
+    assert.deepEqual(ids, ["paseo-mcp", "smart-session", "shared-browser", "activity", "advanced-markdown", "remote-editor", "tell-agent"]);
+    assert.equal(new Set(ids).size, ids.length);
+    for (const plugin of P.RECOMMENDED_PLUGINS) assert.match(plugin.install, /^paseo plugin add \S+/, plugin.id);
+    assert.equal(P.paseoCafeUrl("tell-agent"), "https://paseo.cafe/plugins/tell-agent/");
   });
 
   console.log(`logic: ${passed} checks passed`);

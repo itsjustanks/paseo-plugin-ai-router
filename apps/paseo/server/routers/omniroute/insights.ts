@@ -69,12 +69,16 @@ async function read(connection: Connection, path: string, write?: { method: stri
 }
 
 // Answers are cached per endpoint + token in this process only; nothing is written to disk.
+// Every Activity filter is its own key, so entries older than any reader would reuse are dropped.
 const cache = new Map<string, { at: number; value: Promise<unknown> }>();
+const CACHE_KEEP_MS = 10 * 60_000;
 function cached<T>(key: string, maxAgeMs: number, load: () => Promise<T>): Promise<T> {
+  const now = Date.now();
   const hit = cache.get(key);
-  if (hit && maxAgeMs > 0 && Date.now() - hit.at <= maxAgeMs) return hit.value as Promise<T>;
+  if (hit && maxAgeMs > 0 && now - hit.at <= maxAgeMs) return hit.value as Promise<T>;
+  for (const [old, entry] of cache) if (now - entry.at > CACHE_KEEP_MS) cache.delete(old);
   const value = load();
-  cache.set(key, { at: Date.now(), value });
+  cache.set(key, { at: now, value });
   return value;
 }
 

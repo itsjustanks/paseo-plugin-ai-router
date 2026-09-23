@@ -20,11 +20,11 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, badgeRegistryCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
-const BASIC_TABS = ["Overview", "Activity", "Models", "Providers", "Connection"];
-const ALL_TABS = ["Overview", "Activity", "Models", "Providers", "Accounts", "Usage", "Settings", "Connection"];
+const BASIC_TABS = ["Overview", "Activity", "Models", "Providers", "Settings", "Connection", "Tips"];
+const ALL_TABS = ["Overview", "Activity", "Models", "Providers", "Accounts", "Usage", "Settings", "Connection", "Tips"];
 const H = {
   Overview: "Is traffic going through the router, and what to do next.",
   Activity: "What went through the router: each agent session on this daemon",
@@ -32,9 +32,12 @@ const H = {
   Providers: "Every agent provider on this daemon, and which ones can go through OmniRoute.",
   Accounts: "Each connected subscription, how much it has left",
   Usage: "Usage & analytics: requests, tokens, cost and failures across the router",
-  Settings: "How the router compresses prompts",
+  Settings: "What AI Router adds to Paseo",
   Connection: "Which router this daemon uses, the keys it holds",
+  Tips: "Recommended plugins to level up your Paseo, from Paseo Cafe.",
 };
+const IN_PASEO = ["In Paseo", "Context badge on each chat", "amber from 60 %, red from 85 %", "Needs no read token", "\"Check out MCP\" card on Overview"];
+const MCP = ["Check out MCP", "Manage MCP servers for Claude Code, Codex and your other agents in one place — sign-ins, tools and per-workspace switches.", "View plugin"];
 const ADVANCED = "Advanced routing (combos, fallbacks, per-provider rules) lives in the OmniRoute dashboard";
 const expected = {
   "setup (not connected, opens on Connection)": [H.Connection, "Not connected yet. Routing stays off", "Set up", "Four steps, about two minutes", "turn routing on in Overview", "1. Choose your router", "OmniRoute", "2. Endpoint URL", "http://10.0.0.5:20128", "3. API key", "named after it, so usage shows per daemon", "4. Test connection & save", "Nothing is saved until it does"],
@@ -100,13 +103,38 @@ const expected = {
   "router settings (no token)": ["Router settings: read token needed", "Add a read token to see the router's settings."],
   "usage tab": ["Requests per day", "Top models", "By daemon", "this daemon", "daemon-a"],
   "usage tab (no token)": ["Usage: read token needed", "Add a read-only access token"],
+  "overview (MCP card)": [...MCP, "Copy install source", "Hide"],
+  "overview (MCP installed, narrow)": [...MCP, "Installed"],
+  "overview (hide the MCP card)": ["MCP card hidden. Settings → In Paseo brings it back."],
+  "tips tab (operator)": [H.Tips, "Recommended plugins", "0 of 7 installed on this daemon", "Plugins run with the daemon's own access", "Paseo MCP", "by itsjustanks", "Smart Session", "Records Claude plan-usage history", "paseo plugin add npm:paseo-smart-session@1.2.3", "Shared Browser", "Activity", "Advanced Markdown", "Mermaid", "Remote Editor", "--ref 56bc4056630ebd766395ba3e71c6d92268e95f59", "Tell Agent", "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git", "View on Paseo Cafe", "Copy install command", "Browse every plugin on Paseo Cafe"],
+  "tips tab (admin, two installed, copy one)": ["2 of 7 installed on this daemon", "Installed", "Copied the Smart Session install command"],
+  "tips tab (not connected)": [H.Tips, "0 of 7 installed"],
+  "settings tab (basic)": [H.Settings, ...IN_PASEO, "Router settings", "A read token shows how the router compresses prompts", "Add a read token on Connection"],
+  "settings tab (not connected)": [...IN_PASEO, "Connect a router to see its settings.", "Open Connection"],
+  "settings tab (badge off)": ["Context badge off.", "Context compression"],
+  "context chip": ["186k / 1M"],
+  "context chip (nearly full)": ["190k / 200k"],
+  "context panel (operator)": ["Context", "Fix the login bug", "186,204 of 1,000,000 tokens", "19% full", "Exact: as the agent reported it after its last turn.", "What's using it", "Biggest first.", "MCP tool results", "IKIT: Attio ≈ 50k", "linear", "Files read", "package-lock.json ≈ 40k", "src/server/handlers.ts ≈ 24k", "System prompt, tools and instructions", "40k · 21% · measured", "Measured by OmniRoute: the chat's first request, less its first message (counted under your messages).", "Not in the chat's history", "the rest", "images, attachments, and tool output Paseo keeps shorter", "Command output", "npm ≈", "Web pages and web searches", "docs.example.com", "Tip: Whole-file reads stay in context: ask for just the lines you need", "Measured by OmniRoute", "Latest request: 185,004 tokens in (claude-opus-5-5", "First request: 41,300 tokens in", "the system prompt, tools and instructions, plus the first message", "Thinking isn't counted, and images and attachments aren't in the chat's history", "Refresh", "Hide the context badge"],
+  "context panel (compacted, nearly full, narrow)": ["86% full", "Nearly full: compact the chat now (/compact)", "Counted since the chat was last compacted", "System prompt, tools, instructions and the compaction summary", "a summary of what came before"],
+  "context panel (basic)": ["58,400 of 200,000 tokens", "A read token adds what OmniRoute measured for this chat"],
+  "context panel (no turn yet)": ["No context size yet", "the agent reports it after a turn"],
+  "context panel (timeline error, refresh)": ["Couldn't read this chat's context", "Reading the chat's timeline took longer than 8 s"],
+  "context panel (hide the badge)": ["Context badge off for this daemon. AI Router → Settings → In Paseo turns it back on."],
 };
 
 /** Text a state must NOT show: a hidden tier feature, or a fact that moved. */
 const absent = {
-  "setup (not connected, opens on Connection)": ["Accounts", "Usage", "Settings"],
+  "setup (not connected, opens on Connection)": ["Accounts", "Usage"],
   "connection tab (operator, private dashboard)": ["Starting a tunnel makes", "password"],
-  "overview (basic)": ["Accounts", "Usage", "Settings"],
+  "overview (basic)": ["Accounts", "Usage"],
+  "overview (MCP installed, narrow)": ["Copy install source"],
+  "overview (hide the MCP card)": ["Check out MCP"],
+  "tips tab (admin, two installed, copy one)": ["npm:@omercnet/paseo-shared-browser"],
+  "settings tab (basic)": ["Context compression", "More in OmniRoute"],
+  "settings tab (not connected)": ["Connect a router first"],
+  "context panel (operator)": ["Nearly full", "A read token adds", "PROMPT"],
+  "context panel (basic)": ["Latest request", "First request", "· measured"],
+  "context panel (compacted, nearly full, narrow)": ["· measured"],
   "overview (admin, tunnel)": ["More with"],
   "overview (router down)": ["Up · "],
   "accounts tab (operator)": ["Check now", "Check all", "Refresh token"],
@@ -133,7 +161,9 @@ const expectedTabs = {
     Activity: [H.Activity, "Agent sessions on this daemon", "More with a read token"],
     Models: [H.Models, "Your access"],
     Providers: [H.Providers, "Tidy up"],
+    Settings: [H.Settings, "In Paseo", "A read token shows how the router compresses prompts"],
     Connection: [H.Connection, "More access (optional)"],
+    Tips: [H.Tips, "Paseo MCP"],
   },
   "tab walk (operator)": {
     Overview: [H.Overview, "Up · 12 ms", "Read token"],
@@ -142,8 +172,9 @@ const expectedTabs = {
     Providers: [H.Providers, "Agent providers on this daemon"],
     Accounts: [H.Accounts, "3 accounts · 3 healthy"],
     Usage: [H.Usage, "Requests per day", "By account"],
-    Settings: [H.Settings, "Context compression", "More in OmniRoute"],
+    Settings: [H.Settings, "In Paseo", "Context compression", "More in OmniRoute"],
     Connection: [H.Connection, "More access (optional)", "Check now"],
+    Tips: [H.Tips, "0 of 7 installed"],
   },
   "tab walk (admin)": {
     Overview: ["Up · Claude paused", "Accounts →"],
@@ -154,6 +185,7 @@ const expectedTabs = {
     Usage: ["By daemon", "Top models"],
     Settings: ["Apply recommended…", "Reset circuit breakers and model cooldowns"],
     Connection: ["Saved …89ab", "OmniRoute's tunnels"],
+    Tips: ["Recommended plugins"],
   },
   "tab walk (router down)": {
     Overview: ["OmniRoute unreachable — last seen", "Open Connection"],
@@ -164,13 +196,16 @@ const expectedTabs = {
     Usage: [H.Usage],
     Settings: [H.Settings, "Context compression"],
     Connection: [H.Connection, "connection refused", "Check now"],
+    Tips: [H.Tips],
   },
   "tab walk (not connected)": {
     Overview: [H.Overview, ...notConnected],
     Activity: [H.Activity, "Agent sessions on this daemon", "Once a router is connected"],
     Models: [H.Models, ...notConnected],
     Providers: [H.Providers, "Agent providers on this daemon"],
+    Settings: [H.Settings, "In Paseo", "Connect a router to see its settings."],
     Connection: [H.Connection, "1. Choose your router", "4. Test connection & save"],
+    Tips: [H.Tips, "Smart Session"],
   },
 };
 const walkTabs = { "tab walk (basic)": BASIC_TABS, "tab walk (operator)": ALL_TABS, "tab walk (admin)": ALL_TABS, "tab walk (router down)": ALL_TABS, "tab walk (not connected)": BASIC_TABS };
@@ -207,6 +242,21 @@ for (const name of Object.keys(mounts)) {
   } finally {
     console.error = original;
   }
+}
+
+try {
+  const seen = await badgeRegistryCheck();
+  assert.deepEqual(seen.first, { added: ["a"], opened: 1 }, "a chip only for a chat that reported its window; none before a turn or once archived; it opens the panel");
+  assert.deepEqual(seen.afterTurn, ["a", "b"], "a later turn does not add a second chip; a chat's first report adds its chip");
+  assert.deepEqual(seen.offRemoved, ["a", "b"], "switching the badge off removes every chip at once");
+  assert.equal(seen.backOn, 4, "switching it on again brings them back");
+  assert.deepEqual(seen.removedAll, ["a", "a", "b", "b"], "a removed agent loses its chip, and stopping removes the rest");
+  assert.ok(seen.rpcCalls <= 4, `the switch is read on demand, not per update (${seen.rpcCalls} reads)`);
+  assert.deepEqual([seen.whileOut, seen.slowReads, seen.afterStop], [1, 2, 2], "three presses during a slow read: one read out, one queued, and nothing after stopping");
+  console.log(`ok   context badge registry (${seen.rpcCalls} switch reads)`);
+} catch (error) {
+  failed += 1;
+  console.error(`FAIL context badge registry: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 if (failed) {

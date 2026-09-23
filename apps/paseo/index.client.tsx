@@ -1,4 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { CONTEXT_PANEL_ID, createBadgeStore, makeContextPanel, registerContextBadges } from "./client/context";
 import { AiRouterSurface } from "./client/surface";
 import { ensure } from "./shared/contracts";
 
@@ -18,5 +19,25 @@ export default function contribute(client: PluginClientContext) {
       openSurface("ai-router");
     },
   });
-  return () => {};
+  // The context badge: a chip on each chat, and the panel it opens.
+  const badges = createBadgeStore();
+  client.addWorkspacePanel({
+    id: CONTEXT_PANEL_ID,
+    title: "Context",
+    icon: "Gauge",
+    context: "agent",
+    locations: ["workspace", "explorer"],
+    Component: makeContextPanel(badges),
+  });
+  client.addCommandCenterItem({
+    id: "open-context",
+    title: "Context used in this chat",
+    icon: "Gauge",
+    keywords: ["context", "tokens", "window", "compact", "mcp", "size"],
+    context: "agent",
+    onSelect({ openPanel }) {
+      openPanel(CONTEXT_PANEL_ID);
+    },
+  });
+  return registerContextBadges(client, badges);
 }

@@ -13,8 +13,9 @@ import { AiRouterSurface } from "../../client/surface";
 import { RouterSettingsCard } from "../../client/insights";
 import { UsageTab } from "../../client/analytics";
 import type { TabId } from "../../client/navigation";
+import { createBadgeStore, makeContextChip, makeContextPanel, recheckBadges, registerContextBadges } from "../../client/context";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
-import { releaseRpc, setAccessFixture, setActivityFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import { releaseRpc, setAccessFixture, setActivityFixture, setCompressionFixture, setContextFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -34,6 +35,23 @@ const surface = (status: string, layout: { compact: boolean; platform: "web" | "
   if (pick.profiles) setProfilesFixture(pick.profiles);
   if (pick.activity) setActivityFixture(pick.activity);
   return <AiRouterSurface {...base} layout={layout} initialTab={pick.tab} />;
+};
+
+/** The agent panel the chip opens, for one fixture; the store holds that chat's reported total. */
+const contextPanel = (fixture: string, usage: { used: number; max: number } | null, layout: { compact: boolean; platform: "web" | "ios" } = wide) => () => {
+  setStatusFixture("routing on");
+  setContextFixture(fixture);
+  const store = createBadgeStore();
+  store.set("agent-7", "ws-1", usage);
+  const Panel = makeContextPanel(store);
+  return <Panel {...base} layout={layout} context="agent" workspaceId="ws-1" agentId="agent-7" />;
+};
+const contextChip = (used: number, max: number) => () => {
+  setStatusFixture("routing on");
+  const store = createBadgeStore();
+  store.set("agent-7", "ws-1", { used, max });
+  const Chip = makeContextChip(store);
+  return <Chip {...base} layout={wide} workspaceId="ws-1" agentId="agent-7" />;
 };
 
 export const mounts: Record<string, () => React.ReactElement> = {
@@ -97,6 +115,25 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "settings tab (operator, stacked compression)": surface("connected", wide, { tab: "settings", settings: "calm" }),
   "settings tab (admin, apply recommended)": surface("claude paused", narrow, { tab: "settings", settings: "editable" }),
   "settings tab (recommended already)": surface("admin", wide, { tab: "settings", settings: "calm", compression: "lite" }),
+  // Overview's MCP card, Tips, and Settings at every tier
+  "overview (MCP card)": surface("routing on", wide),
+  "overview (MCP installed, narrow)": surface("admin", narrow),
+  "overview (hide the MCP card)": surface("routing on", wide),
+  "tips tab (operator)": surface("routing on", wide, { tab: "tips" }),
+  "tips tab (admin, two installed, copy one)": surface("admin", narrow, { tab: "tips" }),
+  "tips tab (not connected)": surface("not connected", wide, { tab: "tips" }),
+  "settings tab (basic)": surface("basic", wide, { tab: "settings" }),
+  "settings tab (not connected)": surface("not connected", narrow, { tab: "settings" }),
+  "settings tab (badge off)": surface("routing on", wide, { tab: "settings", settings: "calm" }),
+  // The context badge and its panel
+  "context chip": contextChip(186_204, 1_000_000),
+  "context chip (nearly full)": contextChip(190_000, 200_000),
+  "context panel (operator)": contextPanel("ok", { used: 186_204, max: 1_000_000 }),
+  "context panel (compacted, nearly full, narrow)": contextPanel("full", { used: 172_000, max: 200_000 }, narrow),
+  "context panel (basic)": contextPanel("basic", { used: 58_400, max: 200_000 }),
+  "context panel (no turn yet)": contextPanel("no-usage", null),
+  "context panel (timeline error, refresh)": contextPanel("error", { used: 1, max: 2 }),
+  "context panel (hide the badge)": contextPanel("ok", { used: 186_204, max: 1_000_000 }),
   // Every visible tab in one mounted surface, pressed in turn
   "tab walk (basic)": surface("basic", narrow),
   "tab walk (operator)": surface("routing on", narrow, { accounts: "healthy" }),
@@ -128,6 +165,11 @@ export const presses: Record<string, string[]> = {
   "activity (why this route)": ["Request r-300, succeeded; show why"],
   "activity (show older)": ["Show older"],
   "overview (last agent links to Activity)": ["See every agent session in Activity"],
+  "overview (hide the MCP card)": ["Hide the MCP card"],
+  "tips tab (admin, two installed, copy one)": ["Copy the Smart Session install command"],
+  "settings tab (badge off)": ["Context badge on each chat"],
+  "context panel (timeline error, refresh)": ["Refresh"],
+  "context panel (hide the badge)": ["Hide the context badge"],
 };
 
 /** Mounts whose every visible tab is pressed in turn, then the first again. */
@@ -181,4 +223,69 @@ function describe(tree: any): { nodes: number; text: string } {
   };
   const joined = text(tree);
   return { nodes, text: joined };
+}
+
+/**
+ * The chip registry against a stand-in Paseo client: a chip only for chats that
+ * reported a window, none for archived ones, all gone when the switch is off,
+ * and back when it is on again. Returns what happened, for the runner to check.
+ */
+export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
+  const added: string[] = [];
+  const removed: string[] = [];
+  const opened: unknown[] = [];
+  let emit: (update: any) => void = () => {};
+  let enabled = true;
+  let rpcCalls = 0;
+  const client = {
+    addComposerPill(pill: any) {
+      added.push(pill.agentId);
+      pill.onPress();
+      return () => removed.push(pill.agentId);
+    },
+    openPanel(id: string, options: unknown) { opened.push([id, options]); },
+    rpc: async () => { rpcCalls += 1; return { enabled }; },
+    paseo: { agents: { subscribe(handler: any) { emit = handler; return () => { emit = () => {}; }; } } },
+  } as any;
+  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+  const stop = registerContextBadges(client, createBadgeStore());
+  const agent = (id: string, used?: number, over: Record<string, unknown> = {}) => ({ kind: "upsert", agent: { id, workspaceId: "ws-1", archivedAt: null, lastUsage: used ? { contextWindowUsedTokens: used, contextWindowMaxTokens: 200_000 } : undefined, ...over } });
+  emit(agent("a", 40_000));
+  emit(agent("b"));
+  emit(agent("c", 90_000, { archivedAt: "2026-09-23T00:00:00Z" }));
+  await flush();
+  const first = { added: [...added], opened: opened.length };
+  emit(agent("a", 41_000));
+  emit(agent("b", 12_000));
+  await flush();
+  const afterTurn = [...added];
+  enabled = false;
+  recheckBadges();
+  await flush();
+  const offRemoved = [...removed].sort();
+  enabled = true;
+  recheckBadges();
+  await flush();
+  const backOn = added.length;
+  emit({ kind: "remove", agentId: "a" });
+  await flush();
+  // A slow daemon: switch presses while a read is out queue one more read, never a second loop.
+  let release: () => void = () => {};
+  client.rpc = () => { rpcCalls += 1; return new Promise((resolve) => { release = () => resolve({ enabled: true }); }); };
+  const beforeSlow = rpcCalls;
+  recheckBadges();
+  recheckBadges();
+  recheckBadges();
+  await flush();
+  const whileOut = rpcCalls - beforeSlow;
+  release();
+  await flush();
+  release();
+  await flush();
+  const slowReads = rpcCalls - beforeSlow;
+  stop();
+  recheckBadges();
+  await flush();
+  const afterStop = rpcCalls - beforeSlow;
+  return { first, afterTurn, offRemoved, backOn, removedAll: [...removed].sort(), rpcCalls: beforeSlow, whileOut, slowReads, afterStop };
 }

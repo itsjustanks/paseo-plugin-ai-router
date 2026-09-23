@@ -16,7 +16,9 @@ import { SectionHeading, TabBar, visibleTabs, type TabId } from "./navigation";
 import { ProvidersTab } from "./providers";
 import { SettingsTab } from "./settings";
 import { ConnectionForm, KeysCard, PUBLIC_ADDRESS_WHY, STATUS_KEY, errorText, type Message } from "./setup";
+import { McpCard } from "./mcp";
 import { ShareCard } from "./share";
+import { TipsTab } from "./tips";
 import { Banner, Button, Card, Chip, Fact, Field, Link, Note, Row, StatusLine, Toggle, type Tone } from "./ui";
 
 type Theme = PluginTheme;
@@ -142,6 +144,9 @@ function OverviewTab({ theme, data, go, say }: { theme: Theme; data: Status; go:
         {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
       </Card>
       <MoreAccessLine theme={theme} data={data} go={go} />
+      <View style={{ marginTop: 16 }}>
+        <McpCard theme={theme} data={data} say={say} />
+      </View>
     </>
   );
 }
@@ -503,7 +508,9 @@ export function AiRouterSurface({ theme, layout, initialTab, initialRange }: Plu
       {tab === "connection" ? <ConnectionTab theme={theme} data={data} configured={configured} say={setMessage} /> : null}
       {tab === "providers" ? <ProvidersTab theme={theme} data={data} say={setMessage} compact={layout.compact} /> : null}
       {tab === "activity" ? <ActivityTab theme={theme} data={data} /> : null}
-      {tab !== "connection" && tab !== "providers" && tab !== "activity" && !configured ? (
+      {tab === "settings" ? <SettingsTab theme={theme} data={data} configured={configured} go={go} say={setMessage} /> : null}
+      {tab === "tips" ? <TipsTab theme={theme} data={data} say={setMessage} /> : null}
+      {tab !== "connection" && tab !== "providers" && tab !== "activity" && tab !== "settings" && tab !== "tips" && !configured ? (
         <Banner theme={theme} tone="neutral" title="Connect a router first">
           <Note theme={theme}>{data.problem ? `Not connected yet: ${data.problem}.` : "No router is set up."}</Note>
           <Row><Button theme={theme} label="Open Connection" primary onPress={() => go("connection")} /></Row>
@@ -513,7 +520,6 @@ export function AiRouterSurface({ theme, layout, initialTab, initialRange }: Plu
       {configured && tab === "models" ? <ModelsTab theme={theme} data={data} say={setMessage} /> : null}
       {configured && tab === "accounts" ? <AccountsTab theme={theme} data={data} say={setMessage} /> : null}
       {configured && tab === "usage" ? <UsageTab theme={theme} compact={layout.compact} initialRange={initialRange} /> : null}
-      {configured && tab === "settings" ? <SettingsTab theme={theme} data={data} say={setMessage} /> : null}
     </ScrollView>
   );
 }

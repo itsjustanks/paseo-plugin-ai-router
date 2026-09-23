@@ -1,16 +1,19 @@
 import React, { useState } from "react";
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useRpc } from "@getpaseo/plugin/client";
+import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compression, compressionApply, settingApply, type Status } from "../shared/contracts";
 import { dashboardLink } from "../shared/logic";
+import { routingSettings } from "../shared/settings";
 import { ROUTERS } from "../shared/routers/copy";
 import type { EngineVerdict } from "../shared/routers/omniroute/copy";
+import { recheckBadges } from "./context";
 import { AdvancedBanner, dashboardTarget, useLinks } from "./dashboard";
 import { RouterSettingsCard } from "./insights";
 import { errorText, type Message } from "./setup";
-import { Button, Card, Chip, Link, Note, Row, type Tone } from "./ui";
+import type { TabId } from "./navigation";
+import { Button, Card, Chip, Link, Note, Row, Toggle, type Tone } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -125,13 +128,54 @@ function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }
   );
 }
 
-export function SettingsTab({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
+/** What AI Router adds to Paseo itself. Every tier, and no router needed: these are this daemon's own switches. */
+function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
+  const settings = useSettings(routingSettings);
+  const ready = settings.status === "ready";
+  const save = (patch: { contextBadge?: boolean; mcpCard?: boolean }, done: string) => {
+    if (settings.status !== "ready") return;
+    void settings.save({ ...settings.values, ...patch }, settings.revision).then((saved) => {
+      say(saved ? { text: done, tone: "success" } : { text: "The switch was changed elsewhere; try again.", tone: "warning" });
+      if (saved && patch.contextBadge !== undefined) recheckBadges();
+    });
+  };
+  const badge = ready ? settings.values.contextBadge !== false : true;
+  const mcp = ready ? settings.values.mcpCard !== false : true;
+  return (
+    <Card theme={theme} title="In Paseo">
+      <Row>
+        <Toggle theme={theme} label="Context badge on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Context badge on." : "Context badge off.")} />
+        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>Context badge on each chat</Text>
+      </Row>
+      <Note theme={theme}>Shows how full each chat's context window is, such as 186k / 1M, next to its message box: amber from 60 %, red from 85 %. Tap it to see what is using the most. Needs no read token: the total comes from Paseo, the rest is worked out on this daemon.</Note>
+      <Row>
+        <Toggle theme={theme} label="Check out MCP card on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP card back on Overview." : "MCP card hidden.")} />
+        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>"Check out MCP" card on Overview</Text>
+      </Row>
+      {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
+      {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
+    </Card>
+  );
+}
+
+export function SettingsTab({ theme, data, configured, go, say }: { theme: Theme; data: Status; configured: boolean; go: (tab: TabId) => void; say: Say }) {
+  const reads = data.tier === "operator" || data.tier === "admin";
   return (
     <>
-      <AdvancedBanner theme={theme} data={data} say={say} />
-      <CompressionCard theme={theme} data={data} say={say} />
-      <RouterSettingsCard theme={theme} dashboardUrl={dashboardTarget(data).url} onMessage={say} />
-      <MoreCard theme={theme} data={data} say={say} />
+      <InPaseoCard theme={theme} say={say} />
+      {configured && reads ? (
+        <>
+          <AdvancedBanner theme={theme} data={data} say={say} />
+          <CompressionCard theme={theme} data={data} say={say} />
+          <RouterSettingsCard theme={theme} dashboardUrl={dashboardTarget(data).url} onMessage={say} />
+          <MoreCard theme={theme} data={data} say={say} />
+        </>
+      ) : (
+        <Card theme={theme} title="Router settings">
+          <Note theme={theme}>{configured ? "A read token shows how the router compresses prompts, and a few of its settings worth knowing." : "Connect a router to see its settings."}</Note>
+          <Link theme={theme} label={configured ? "Add a read token on Connection" : "Open Connection"} onPress={() => go("connection")} />
+        </Card>
+      )}
     </>
   );
 }

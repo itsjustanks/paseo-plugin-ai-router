@@ -9,6 +9,7 @@ import { Text, View } from "react-native";
 import { RANGE_DAYS, describeCombos, linkAgents, parseAnalytics, parseByAccount, parseByDaemon, parseCallLogs, parseRouteExplanation, parseSettings, type AnalyticsRange } from "../../../shared/routers/omniroute/parsers";
 import { AUTO_COMBO_DEFAULT, AUTO_COMBO_KINDS, CUSTOM_COMBO_LOOK } from "../../../shared/routers/omniroute/copy";
 import { agentIdFromTag, classifyPublicCheck, comboProfile } from "../../../shared/logic";
+import { buildBreakdown, createTally, tallyEntry } from "../../../shared/context";
 const PUBLIC = "https://ai-router.example.com";
 
 export function defineRpc<T>(contract: T) { return contract; }
@@ -234,6 +235,7 @@ Object.assign(fixtures, {
     lastSession: { at: now, agentId: "agent-7", kind: "claude", routed: true, message: "", reason: null },
     aiProvider: { ...connected.aiProvider, legacyCodex: false, tests: [] },
     codexRouter: { present: true, modelCount: 3 },
+    plugins: { installed: ["paseo-mcp", "shared-browser"] },
   },
   "manage key": { ...connected, connection: { ...connected.connection, manageKey: { present: true, last4: "89ab" } }, aiProvider: { ...connected.aiProvider, legacyCodex: false, tests: [] } },
 });
@@ -258,6 +260,7 @@ for (const value of Object.values(fixtures)) {
   f.lastSeenAt ??= f.health?.up ? f.health.checkedAt : null;
   f.aiProvider = { via: f.aiProvider.present && f.aiProvider.lastSync ? "api" : null, ...f.aiProvider };
   f.codexRouter ??= { present: false, modelCount: 0 };
+  f.plugins ??= { installed: [] };
 }
 // What 0.5.0 adds to each account: auth type, 24-hour health, expiry.
 const HEALTH = { a: { state: "healthy", successRatePct: 96, requests: 128, issueCount: 0, lastErrorAt: null, failingModels: [] }, c: { state: "degraded", successRatePct: 40, requests: 10, issueCount: 3, lastErrorAt: now, failingModels: ["gpt-5.6-sol"] } } as Record<string, unknown>;
@@ -395,9 +398,52 @@ function activityDetailAnswer(id: string) {
   return { state: "ok", message: null, ...parseRouteExplanation(DECISIONS[id] ?? (row ? directDecision(row) : null)) };
 }
 
+// ------------------------------------------------------------ context badge
+// One chat's breakdown, built with the real counting code from a plausible timeline.
+let contextFixture = "ok";
+/** The switches a test pressed, so the next render follows them. */
+let savedSwitches: { contextBadge?: boolean; mcpCard?: boolean } = {};
+export function setContextFixture(name: string) { contextFixture = name; }
+const x = (n: number) => "x".repeat(n);
+const tool = (name: string, detail: Record<string, unknown>) => ({ type: "tool_call", callId: name, name, status: "completed", error: null, detail });
+function contextFrom(used: number, max: number, entries: unknown[], extra: Record<string, unknown> = {}) {
+  const tally = createTally();
+  for (const item of entries) if (!tallyEntry(tally, { item, timestamp: ago(90 * MIN) }, "/home/paseo/app")) break;
+  // As the server does: OmniRoute's first request measures the start when it has one (not after a compaction).
+  const view = buildBreakdown({ used, max, tally, measuredBase: extra.router ? null : 41_300 });
+  return {
+    state: "ok", message: null, agent: { id: "agent-7", title: "Fix the login bug", provider: "claude", model: "cc/claude-opus-5-5" },
+    usedTokens: used, maxTokens: max, parts: view.parts, hint: view.hint, urgent: view.urgent,
+    counted: { items: tally.items, capped: false, compactedAt: tally.compaction?.at ?? null, overshoot: view.overshoot },
+    router: { state: "ok", message: null, requests: 14, latest: { at: ago(2 * MIN), tokensIn: used - 1_200, model: "claude-opus-5-5" }, first: { at: ago(80 * MIN), tokensIn: 41_300, model: "claude-opus-5-5" }, complete: true },
+    checkedAt: now,
+    ...extra,
+  };
+}
+const CHAT = [
+  { type: "assistant_message", text: x(9_000) },
+  tool("mcp__IKIT__Attio__query_records", { type: "unknown", input: { object: "people" }, output: x(200_000) }),
+  tool("mcp__linear__list_issues", { type: "unknown", input: {}, output: x(18_000) }),
+  tool("Read", { type: "read", filePath: "/home/paseo/app/src/server/handlers.ts", content: x(96_000) }),
+  tool("Read", { type: "read", filePath: "/home/paseo/app/package-lock.json", content: x(160_000) }),
+  tool("Bash", { type: "shell", command: "npm test", output: x(30_000) }),
+  tool("Edit", { type: "edit", filePath: "/home/paseo/app/src/a.ts", oldString: x(1_200), newString: x(2_400) }),
+  tool("WebFetch", { type: "fetch", url: "https://docs.example.com/guide", result: x(12_000) }),
+  { type: "user_message", text: x(6_000) },
+];
+const contextFixtures: Record<string, unknown> = {
+  ok: contextFrom(186_204, 1_000_000, CHAT),
+  full: contextFrom(172_000, 200_000, [{ type: "user_message", text: x(2_000) }, { type: "compaction", status: "completed", trigger: "auto", preTokens: 190_000 }, ...CHAT]),
+  basic: contextFrom(58_400, 200_000, [{ type: "user_message", text: x(1_600) }], { router: { state: "no-token", message: "A read token adds what OmniRoute measured for this chat: the size of its first and latest request.", requests: 0, latest: null, first: null, complete: false } }),
+  "no-usage": { ...contextFrom(1, 1, []), state: "no-usage", message: "No context size yet: the agent reports it after a turn, and some providers don't report it at all.", usedTokens: null, maxTokens: null, parts: [], hint: null, urgent: null, router: { state: "not-routed", message: null, requests: 0, latest: null, first: null, complete: false } },
+  error: { ...contextFrom(1, 1, []), state: "error", message: "Reading the chat's timeline took longer than 8 s", usedTokens: null, maxTokens: null, parts: [], hint: null, urgent: null, router: { state: "not-routed", message: null, requests: 0, latest: null, first: null, complete: false } },
+};
+
 /** Preview: pick every answer at once. */
-export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string }) {
+export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; context?: string }) {
   profilesFixture = state.profiles ?? "ok";
+  contextFixture = state.context ?? "ok";
+  savedSwitches = {};
   activityFixture = state.activity ?? "ok";
   savedComboProfiles = null;
   fixture = state.status;
@@ -420,7 +466,7 @@ export function setSettingsFixture(name: string) { settingsFixture = name; }
 export function setUsageFixture(name: string) { usageFixture = name; }
 let accountFixture = "ok";
 let usageFixture = "ok";
-export function setStatusFixture(name: string, insights = "ok") { fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; savedComboProfiles = null; }
+export function setStatusFixture(name: string, insights = "ok") { fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; contextFixture = "ok"; savedComboProfiles = null; savedSwitches = {}; }
 
 const pendingRpc = new Set<() => void>();
 export function releaseRpc() { for (const release of pendingRpc) release(); pendingRpc.clear(); }
@@ -443,6 +489,8 @@ export function useRpc(contract: any) {
       "model.test": () => ({ ok: true, message: `${(input as { model: string }).model} answered in 640 ms` }),
       activity: () => activityAnswer(status, (input ?? {}) as ActivityInput),
       "activity.detail": () => activityDetailAnswer((input as { id: string }).id),
+      context: () => contextFixtures[contextFixture],
+      badge: () => ({ enabled: savedSwitches.contextBadge !== false }),
       ensure: () => ({ ok: true }),
     };
     const answer = answers[name]?.() ?? { ok: true, saved: true, message: "ok" };
@@ -452,14 +500,22 @@ export function useRpc(contract: any) {
 
 export function useSettings(_definition: any) {
   const [isReady, setReady] = useState(ready);
+  const [, setTick] = useState(0);
   useEffect(() => {
-    const listener = () => setReady(ready);
+    const listener = () => { setReady(ready); setTick((n) => n + 1); };
     listeners.add(listener);
     return () => { listeners.delete(listener); };
   }, []);
-  const base = { saving: false, saveError: null, save: async (values: { comboProfiles?: boolean }) => { if (typeof values?.comboProfiles === "boolean") savedComboProfiles = values.comboProfiles; return true; }, reset: async () => true, reload: async () => {} };
+  const save = async (values: { comboProfiles?: boolean; contextBadge?: boolean; mcpCard?: boolean }) => {
+    if (typeof values?.comboProfiles === "boolean") savedComboProfiles = values.comboProfiles;
+    for (const key of ["contextBadge", "mcpCard"] as const) if (typeof values?.[key] === "boolean") savedSwitches[key] = values[key];
+    for (const listener of listeners) listener();
+    return true;
+  };
+  const base = { saving: false, saveError: null, save, reset: async () => true, reload: async () => {} };
   const routeAgents = (fixtures[fixture] as { routeAgents?: boolean }).routeAgents !== false;
-  return isReady ? { ...base, status: "ready", values: { routeAgents, comboProfiles: profilesFixture !== "off" }, revision: "r1" } : { ...base, status: "loading" };
+  const values = { routeAgents, comboProfiles: profilesFixture !== "off", contextBadge: savedSwitches.contextBadge !== false, mcpCard: savedSwitches.mcpCard !== false };
+  return isReady ? { ...base, status: "ready", values, revision: "r1" } : { ...base, status: "loading" };
 }
 
 const passthrough = ({ children }: any) => <View>{children}</View>;

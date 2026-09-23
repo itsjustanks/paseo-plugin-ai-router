@@ -2,11 +2,12 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiRouterSurface } from "../../client/surface";
+import { createBadgeStore, makeContextChip, makeContextPanel } from "../../client/context";
 import type { TabId } from "../../client/navigation";
 import { setPreview } from "./plugin";
 
 /** Every state the screenshots cover: `?state=<name>&theme=light|dark`. Tiers: basic = key only, operator = read token, admin = manage key. */
-export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: "1d" | "7d" | "30d" }> = {
+export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: "1d" | "7d" | "30d"; context?: string; usage_?: { used: number; max: number } }> = {
   setup: { status: "not connected" },
   overview: { status: "routing on", settings: "calm" },
   "overview-basic": { status: "basic" },
@@ -39,6 +40,13 @@ export const STATES: Record<string, { status: string; tab?: TabId; accounts?: st
   "connection-misconfigured": { status: "misconfigured" },
   "connection-public": { status: "public ok", tab: "connection" },
   "connection-public-pending": { status: "public pending", tab: "connection" },
+  "settings-basic": { status: "basic", tab: "settings" },
+  tips: { status: "routing on", tab: "tips" },
+  "tips-admin": { status: "admin", tab: "tips" },
+  // The context badge's panel, as the chip opens it (the chip itself sits at the top).
+  context: { status: "routing on", context: "ok", usage_: { used: 186_204, max: 1_000_000 } },
+  "context-full": { status: "routing on", context: "full", usage_: { used: 172_000, max: 200_000 } },
+  "context-basic": { status: "basic", context: "basic", usage_: { used: 58_400, max: 200_000 } },
 };
 
 const params = new URLSearchParams(location.search);
@@ -63,6 +71,23 @@ function Preview() {
     return () => removeEventListener("resize", resize);
   }, []);
   const props = { theme: { colors }, host: { id: "preview", label: "daemon-b" }, layout: { compact, platform: "web" as const }, navigation: { openAgent() {}, openWorkspace() {} } } as any;
+  if (state.context) {
+    const store = createBadgeStore();
+    store.set("agent-7", "ws-1", state.usage_ ?? null);
+    const Panel = makeContextPanel(store);
+    const Chip = makeContextChip(store);
+    return (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchInterval: false } } })}>
+        <div style={{ display: "flex", flexDirection: "column", height: "100vh", maxWidth: 520, background: colors.surface0 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", alignSelf: "flex-start", margin: 12, padding: "4px 10px", border: `1px solid ${colors.border}`, borderRadius: 999, fontSize: 12, fontFamily: "system-ui" }}>
+            <Chip {...props} workspaceId="ws-1" agentId="agent-7" />
+          </div>
+          <Panel {...props} context="agent" workspaceId="ws-1" agentId="agent-7" />
+          <span style={{ color: colors.foregroundMuted, fontSize: 11, fontFamily: "system-ui", padding: 12 }}>AI Router · context panel preview</span>
+        </div>
+      </QueryClientProvider>
+    );
+  }
   return (
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchInterval: false } } })}>
       <AiRouterSurface {...props} initialTab={state.tab} initialRange={state.range} />

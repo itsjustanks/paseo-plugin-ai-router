@@ -5,6 +5,8 @@ import {
   activity,
   activityDetail,
   accountsCheckAll,
+  badge,
+  context,
   aiProvider,
   codexRouter,
   connectionClear,
@@ -52,6 +54,7 @@ import {
   handleTunnels,
   handleUsage,
 } from "./server/handlers";
+import { handleBadge, handleContext } from "./server/context";
 import { registerRoutingHooks } from "./server/hooks";
 import { noteActivity, startAutoSync } from "./server/provider";
 
@@ -90,6 +93,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(activityDetail, active(handleActivityDetail));
   server.handle(compression, active(handleCompression));
   server.handle(compressionApply, active(handleCompressionApply));
+  // The context badge: neither runs the model sync, so a chat's chip never adds work beyond its own read.
+  server.handle(badge, handleBadge);
+  server.handle(context, handleContext);
   // Also checks the AI Router provider once at load, with no Paseo handle yet (see server/provider.ts).
   return startAutoSync();
 }

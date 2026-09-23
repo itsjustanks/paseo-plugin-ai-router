@@ -171,6 +171,29 @@ export function writeDaemonConfig(text: string, readAt: { mtimeMs: number; mode:
   return true;
 }
 
+/**
+ * Plugin ids installed on this daemon, from `$PASEO_HOME/plugins/sources.json`
+ * (keyed by plugin id). Re-read only when the file changes; unreadable = none.
+ */
+let sourcesSeen: { mtimeMs: number; ids: Set<string> } | null = null;
+export function installedPluginIds(): Set<string> {
+  const path = join(paseoHome(), "plugins", "sources.json");
+  try {
+    const { mtimeMs } = statSync(path);
+    if (sourcesSeen?.mtimeMs === mtimeMs) return sourcesSeen.ids;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown> | unknown[] | null;
+    const nested = parsed && !Array.isArray(parsed) ? parsed.sources ?? parsed.plugins : undefined;
+    const root = nested && typeof nested === "object" ? nested : parsed;
+    const ids = Array.isArray(root)
+      ? root.map((entry) => (entry as { id?: unknown })?.id).filter((id): id is string => typeof id === "string")
+      : Object.keys(root ?? {});
+    sourcesSeen = { mtimeMs, ids: new Set(ids) };
+    return sourcesSeen.ids;
+  } catch {
+    return new Set();
+  }
+}
+
 export function clearConnection(): boolean {
   const path = connectionPath();
   if (!existsSync(path)) return false;

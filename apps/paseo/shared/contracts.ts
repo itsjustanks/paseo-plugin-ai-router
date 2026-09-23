@@ -76,6 +76,8 @@ export const StatusSchema = z.object({
   /** "Codex via OmniRoute", the Codex-derived provider. */
   codexRouter: z.object({ present: z.boolean(), modelCount: z.number() }),
   settingsDir: z.string(),
+  /** Which recommended plugins (shared/plugins.ts) this daemon's plugin sources list: Tips and the MCP card say "Installed". */
+  plugins: z.object({ installed: z.array(z.string()) }),
 });
 export type Status = z.infer<typeof StatusSchema>;
 
@@ -430,3 +432,49 @@ export const RouteExplanationSchema = z.object({
 export type RouteExplanationView = z.infer<typeof RouteExplanationSchema>;
 /** Why OmniRoute routed one request where it did (`/api/routing/decisions/<id>`, read token). */
 export const activityDetail = defineRpc({ name: "ai-router.activity.detail", input: z.object({ id: z.string().min(1).max(200) }), output: RouteExplanationSchema });
+
+// ------------------------------------------------------------- context badge
+
+/** The badge's switch, read by the composer chips once a minute (no router call). */
+export const badge = defineRpc({ name: "ai-router.badge", input: z.object({}), output: z.object({ enabled: z.boolean() }) });
+
+const ContextPartSchema = z.object({
+  id: z.enum(["base", "unseen", "files", "shell", "mcp", "web", "search", "edits", "subagents", "tools", "user", "assistant"]),
+  label: z.string(),
+  tokens: z.number(),
+  share: z.number(),
+  kind: z.enum(["estimate", "rest", "measured"]),
+  top: z.array(z.object({ name: z.string(), tokens: z.number() })),
+  note: z.string().nullable(),
+});
+
+export const ContextSchema = z.object({
+  state: z.enum(["ok", "no-usage", "error"]),
+  message: z.string().nullable(),
+  agent: z.object({ id: z.string(), title: z.string().nullable(), provider: z.string(), model: z.string().nullable() }).nullable(),
+  /** Exact, as the agent's CLI reported it after its last turn. */
+  usedTokens: z.number().nullable(),
+  maxTokens: z.number().nullable(),
+  parts: z.array(ContextPartSchema),
+  /** One line for the biggest part. */
+  hint: z.string().nullable(),
+  /** Set when the window is nearly full. */
+  urgent: z.string().nullable(),
+  /** What the estimates covered: timeline entries since the last compaction, or the newest ones when the chat is very long. */
+  counted: z.object({ items: z.number(), capped: z.boolean(), compactedAt: z.string().nullable(), overshoot: z.boolean() }),
+  /** What OmniRoute measured for this chat: read token, and only for chats whose requests carry its session tag. */
+  router: z.object({
+    state: z.enum(["ok", "no-token", "not-routed", "untagged", "error"]),
+    message: z.string().nullable(),
+    requests: z.number(),
+    latest: z.object({ at: z.string(), tokensIn: z.number(), model: z.string().nullable() }).nullable(),
+    /** The chat's first request on its main model: the system prompt, tools and instructions plus the first message. */
+    first: z.object({ at: z.string(), tokensIn: z.number(), model: z.string().nullable() }).nullable(),
+    /** False when older requests of this chat may lie beyond what was read, so `first` may not be the first. */
+    complete: z.boolean(),
+  }),
+  checkedAt: z.string(),
+});
+export type ContextView = z.infer<typeof ContextSchema>;
+/** What is filling one chat's context window. Reads the timeline on the daemon; only this summary crosses to the app. */
+export const context = defineRpc({ name: "ai-router.context", input: z.object({ agentId: z.string().min(1).max(200), refresh: z.boolean().optional() }), output: ContextSchema });
