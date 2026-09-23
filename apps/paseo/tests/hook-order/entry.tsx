@@ -21,7 +21,10 @@ const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
   accent: "#88f", accentForeground: "#000", statusSuccess: "#0f0", statusWarning: "#ff0", statusDanger: "#f00",
 };
-const base = { theme: { colors }, host: { id: "test", label: "test" }, navigation: { openAgent() {}, openWorkspace() {} } } as any;
+/** Agents Paseo was asked to open, through the host's navigation. */
+export const openedAgents: string[] = [];
+const base = { theme: { colors }, host: { id: "test", label: "test" }, navigation: { openAgent: ({ agentId }: { agentId: string }) => openedAgents.push(agentId), openWorkspace() {} } } as any;
+const ROUTER_DOWN = { agentId: "agent-7", text: "Router down", detail: "OmniRoute isn't answering (connection refused). This chat's requests go through it, so they fail until it's back. Reopened, it uses its own sign-in until the router is back." };
 
 const wide = { compact: false, platform: "web" } as const;
 const narrow = { compact: true, platform: "ios" } as const;
@@ -38,18 +41,20 @@ const surface = (status: string, layout: { compact: boolean; platform: "web" | "
 };
 
 /** The agent panel the chip opens, for one fixture; the store holds that chat's reported total. */
-const contextPanel = (fixture: string, usage: { used: number; max: number } | null, layout: { compact: boolean; platform: "web" | "ios" } = wide) => () => {
+const contextPanel = (fixture: string, usage: { used: number; max: number } | null, layout: { compact: boolean; platform: "web" | "ios" } = wide, alert = false) => () => {
   setStatusFixture("routing on");
   setContextFixture(fixture);
   const store = createBadgeStore();
   store.set("agent-7", "ws-1", usage);
-  const Panel = makeContextPanel(store);
+  if (alert) store.setAlerts([ROUTER_DOWN]);
+  const Panel = makeContextPanel(store, () => {});
   return <Panel {...base} layout={layout} context="agent" workspaceId="ws-1" agentId="agent-7" />;
 };
-const contextChip = (used: number, max: number) => () => {
+const contextChip = (used: number, max: number, alert = false) => () => {
   setStatusFixture("routing on");
   const store = createBadgeStore();
-  store.set("agent-7", "ws-1", { used, max });
+  store.set("agent-7", "ws-1", used ? { used, max } : null);
+  if (alert) store.setAlerts([ROUTER_DOWN]);
   const Chip = makeContextChip(store);
   return <Chip {...base} layout={wide} workspaceId="ws-1" agentId="agent-7" />;
 };
@@ -128,6 +133,10 @@ export const mounts: Record<string, () => React.ReactElement> = {
   // The context badge and its panel
   "context chip": contextChip(186_204, 1_000_000),
   "context chip (nearly full)": contextChip(190_000, 200_000),
+  "context chip (router down)": contextChip(186_204, 1_000_000, true),
+  "context chip (router down, no turn yet)": contextChip(0, 0, true),
+  "context panel (router down)": contextPanel("ok", { used: 186_204, max: 1_000_000 }, narrow, true),
+  "activity (open an agent)": surface("routing on", wide, { tab: "activity" }),
   "context panel (operator)": contextPanel("ok", { used: 186_204, max: 1_000_000 }),
   "context panel (compacted, nearly full, narrow)": contextPanel("full", { used: 172_000, max: 200_000 }, narrow),
   "context panel (basic)": contextPanel("basic", { used: 58_400, max: 200_000 }),
@@ -170,6 +179,7 @@ export const presses: Record<string, string[]> = {
   "settings tab (badge off)": ["Context badge on each chat"],
   "context panel (timeline error, refresh)": ["Refresh"],
   "context panel (hide the badge)": ["Hide the context badge"],
+  "activity (open an agent)": ["Open Fix the login bug", "Open Draft release notes"],
 };
 
 /** Mounts whose every visible tab is pressed in turn, then the first again. */
@@ -236,6 +246,7 @@ export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
   const opened: unknown[] = [];
   let emit: (update: any) => void = () => {};
   let enabled = true;
+  let alertsNext: unknown[] = [];
   let rpcCalls = 0;
   const client = {
     addComposerPill(pill: any) {
@@ -244,7 +255,7 @@ export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
       return () => removed.push(pill.agentId);
     },
     openPanel(id: string, options: unknown) { opened.push([id, options]); },
-    rpc: async () => { rpcCalls += 1; return { enabled }; },
+    rpc: async () => { rpcCalls += 1; return { enabled, alerts: alertsNext }; },
     paseo: { agents: { subscribe(handler: any) { emit = handler; return () => { emit = () => {}; }; } } },
   } as any;
   const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -269,9 +280,19 @@ export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
   const backOn = added.length;
   emit({ kind: "remove", agentId: "a" });
   await flush();
+  // A router problem reaches chat "d", which has not reported a window yet: it gets a chip, until the problem clears.
+  emit(agent("d"));
+  alertsNext = [{ agentId: "d", text: "Router down", detail: "x" }];
+  recheckBadges();
+  await flush();
+  const alerted = added.includes("d");
+  alertsNext = [];
+  recheckBadges();
+  await flush();
+  const cleared = removed.includes("d");
   // A slow daemon: switch presses while a read is out queue one more read, never a second loop.
   let release: () => void = () => {};
-  client.rpc = () => { rpcCalls += 1; return new Promise((resolve) => { release = () => resolve({ enabled: true }); }); };
+  client.rpc = () => { rpcCalls += 1; return new Promise((resolve) => { release = () => resolve({ enabled: true, alerts: [] }); }); };
   const beforeSlow = rpcCalls;
   recheckBadges();
   recheckBadges();
@@ -287,5 +308,5 @@ export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
   recheckBadges();
   await flush();
   const afterStop = rpcCalls - beforeSlow;
-  return { first, afterTurn, offRemoved, backOn, removedAll: [...removed].sort(), rpcCalls: beforeSlow, whileOut, slowReads, afterStop };
+  return { first, afterTurn, offRemoved, backOn, removedAll: [...removed].filter((id) => id !== "d").sort(), rpcCalls: beforeSlow, whileOut, slowReads, afterStop, alerted, cleared };
 }

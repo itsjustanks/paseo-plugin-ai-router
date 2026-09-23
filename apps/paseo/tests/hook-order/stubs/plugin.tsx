@@ -490,7 +490,7 @@ export function useRpc(contract: any) {
       activity: () => activityAnswer(status, (input ?? {}) as ActivityInput),
       "activity.detail": () => activityDetailAnswer((input as { id: string }).id),
       context: () => contextFixtures[contextFixture],
-      badge: () => ({ enabled: savedSwitches.contextBadge !== false }),
+      badge: () => ({ enabled: savedSwitches.contextBadge !== false, alerts: [] }),
       ensure: () => ({ ok: true }),
     };
     const answer = answers[name]?.() ?? { ok: true, saved: true, message: "ok" };

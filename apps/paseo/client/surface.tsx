@@ -465,7 +465,7 @@ function ConnectionTab({ theme, data, configured, say }: { theme: Theme; data: S
 // ------------------------------------------------------------------- surface
 
 /** `initialTab` and `initialRange` let tests and the preview open a view directly; Paseo does not pass them. */
-export function AiRouterSurface({ theme, layout, initialTab, initialRange }: PluginSurfaceProps & { initialTab?: TabId; initialRange?: AnalyticsRangeId }) {
+export function AiRouterSurface({ theme, layout, navigation, initialTab, initialRange }: PluginSurfaceProps & { initialTab?: TabId; initialRange?: AnalyticsRangeId }) {
   const callStatus = useRpc(status);
   const [message, setMessage] = useState<Message>(null);
   const [chosen, setChosen] = useState<TabId | null>(initialTab ?? null);
@@ -507,7 +507,7 @@ export function AiRouterSurface({ theme, layout, initialTab, initialRange }: Plu
       {message ? <View style={{ marginBottom: 12 }}><Note theme={theme} tone={message.tone}>{message.text}</Note></View> : null}
       {tab === "connection" ? <ConnectionTab theme={theme} data={data} configured={configured} say={setMessage} /> : null}
       {tab === "providers" ? <ProvidersTab theme={theme} data={data} say={setMessage} compact={layout.compact} /> : null}
-      {tab === "activity" ? <ActivityTab theme={theme} data={data} /> : null}
+      {tab === "activity" ? <ActivityTab theme={theme} data={data} openAgent={navigation ? (agentId) => navigation.openAgent({ agentId }) : null} /> : null}
       {tab === "settings" ? <SettingsTab theme={theme} data={data} configured={configured} go={go} say={setMessage} /> : null}
       {tab === "tips" ? <TipsTab theme={theme} data={data} say={setMessage} /> : null}
       {tab !== "connection" && tab !== "providers" && tab !== "activity" && tab !== "settings" && tab !== "tips" && !configured ? (

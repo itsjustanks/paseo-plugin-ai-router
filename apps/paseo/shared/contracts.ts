@@ -436,7 +436,14 @@ export const activityDetail = defineRpc({ name: "ai-router.activity.detail", inp
 // ------------------------------------------------------------- context badge
 
 /** The badge's switch, read by the composer chips once a minute (no router call). */
-export const badge = defineRpc({ name: "ai-router.badge", input: z.object({}), output: z.object({ enabled: z.boolean() }) });
+export const BadgeSchema = z.object({
+  enabled: z.boolean(),
+  /** Routed chats a router problem reaches (down, or their provider paused). Empty while all is well. */
+  alerts: z.array(z.object({ agentId: z.string(), text: z.string(), detail: z.string() })),
+});
+export type BadgeView = z.infer<typeof BadgeSchema>;
+/** The badge's switch, and any router problem reaching a routed chat; read by the composer chips once a minute. */
+export const badge = defineRpc({ name: "ai-router.badge", input: z.object({}), output: BadgeSchema });
 
 const ContextPartSchema = z.object({
   id: z.enum(["base", "unseen", "files", "shell", "mcp", "web", "search", "edits", "subagents", "tools", "user", "assistant"]),

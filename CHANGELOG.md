@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0 — 2026-09-23
+
+**Router alerts in the chat.** The context chip turns red with the reason when a router problem
+reaches a routed chat: "Router down · 186k / 1M", or "Claude paused" when OmniRoute's circuit breaker
+holds the chat's provider open (read token). The Context panel opens with what it means for that chat
+and **Open AI Router**. It rides on the chips' once-a-minute switch read, with at most one health ping
+a minute per daemon.
+
+**Open from Activity.** Each agent session, and each request linked to an agent, has **Open**, which
+asks Paseo to go to that agent (hidden for archived agents and on hosts without navigation).
+
 ## 0.8.1 — 2026-09-23
 
 **Tips tab.** Smart Session is no longer recommended: six plugins now (Paseo MCP, Shared Browser,

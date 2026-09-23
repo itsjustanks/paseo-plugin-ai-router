@@ -988,9 +988,24 @@ try {
     const gone = await t.mod.handleContext({ agentId: "agent-missing" }, { paseo: t.api });
     assert.equal(gone.state, "error");
     assert.match(gone.message, /no such agent/);
-    assert.deepEqual(await t.mod.handleBadge(), { enabled: true }, "the badge is on by default");
+    assert.deepEqual(await t.mod.handleBadge(), { enabled: true, alerts: [] }, "the badge is on by default; nothing to warn about");
+    // OmniRoute pauses Claude: the routed Claude chat (agent-1) is warned, nobody else.
+    const calm = managed["/api/monitoring/health"];
+    managed["/api/monitoring/health"] = { ...calm, providerBreakers: [{ provider: "claude", state: "OPEN" }] };
+    const fresh1 = await fresh("badge-paused", full);
+    routingDoc(fresh1.dir, { routeAgents: true });
+    writeFileSync(join(fresh1.dir, "plugin-settings", "ai-router", "sessions.json"), JSON.stringify([
+      { at: new Date().toISOString(), agentId: "agent-1", kind: "claude", provider: "claude", routed: true, reason: null, tagged: true },
+      { at: new Date().toISOString(), agentId: "agent-x", kind: "codex", provider: "codex-ai-router", routed: true, reason: null, tagged: false },
+    ]));
+    fresh1.restore();
+    const paused = t.mod.BadgeSchema.parse(await fresh1.mod.handleBadge());
+    managed["/api/monitoring/health"] = calm;
+    process.env.PASEO_HOME = t.dir; // back to this scenario's daemon
+    assert.deepEqual(paused.alerts.map((a) => [a.agentId, a.text]), [["agent-1", "Claude paused"]]);
+    noSecrets(paused);
     routingDoc(t.dir, { routeAgents: true, contextBadge: false });
-    assert.deepEqual(await t.mod.handleBadge(), { enabled: false });
+    assert.deepEqual(await t.mod.handleBadge(), { enabled: false, alerts: [] }, "switched off: no router call either");
     t.restore();
     passed += 1;
   }
@@ -1008,6 +1023,21 @@ try {
     assert.deepEqual([view.state, view.router.state, callLogQueries.length], ["ok", "no-token", before]);
     assert.deepEqual(view.parts.map((p) => [p.id, p.tokens]), [["base", 41_999]], "a fresh chat: nearly all of it is loaded before anything is said");
     t.restore();
+    passed += 1;
+  }
+  {
+    // The router stops answering: every routed chat on this daemon is told, within the chips' 1.5 s budget.
+    const t = await fresh("badge-down", { router: "omniroute", endpoint: DEAD, apiKey: KEY });
+    t.restore();
+    writeFileSync(join(t.dir, "plugin-settings", "ai-router", "sessions.json"), JSON.stringify([
+      { at: new Date().toISOString(), agentId: "agent-r", kind: "provider", provider: "ai-router", routed: true, reason: null, tagged: true },
+      { at: new Date().toISOString(), agentId: "agent-own", kind: "claude", provider: "claude", routed: false, reason: "down", tagged: false },
+    ]));
+    const started = Date.now();
+    const down = await t.mod.handleBadge();
+    assert.ok(Date.now() - started < 2_500, `answered in ${Date.now() - started} ms`);
+    assert.deepEqual(down.alerts.map((a) => [a.agentId, a.text]), [["agent-r", "Router down"]]);
+    assert.match(down.alerts[0].detail, /connection refused/);
     passed += 1;
   }
   {

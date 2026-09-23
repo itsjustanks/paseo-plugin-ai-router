@@ -10,6 +10,8 @@ import { errorText } from "./setup";
 import { Banner, Card, Chip, Link, Note, Row, StaleNote, Toggle, toneColor } from "./ui";
 
 type Theme = PluginTheme;
+/** Paseo's own "go to this agent"; null on hosts that do not offer it. */
+export type OpenAgent = ((agentId: string) => void) | null;
 type Filter = { scope: "daemon" | "all"; errorsOnly: boolean; model: string | null; provider: string | null; limit: number };
 const PAGE = 25;
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -42,8 +44,18 @@ function Pick({ theme, label, selected, onPress }: { theme: Theme; label: string
   );
 }
 
+/** "Open" on a row whose agent Paseo still lists (it has a title); archived agents get none. */
+function OpenLink({ theme, openAgent, agentId, title }: { theme: Theme; openAgent: OpenAgent; agentId: string; title: string | null }) {
+  if (!openAgent || !title) return null;
+  return (
+    <Pressable accessibilityRole="link" accessibilityLabel={`Open ${title}`} onPress={() => openAgent(agentId)} hitSlop={6}>
+      <Text style={{ color: theme.colors.accent, fontSize: 12, fontWeight: "600" }}>Open</Text>
+    </Pressable>
+  );
+}
+
 /** Every tier: what this daemon's hook decided for each agent session. */
-function Sessions({ theme, sessions }: { theme: Theme; sessions: Activity["sessions"] }) {
+function Sessions({ theme, sessions, openAgent }: { theme: Theme; sessions: Activity["sessions"]; openAgent: OpenAgent }) {
   const [all, setAll] = useState(false);
   const shown = all ? sessions : sessions.slice(0, 8);
   return (
@@ -56,6 +68,7 @@ function Sessions({ theme, sessions }: { theme: Theme; sessions: Activity["sessi
             <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, width: 64 }}>{time(s.at)}</Text>
             <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600", flexShrink: 1 }}>{s.agentTitle ?? `Agent ${shortId(s.agentId)}`}</Text>
             <Chip theme={theme} label={s.routed ? "routed" : s.kind === "claude" ? "own sign-in" : "not started"} tone={s.routed ? "success" : "warning"} />
+            <OpenLink theme={theme} openAgent={openAgent} agentId={s.agentId} title={s.agentTitle} />
           </Row>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
             {[paseoProviderName(s.provider, null), s.routed ? (s.tagged ? "requests linked in OmniRoute's log" : null) : s.reason ? plainReason(s.reason) : null].filter(Boolean).join(" · ")}
@@ -92,7 +105,7 @@ function Detail({ theme, row }: { theme: Theme; row: RequestRowView }) {
   );
 }
 
-function RequestLine({ theme, row, open, onToggle, showDaemon }: { theme: Theme; row: RequestRowView; open: boolean; onToggle: () => void; showDaemon: boolean }) {
+function RequestLine({ theme, row, open, onToggle, showDaemon, openAgent }: { theme: Theme; row: RequestRowView; open: boolean; onToggle: () => void; showDaemon: boolean; openAgent: OpenAgent }) {
   const changed = !!row.requestedModel && !!row.model && bare(row.requestedModel) !== bare(row.model);
   const tokens = row.tokensIn !== null || row.tokensOut !== null ? `${compact(row.tokensIn ?? 0)} in / ${compact(row.tokensOut ?? 0)} out` : null;
   return (
@@ -113,6 +126,7 @@ function RequestLine({ theme, row, open, onToggle, showDaemon }: { theme: Theme;
           {showDaemon && row.daemon ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, fontWeight: row.thisDaemon ? "700" : "400" }}>{row.daemon}</Text> : null}
           {showDaemon && row.thisDaemon ? <Chip theme={theme} label="this daemon" tone="success" /> : null}
           {row.agent ? <Text style={{ color: theme.colors.foreground, fontSize: 12 }}>{`Agent: ${row.agent.title ?? shortId(row.agent.id)}${row.agent.match === "likely" ? " (likely)" : ""}`}</Text> : null}
+          {row.agent ? <OpenLink theme={theme} openAgent={openAgent} agentId={row.agent.id} title={row.agent.title} /> : null}
           <Text style={{ color: theme.colors.accent, fontSize: 12, fontWeight: "600", marginLeft: "auto" }}>{open ? "Hide" : "Why?"}</Text>
         </Row>
       </Pressable>
@@ -143,7 +157,7 @@ export function topValues(rows: readonly RequestRowView[], pick: (row: RequestRo
   return keep && !top.some((t) => t.value === keep) ? [{ value: keep, label: keep }, ...top.slice(0, 4)] : top;
 }
 
-function Requests({ theme, data, filter, setFilter, loading }: { theme: Theme; data: Activity["requests"]; filter: Filter; setFilter: (next: Filter) => void; loading: boolean }) {
+function Requests({ theme, data, filter, setFilter, loading, openAgent }: { theme: Theme; data: Activity["requests"]; filter: Filter; setFilter: (next: Filter) => void; loading: boolean; openAgent: OpenAgent }) {
   const [open, setOpen] = useState<string | null>(null);
   const models = topValues(data.rows, modelChip, filter.model);
   const providers = topValues(data.rows, (row) => (row.providerId ? { value: row.providerId, label: row.provider ?? row.providerId } : null), filter.provider);
@@ -160,7 +174,7 @@ function Requests({ theme, data, filter, setFilter, loading }: { theme: Theme; d
       {providers.length > 1 || filter.provider ? <Row>{providers.map((p) => <Pick key={p.value} theme={theme} label={p.label} selected={filter.provider === p.value} onPress={() => set({ provider: filter.provider === p.value ? null : p.value })} />)}</Row> : null}
       {data.state !== "ok" && !data.stale ? <Note theme={theme} tone={data.state === "error" ? "danger" : "neutral"}>{data.message}</Note> : null}
       {data.state === "ok" && !data.rows.length ? <Note theme={theme}>{loading ? "Asking the router…" : `No requests match${filter.scope === "daemon" ? " from this daemon" : ""}${filter.errorsOnly ? " with errors" : ""}.`}</Note> : null}
-      {data.rows.map((row) => <RequestLine key={row.id} theme={theme} row={row} open={open === row.id} onToggle={() => setOpen(open === row.id ? null : row.id)} showDaemon={filter.scope === "all" || !row.thisDaemon} />)}
+      {data.rows.map((row) => <RequestLine key={row.id} theme={theme} row={row} open={open === row.id} onToggle={() => setOpen(open === row.id ? null : row.id)} showDaemon={filter.scope === "all" || !row.thisDaemon} openAgent={openAgent} />)}
       {data.hasMore && filter.limit < 200 ? <Link theme={theme} label={loading ? "Loading…" : "Show older"} onPress={() => setFilter({ ...filter, limit: Math.min(200, filter.limit + PAGE) })} /> : null}
       {data.notes.map((n) => <Note key={n} theme={theme}>{n}</Note>)}
       <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>Refreshes every 10 seconds while this tab is open. Routing details only: prompts and responses never leave the router.</Text>
@@ -172,7 +186,7 @@ function Requests({ theme, data, filter, setFilter, loading }: { theme: Theme; d
  * Activity: what went through the router. Sessions (every tier) come from
  * this daemon's own hook; requests (read token) from OmniRoute's call log.
  */
-export function ActivityTab({ theme, data }: { theme: Theme; data: Status }) {
+export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; data: Status; openAgent?: OpenAgent }) {
   const [filter, setFilter] = useState<Filter>({ scope: "daemon", errorsOnly: false, model: null, provider: null, limit: PAGE });
   const call = useRpc(activity);
   const query = useQuery({ queryKey: ["ai-router", "activity", filter], queryFn: () => call(filter), refetchInterval: 10_000, placeholderData: (previous) => previous });
@@ -184,9 +198,9 @@ export function ActivityTab({ theme, data }: { theme: Theme; data: Status }) {
   }
   return (
     <>
-      <Sessions theme={theme} sessions={result.sessions} />
+      <Sessions theme={theme} sessions={result.sessions} openAgent={openAgent} />
       {operator ? (
-        <Requests theme={theme} data={result.requests} filter={filter} setFilter={setFilter} loading={query.isFetching} />
+        <Requests theme={theme} data={result.requests} filter={filter} setFilter={setFilter} loading={query.isFetching} openAgent={openAgent} />
       ) : !connected ? (
         <Card theme={theme} title="Requests through the router">
           <Note theme={theme}>Once a router is connected with a read token, every request it served shows here.</Note>

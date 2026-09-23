@@ -14,7 +14,7 @@ const plugin = join(here, "..", "apps", "paseo");
 const out = resolve(process.argv[2] ?? join(here, "..", "docs", "screenshots"));
 mkdirSync(out, { recursive: true });
 
-const STATES = ["setup", "overview", "overview-basic", "overview-admin", "overview-router-down", "overview-claude-paused", "activity", "activity-basic", "activity-router-down", "models", "models-basic", "models-profiles-off", "providers", "providers-admin", "accounts-operator", "accounts-admin", "accounts-claude-paused", "usage-populated", "usage-30-days", "usage-24-hours", "usage-empty", "usage-router-down", "settings-operator", "settings-manage-key", "settings-recommended", "connection", "connection-basic", "connection-admin", "connection-router-down", "connection-misconfigured", "connection-public", "connection-public-pending", "settings-basic", "tips", "tips-admin", "context", "context-full", "context-basic"];
+const STATES = ["setup", "overview", "overview-basic", "overview-admin", "overview-router-down", "overview-claude-paused", "activity", "activity-basic", "activity-router-down", "models", "models-basic", "models-profiles-off", "providers", "providers-admin", "accounts-operator", "accounts-admin", "accounts-claude-paused", "usage-populated", "usage-30-days", "usage-24-hours", "usage-empty", "usage-router-down", "settings-operator", "settings-manage-key", "settings-recommended", "connection", "connection-basic", "connection-admin", "connection-router-down", "connection-misconfigured", "connection-public", "connection-public-pending", "settings-basic", "tips", "tips-admin", "context", "context-full", "context-basic", "context-router-down"];
 const SIZES = { wide: 1280, narrow: 420 };
 const only = process.env.STATES?.split(",");
 

@@ -4,7 +4,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings, type PluginAgentPanelProps, type PluginClientContext, type PluginComposerPillProps } from "@getpaseo/plugin/client";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { badge, context, type ContextView } from "../shared/contracts";
-import { badgeLabel, contextTone, formatTokens, usageOf, type ContextUsage } from "../shared/context";
+import { badgeLabel, contextTone, formatTokens, usageOf, type ChatAlert, type ContextUsage } from "../shared/context";
 import { routingSettings } from "../shared/settings";
 import { HostIcon } from "./navigation";
 import { errorText } from "./setup";
@@ -26,10 +26,15 @@ export type BadgeStore = {
   set(agentId: string, workspaceId: string, usage: ContextUsage | null): boolean;
   remove(agentId: string): void;
   agents(): Array<{ agentId: string; workspaceId: string; usage: ContextUsage | null }>;
+  /** A router problem reaching this chat, from the last switch read. */
+  alert(agentId: string): ChatAlert | null;
+  setAlerts(alerts: readonly ChatAlert[]): void;
 };
 
 export function createBadgeStore(): BadgeStore {
   const seen = new Map<string, { workspaceId: string; usage: ContextUsage | null }>();
+  let alerts = new Map<string, ChatAlert>();
+  let alertsKey = "[]";
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) listener();
@@ -54,7 +59,20 @@ export function createBadgeStore(): BadgeStore {
       if (seen.delete(agentId)) notify();
     },
     agents: () => [...seen].map(([agentId, value]) => ({ agentId, ...value })),
+    alert: (agentId) => alerts.get(agentId) ?? null,
+    setAlerts(next) {
+      const key = JSON.stringify(next);
+      if (key === alertsKey) return;
+      alertsKey = key;
+      alerts = new Map(next.map((alert) => [alert.agentId, alert]));
+      notify();
+    },
   };
+}
+
+function useAlert(store: BadgeStore, agentId: string): ChatAlert | null {
+  const read = () => store.alert(agentId);
+  return useSyncExternalStore(store.subscribe, read, read);
 }
 
 function useUsage(store: BadgeStore, agentId: string): ContextUsage | null {
@@ -94,7 +112,8 @@ export function registerContextBadges(client: PluginClientContext, store: BadgeS
     if (stopped) return;
     const live = new Set<string>();
     for (const { agentId, workspaceId, usage } of store.agents()) {
-      if (!wanted || !usage) continue;
+      // A chip for a chat that reported its window, or one a router problem reaches.
+      if (!wanted || (!usage && !store.alert(agentId))) continue;
       live.add(agentId);
       if (pills.has(agentId)) continue;
       pills.set(
@@ -138,7 +157,9 @@ export function registerContextBadges(client: PluginClientContext, store: BadgeS
     polling = true;
     if (store.agents().length > 0) {
       try {
-        wanted = (await client.rpc(badge, {})).enabled;
+        const answer = await client.rpc(badge, {});
+        wanted = answer.enabled;
+        store.setAlerts(answer.alerts);
         failures = 0;
       } catch {
         // The daemon did not answer: keep what the last read decided.
@@ -195,18 +216,26 @@ export function registerContextBadges(client: PluginClientContext, store: BadgeS
   };
 }
 
-/** The chip: "186k / 1M", tinted as it fills. The icon changes too at the red end, so colour is not the only signal. */
+/**
+ * The chip: "186k / 1M", tinted as it fills; "Router down · 186k / 1M" in red
+ * when a router problem reaches this chat. The icon changes too at the red
+ * end, so colour is not the only signal.
+ */
 export function makeContextChip(store: BadgeStore) {
   return function ContextChip({ theme, agentId }: PluginComposerPillProps) {
     const usage = useUsage(store, agentId);
-    if (!usage) return null;
-    const tone = contextTone(usage.used, usage.max);
+    const alert = useAlert(store, agentId);
+    if (!usage && !alert) return null;
+    const tone = alert ? "danger" : contextTone(usage!.used, usage!.max);
     const color = tone === "neutral" ? theme.colors.foregroundMuted : toneColor(theme, tone);
+    const size = usage ? badgeLabel(usage.used, usage.max) : null;
+    const label = [alert?.text, size].filter(Boolean).join(" · ");
+    const spoken = [alert?.text, usage ? `context ${percent(usage.used / usage.max)} full: ${size} tokens` : null].filter(Boolean).join("; ");
     return (
       <>
         {HostIcon ? <HostIcon name={tone === "danger" ? "TriangleAlert" : "Gauge"} size={14} color={color} /> : null}
-        <Text numberOfLines={1} accessibilityLabel={`Context ${percent(usage.used / usage.max)} full: ${badgeLabel(usage.used, usage.max)} tokens`} style={{ color, flexShrink: 1 }}>
-          {badgeLabel(usage.used, usage.max)}
+        <Text numberOfLines={1} accessibilityLabel={spoken} style={{ color, flexShrink: 1 }}>
+          {label}
         </Text>
       </>
     );
@@ -319,9 +348,10 @@ export function ContextBody({ theme, data, onRefresh, refreshing, onHide }: { th
   );
 }
 
-/** The agent panel the chip opens: one chat's context, biggest parts first. */
-export function makeContextPanel(store: BadgeStore) {
+/** The agent panel the chip opens: a router problem reaching the chat first, then its context, biggest parts first. */
+export function makeContextPanel(store: BadgeStore, openSurface: ((id: string) => void) | null = null) {
   return function ContextPanel({ theme, agentId, layout }: PluginAgentPanelProps) {
+    const alert = useAlert(store, agentId);
     const call = useRpc(context);
     const queryClient = useQueryClient();
     const settings = useSettings(routingSettings);
@@ -345,6 +375,12 @@ export function makeContextPanel(store: BadgeStore) {
           <Text style={{ color: theme.colors.foreground, fontSize: 18, fontWeight: "700" }}>Context</Text>
           <Note theme={theme}>{data?.agent?.title ?? "What this chat is carrying, and what uses the most of it."}</Note>
         </View>
+        {alert ? (
+          <Banner theme={theme} tone="danger" title={alert.text}>
+            <Note theme={theme}>{alert.detail}</Note>
+            {openSurface ? <Link theme={theme} label="Open AI Router" onPress={() => openSurface("ai-router")} /> : null}
+          </Banner>
+        ) : null}
         {data ? (
           <ContextBody theme={theme} data={data} refreshing={refresh.isPending} onRefresh={() => refresh.mutate()} onHide={settings.status === "ready" ? hide : null} />
         ) : query.error ? (

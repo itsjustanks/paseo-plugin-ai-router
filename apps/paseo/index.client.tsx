@@ -27,7 +27,7 @@ export default function contribute(client: PluginClientContext) {
     icon: "Gauge",
     context: "agent",
     locations: ["workspace", "explorer"],
-    Component: makeContextPanel(badges),
+    Component: makeContextPanel(badges, (id) => client.openSurface(id)),
   });
   client.addCommandCenterItem({
     id: "open-context",

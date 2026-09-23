@@ -20,7 +20,7 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival, badgeRegistryCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
 const BASIC_TABS = ["Overview", "Activity", "Models", "Providers", "Settings", "Connection", "Tips"];
@@ -120,6 +120,10 @@ const expected = {
   "context panel (no turn yet)": ["No context size yet", "the agent reports it after a turn"],
   "context panel (timeline error, refresh)": ["Couldn't read this chat's context", "Reading the chat's timeline took longer than 8 s"],
   "context panel (hide the badge)": ["Context badge off for this daemon. AI Router → Settings → In Paseo turns it back on."],
+  "context chip (router down)": ["Router down · 186k / 1M"],
+  "context chip (router down, no turn yet)": ["Router down"],
+  "context panel (router down)": ["Router down", "OmniRoute isn't answering (connection refused). This chat's requests go through it", "Open AI Router", "186,204 of 1,000,000 tokens"],
+  "activity (open an agent)": [H.Activity, "Open", "Agent: Draft release notes"],
 };
 
 /** Text a state must NOT show: a hidden tier feature, or a fact that moved. */
@@ -252,9 +256,12 @@ try {
   assert.deepEqual(seen.offRemoved, ["a", "b"], "switching the badge off removes every chip at once");
   assert.equal(seen.backOn, 4, "switching it on again brings them back");
   assert.deepEqual(seen.removedAll, ["a", "a", "b", "b"], "a removed agent loses its chip, and stopping removes the rest");
-  assert.ok(seen.rpcCalls <= 4, `the switch is read on demand, not per update (${seen.rpcCalls} reads)`);
+  assert.ok(seen.rpcCalls <= 6, `the switch is read on demand, not per update (${seen.rpcCalls} reads)`);
+  assert.deepEqual([seen.alerted, seen.cleared], [true, true], "a router problem gives an affected chat a chip even before its first turn, and takes it away once cleared");
   assert.deepEqual([seen.whileOut, seen.slowReads, seen.afterStop], [1, 2, 2], "three presses during a slow read: one read out, one queued, and nothing after stopping");
   console.log(`ok   context badge registry (${seen.rpcCalls} switch reads)`);
+  assert.deepEqual(openedAgents.slice(-2), ["agent-7", "agent-5"], "Activity's Open asks Paseo to open that agent");
+  console.log("ok   activity opens agents through Paseo's navigation");
 } catch (error) {
   failed += 1;
   console.error(`FAIL context badge registry: ${error instanceof Error ? error.message : String(error)}`);

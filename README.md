@@ -39,7 +39,7 @@ manage key would add.
 | Tab | What it holds |
 | --- | --- |
 | **Overview** | Router up, down or paused; Claude routing; models in Paseo; this daemon's access; the last agent; open dashboard, sync models, routing on or off. When the router is unreachable: when it was last seen, the error, and **Open Connection**. At the bottom, **Check out MCP** (the sister plugin; "Installed" when this daemon has it; **Hide**). |
-| **Activity** | What went through the router. **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it; filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
+| **Activity** | What went through the router. **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it (**Open** jumps to that agent, as it does on each session); filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
 | **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
 | **Providers** | Every Paseo provider on this daemon with its status and an enabled switch, and what OmniRoute can do for it: Claude's routing switch, **Codex via OmniRoute**, or "not supported". **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
 | **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. |
@@ -273,9 +273,18 @@ What it can honestly say:
 - One tip for the biggest part, e.g. "turn off MCP servers this chat doesn't use" or "compact the chat
   (/compact)", and a warning once the window is nearly full.
 
+**Router alerts.** The same chip turns red with the reason when a router problem reaches a routed
+chat: "Router down" for every chat whose latest open went through OmniRoute, "Claude paused" (or
+Codex) when OmniRoute's circuit breaker holds that chat's provider open (read token). An AI Router
+chat, which can use either, is told "if its model runs there". Its panel opens with what that means
+for the chat: its requests fail until the router is back, a reopened Claude chat uses its own
+sign-in, an AI Router chat cannot reopen yet, and **Open AI Router**. A chat that has not reported a
+context size yet still gets the chip while it is affected.
+
 What it costs: the chip makes no call at all; it reads the agent updates the app already receives.
 The switch is read once a minute while a chat is open (backing off to 15 minutes if the daemon does not
-answer). The breakdown is worked out only when the panel is open, on the daemon (at most 10 pages of
+answer); the same read carries the alerts, from the health check the panel shares, at most one ping a
+minute and never more than 1.5 s of waiting. The breakdown is worked out only when the panel is open, on the daemon (at most 10 pages of
 200 timeline entries; only a small summary crosses to the app, never the chat's text), and reused
 while the chat's total is unchanged (up to 5 minutes). A failed read backs off from 30 seconds to 10
 minutes unless **Refresh** is pressed; an answer whose router read failed is reused for 30 seconds

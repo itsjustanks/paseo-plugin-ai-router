@@ -678,6 +678,26 @@ try {
     assert.match(X.buildBreakdown({ used: 30_000, max: 200_000, tally: mcp }).hint, /MCP results from linear are the biggest part/);
   });
 
+  check("router alerts reach the routed chats they affect, by each chat's latest open", () => {
+    const label = (id) => ({ claude: "Claude", codex: "Codex" })[id] ?? id;
+    const sessions = [
+      { agentId: "c1", kind: "claude", routed: true },
+      { agentId: "c2", kind: "claude", routed: false },
+      { agentId: "x1", kind: "codex", routed: true },
+      { agentId: "p1", kind: "provider", routed: true },
+      { agentId: "c3", kind: "claude", routed: true },
+      { agentId: "c3", kind: "claude", routed: false },
+    ];
+    assert.deepEqual(X.chatAlerts({ down: null, paused: [], sessions, label }), [], "all well: nothing");
+    const down = X.chatAlerts({ down: "connection refused", paused: [], sessions, label });
+    assert.deepEqual(down.map((a) => [a.agentId, a.text]), [["c1", "Router down"], ["x1", "Router down"], ["p1", "Router down"]], "every routed chat; a chat whose latest open was not routed is left alone");
+    assert.match(down[0].detail, /isn't answering \(connection refused\).*own sign-in/);
+    assert.match(down[2].detail, /AI Router chat can't reopen/);
+    const paused = X.chatAlerts({ down: null, paused: ["claude"], sessions, label });
+    assert.deepEqual(paused.map((a) => [a.agentId, a.text]), [["c1", "Claude paused"], ["p1", "Claude paused"]], "Codex chats are not reached by a Claude pause");
+    assert.match(paused[1].detail, /^OmniRoute has paused Claude after repeated failures\. If this chat's model runs there/);
+  });
+
   check("recommended plugins: Paseo Cafe ids, one install command each", () => {
     const ids = P.RECOMMENDED_PLUGINS.map((p) => p.id);
     assert.deepEqual(ids, ["paseo-mcp", "shared-browser", "activity", "advanced-markdown", "remote-editor", "tell-agent"]);

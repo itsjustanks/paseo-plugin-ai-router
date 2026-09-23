@@ -7,7 +7,7 @@ import type { TabId } from "../../client/navigation";
 import { setPreview } from "./plugin";
 
 /** Every state the screenshots cover: `?state=<name>&theme=light|dark`. Tiers: basic = key only, operator = read token, admin = manage key. */
-export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: "1d" | "7d" | "30d"; context?: string; usage_?: { used: number; max: number } }> = {
+export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: "1d" | "7d" | "30d"; context?: string; usage_?: { used: number; max: number }; alert?: boolean }> = {
   setup: { status: "not connected" },
   overview: { status: "routing on", settings: "calm" },
   "overview-basic": { status: "basic" },
@@ -47,6 +47,7 @@ export const STATES: Record<string, { status: string; tab?: TabId; accounts?: st
   context: { status: "routing on", context: "ok", usage_: { used: 186_204, max: 1_000_000 } },
   "context-full": { status: "routing on", context: "full", usage_: { used: 172_000, max: 200_000 } },
   "context-basic": { status: "basic", context: "basic", usage_: { used: 58_400, max: 200_000 } },
+  "context-router-down": { status: "routing on", context: "ok", usage_: { used: 186_204, max: 1_000_000 }, alert: true },
 };
 
 const params = new URLSearchParams(location.search);
@@ -74,7 +75,8 @@ function Preview() {
   if (state.context) {
     const store = createBadgeStore();
     store.set("agent-7", "ws-1", state.usage_ ?? null);
-    const Panel = makeContextPanel(store);
+    if (state.alert) store.setAlerts([{ agentId: "agent-7", text: "Router down", detail: "OmniRoute isn't answering (connection refused at http://10.0.0.5:20128/api/health/ping). This chat's requests go through it, so they fail until it's back. Reopened, it uses its own sign-in until the router is back." }]);
+    const Panel = makeContextPanel(store, () => {});
     const Chip = makeContextChip(store);
     return (
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchInterval: false } } })}>

@@ -1,8 +1,8 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import type { ContextView } from "../shared/contracts";
-import { buildBreakdown, createTally, tallyEntry, usageOf, type ContextTally } from "../shared/context";
+import type { BadgeView, ContextView } from "../shared/contracts";
+import { buildBreakdown, chatAlerts, createTally, tallyEntry, usageOf, type ContextTally } from "../shared/context";
 import { accessTier, connectionProblem, sessionTagFor } from "../shared/logic";
-import { bareModel } from "../shared/routers/omniroute/parsers";
+import { bareModel, providerLabel } from "../shared/routers/omniroute/parsers";
 import { adapterFor } from "./routers";
 import { readConnection, readRoutingSettings, readSessionLog } from "./store";
 
@@ -222,8 +222,23 @@ export async function handleContext({ agentId, refresh }: { agentId: string; ref
   return entry.value;
 }
 
-/** Whether the composer chips should show; a local file read, no router call. */
-export const handleBadge = async () => ({ enabled: (await readRoutingSettings()).contextBadge });
+/** The chips ask once a minute; the router is pinged at most this often for them (the answer is shared). */
+const ALERT_HEALTH_MAX_AGE_MS = 60_000;
+
+/**
+ * Whether the composer chips show, and which routed chats a router problem
+ * reaches. Local reads, plus the shared health check at most once a minute,
+ * never waiting more than 1.5 s on a slow router.
+ */
+export async function handleBadge(): Promise<BadgeView> {
+  if (!(await readRoutingSettings()).contextBadge) return { enabled: false, alerts: [] };
+  const resolved = await readConnection();
+  if (connectionProblem(resolved)) return { enabled: true, alerts: [] };
+  const { health } = await adapterFor(resolved.connection.router).healthForPanel(resolved.connection, ALERT_HEALTH_MAX_AGE_MS);
+  if (!health) return { enabled: true, alerts: [] };
+  const down = health.up ? null : health.error ?? "no answer";
+  return { enabled: true, alerts: chatAlerts({ down, paused: health.up ? health.paused : [], sessions: readSessionLog(), label: providerLabel }) };
+}
 
 /** For tests: forget cached answers and back-offs, as a restarted plugin would. */
 export function forgetContext(): void {
