@@ -67,7 +67,7 @@ const COMBO_ENTRIES = [
   { id: "team-review", owned_by: "combo", root: "team-review", display_name: "Team review", description: "Opus 5.5 first, GPT-6 Sol when Claude is busy" },
 ];
 managed["/api/combos/auto"] = { combos: [{ id: "auto", name: "Auto", candidatePool: ["codex", "claude"] }, { id: "auto/coding", name: "Auto Coding", candidatePool: ["codex", "claude"] }, { id: "auto/fast", name: "Auto Fast", candidatePool: ["codex", "claude"] }] };
-managed["/api/combos"] = { combos: [{ name: "team-review", models: [{}, {}], strategy: "priority" }], total: 1 };
+managed["/api/combos"] = { combos: [{ id: "0b1f6c2e-5a1d-4c3e-9f7a-2d8e6b4c1a90", name: "team-review", models: [{}, {}], strategy: "priority" }], total: 1 };
 
 const router = createServer((req, res) => {
   if (routerDown) return req.socket.destroy();

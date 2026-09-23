@@ -172,10 +172,13 @@ async function loadUsage(connection: Connection, range: AnalyticsRangeId, empty:
  * The bodies come back too, for the combo descriptions on agent profiles.
  */
 async function dashboardCombos(connection: Connection): Promise<{ ids: string[] | null; auto: unknown; custom: unknown }> {
-  const names = (body: unknown): string[] => {
+  // Auto combos are addressed by id ("auto/coding"); custom combos by their name ("Kimi Coding"),
+  // which is what /v1/models lists — their id is an internal UUID.
+  const names = (body: unknown, key: "id" | "name"): string[] => {
     const root = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
     const items = Array.isArray(body) ? body : Array.isArray(root.combos) ? root.combos : Array.isArray(root.data) ? root.data : [];
-    return items.map((item) => (item && typeof item === "object" ? ((item as Record<string, unknown>).id ?? (item as Record<string, unknown>).name) : item))
+    const other = key === "id" ? "name" : "id";
+    return items.map((item) => (item && typeof item === "object" ? ((item as Record<string, unknown>)[key] ?? (item as Record<string, unknown>)[other]) : item))
       .filter((value): value is string => typeof value === "string" && value.length > 0);
   };
   const [auto, custom] = await Promise.all([read(connection, "/api/combos/auto"), read(connection, "/api/combos")]);
@@ -184,8 +187,8 @@ async function dashboardCombos(connection: Connection): Promise<{ ids: string[] 
   if (!auto.ok) return { ids: null, auto: autoBody, custom: customBody };
   // The dashboard's core auto combos, then combos a person made. The built-in "auto/…" variants that
   // /api/combos returns for admins are left out, so the list (and the combo profiles) stay short.
-  const own = custom.ok ? names(custom.body).filter((name) => name !== "auto" && !name.startsWith("auto/")) : [];
-  return { ids: [...names(auto.body), ...own], auto: autoBody, custom: customBody };
+  const own = custom.ok ? names(custom.body, "name").filter((name) => name !== "auto" && !name.startsWith("auto/")) : [];
+  return { ids: [...names(auto.body, "id"), ...own], auto: autoBody, custom: customBody };
 }
 
 /** More than this after `?configuredOnly=true` means the router ignored the filter (an older OmniRoute). */
