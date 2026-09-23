@@ -166,7 +166,7 @@ export const presses: Record<string, string[]> = {
   "activity (show older)": ["Show older"],
   "overview (last agent links to Activity)": ["See every agent session in Activity"],
   "overview (hide the MCP card)": ["Hide the MCP card"],
-  "tips tab (admin, two installed, copy one)": ["Copy the Smart Session install command"],
+  "tips tab (admin, two installed, copy one)": ["Copy the Activity install command"],
   "settings tab (badge off)": ["Context badge on each chat"],
   "context panel (timeline error, refresh)": ["Refresh"],
   "context panel (hide the badge)": ["Hide the context badge"],

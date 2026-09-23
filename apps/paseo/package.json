@@ -2,7 +2,7 @@
   "name": "ai-router",
   "private": true,
   "type": "module",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/ui",
     "test": "node ../../tests/logic.mjs && node ../../tests/insights.mjs && node ../../tests/server.mjs && node ../../tests/hook-order.mjs",

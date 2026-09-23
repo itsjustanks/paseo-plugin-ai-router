@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 — 2026-09-23
+
+**Tips tab.** Smart Session is no longer recommended: six plugins now (Paseo MCP, Shared Browser,
+Activity, Advanced Markdown, Remote Editor, Tell Agent).
+
 ## 0.8.0 — 2026-09-23
 
 **Context badge.** Every chat gets a chip beside its message box with how full its context window is

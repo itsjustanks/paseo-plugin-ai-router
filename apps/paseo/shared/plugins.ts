@@ -16,13 +16,6 @@ export const RECOMMENDED_PLUGINS: readonly RecommendedPlugin[] = [
     install: "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git",
   },
   {
-    id: "smart-session",
-    name: "Smart Session",
-    by: "Tom Gringauz",
-    what: "Records Claude plan-usage history and lets a Paseo agent manage its own context.",
-    install: "paseo plugin add npm:paseo-smart-session@1.2.3",
-  },
-  {
     id: "shared-browser",
     name: "Shared Browser",
     by: "Omer Cohen",

@@ -46,7 +46,7 @@ manage key would add.
 | **Usage** | **Usage & analytics** for 24 hours, 7 days or 30 days: requests, tokens, estimated cost and latency; requests per day; tokens per day stacked by provider; the provider split; top models; by daemon and by account; failed requests by kind; a year of activity. |
 | **Settings** | Every tier: **In Paseo**, the context badge and MCP card switches. With a read token: context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
 | **Connection** | Router, endpoint, **public address** and whether it answers, key, where they come from; **Share this router** (how others connect through the public address, never with a key); the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
-| **Tips** | **Recommended plugins** from [Paseo Cafe](https://paseo.cafe/plugins/): Paseo MCP, Smart Session, Shared Browser, Activity, Advanced Markdown, Remote Editor and Tell Agent, each with its Cafe page and the install command Cafe publishes, or "Installed". |
+| **Tips** | **Recommended plugins** from [Paseo Cafe](https://paseo.cafe/plugins/): Paseo MCP, Shared Browser, Activity, Advanced Markdown, Remote Editor and Tell Agent, each with its Cafe page and the install command Cafe publishes, or "Installed". |
 
 The plugin never stores, shows or asks for OmniRoute's admin password. The panel says "Dashboard
 login: ask your router admin" where it matters.

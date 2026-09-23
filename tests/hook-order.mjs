@@ -106,9 +106,9 @@ const expected = {
   "overview (MCP card)": [...MCP, "Copy install source", "Hide"],
   "overview (MCP installed, narrow)": [...MCP, "Installed"],
   "overview (hide the MCP card)": ["MCP card hidden. Settings → In Paseo brings it back."],
-  "tips tab (operator)": [H.Tips, "Recommended plugins", "0 of 7 installed on this daemon", "Plugins run with the daemon's own access", "Paseo MCP", "by itsjustanks", "Smart Session", "Records Claude plan-usage history", "paseo plugin add npm:paseo-smart-session@1.2.3", "Shared Browser", "Activity", "Advanced Markdown", "Mermaid", "Remote Editor", "--ref 56bc4056630ebd766395ba3e71c6d92268e95f59", "Tell Agent", "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git", "View on Paseo Cafe", "Copy install command", "Browse every plugin on Paseo Cafe"],
-  "tips tab (admin, two installed, copy one)": ["2 of 7 installed on this daemon", "Installed", "Copied the Smart Session install command"],
-  "tips tab (not connected)": [H.Tips, "0 of 7 installed"],
+  "tips tab (operator)": [H.Tips, "Recommended plugins", "0 of 6 installed on this daemon", "Plugins run with the daemon's own access", "Paseo MCP", "by itsjustanks", "Shared Browser", "Activity", "Advanced Markdown", "Mermaid", "Remote Editor", "--ref 56bc4056630ebd766395ba3e71c6d92268e95f59", "Tell Agent", "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git", "View on Paseo Cafe", "Copy install command", "Browse every plugin on Paseo Cafe"],
+  "tips tab (admin, two installed, copy one)": ["2 of 6 installed on this daemon", "Installed", "Copied the Activity install command"],
+  "tips tab (not connected)": [H.Tips, "0 of 6 installed"],
   "settings tab (basic)": [H.Settings, ...IN_PASEO, "Router settings", "A read token shows how the router compresses prompts", "Add a read token on Connection"],
   "settings tab (not connected)": [...IN_PASEO, "Connect a router to see its settings.", "Open Connection"],
   "settings tab (badge off)": ["Context badge off.", "Context compression"],
@@ -128,6 +128,7 @@ const absent = {
   "connection tab (operator, private dashboard)": ["Starting a tunnel makes", "password"],
   "overview (basic)": ["Accounts", "Usage"],
   "overview (MCP installed, narrow)": ["Copy install source"],
+  "tips tab (operator)": ["Smart Session", "smart-session"],
   "overview (hide the MCP card)": ["Check out MCP"],
   "tips tab (admin, two installed, copy one)": ["npm:@omercnet/paseo-shared-browser"],
   "settings tab (basic)": ["Context compression", "More in OmniRoute"],
@@ -174,7 +175,7 @@ const expectedTabs = {
     Usage: [H.Usage, "Requests per day", "By account"],
     Settings: [H.Settings, "In Paseo", "Context compression", "More in OmniRoute"],
     Connection: [H.Connection, "More access (optional)", "Check now"],
-    Tips: [H.Tips, "0 of 7 installed"],
+    Tips: [H.Tips, "0 of 6 installed"],
   },
   "tab walk (admin)": {
     Overview: ["Up · Claude paused", "Accounts →"],
@@ -205,7 +206,7 @@ const expectedTabs = {
     Providers: [H.Providers, "Agent providers on this daemon"],
     Settings: [H.Settings, "In Paseo", "Connect a router to see its settings."],
     Connection: [H.Connection, "1. Choose your router", "4. Test connection & save"],
-    Tips: [H.Tips, "Smart Session"],
+    Tips: [H.Tips, "Tell Agent"],
   },
 };
 const walkTabs = { "tab walk (basic)": BASIC_TABS, "tab walk (operator)": ALL_TABS, "tab walk (admin)": ALL_TABS, "tab walk (router down)": ALL_TABS, "tab walk (not connected)": BASIC_TABS };
