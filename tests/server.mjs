@@ -69,6 +69,39 @@ const COMBO_ENTRIES = [
 managed["/api/combos/auto"] = { combos: [{ id: "auto", name: "Auto", candidatePool: ["codex", "claude"] }, { id: "auto/coding", name: "Auto Coding", candidatePool: ["codex", "claude"] }, { id: "auto/fast", name: "Auto Fast", candidatePool: ["codex", "claude"] }] };
 managed["/api/combos"] = { combos: [{ id: "0b1f6c2e-5a1d-4c3e-9f7a-2d8e6b4c1a90", name: "team-review", models: [{}, {}], strategy: "priority" }], total: 1 };
 
+// Activity: OmniRoute's call log, newest first. Rows carry a request summary the plugin must never pass on.
+const LEAK = "PROMPT-TEXT-MUST-NOT-LEAK";
+let callLogBase = Date.now();
+const callLogRows = () => [
+  { id: "log-5", seconds: 50, status: 200, model: "claude-sonnet-5", requestedModel: "cc/claude-sonnet-5", provider: "claude", account: "someone@example.com", duration: 1840, tokens: { in: 12000, out: 800 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: "paseo-agent-1" },
+  { id: "log-4", seconds: 40, status: 200, model: "gpt-5.6-sol", requestedModel: "cx/gpt-5.6-sol", provider: "codex", account: "other@example.com", duration: 2300, tokens: { in: 9000, out: 1500 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: null },
+  { id: "log-3", seconds: 30, status: 200, model: "gpt-5.6-sol", requestedModel: "auto/coding", provider: "codex", account: "other@example.com", duration: 2100, tokens: { in: 5000, out: 400 }, apiKeyId: "k2", apiKeyName: "daemon-b", comboName: "auto/coding", error: null, sessionTag: null },
+  { id: "log-2", seconds: 20, status: 200, model: "glm-5.2", requestedModel: "cc/claude-opus-5-5", provider: "glm", account: null, duration: 900, tokens: { in: 3000, out: 200 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: null },
+  { id: "log-1", seconds: 10, status: 429, model: "claude-sonnet-5", requestedModel: "cc/claude-sonnet-5", provider: "claude", account: "someone@example.com", duration: 120, tokens: { in: 0, out: 0 }, apiKeyId: "k2", apiKeyName: "daemon-b", comboName: null, error: "[429] rate limited: try again in 30s", sessionTag: null },
+].map(({ seconds, ...row }) => ({ ...row, timestamp: new Date(callLogBase + seconds * 1000).toISOString(), method: "POST", path: "/v1/messages", requestSummary: { text: LEAK }, hasRequestBody: true }));
+const callLogQueries = [];
+const like = (value, wanted) => String(value ?? "").toLowerCase().includes(String(wanted).toLowerCase());
+function callLogAnswer(params) {
+  callLogQueries.push(Object.fromEntries(params));
+  let rows = callLogRows();
+  if (params.get("status") === "error") rows = rows.filter((r) => r.status >= 400 || r.error);
+  if (params.get("model")) rows = rows.filter((r) => like(r.model, params.get("model")) || like(r.requestedModel, params.get("model")));
+  if (params.get("provider")) rows = rows.filter((r) => like(r.provider, params.get("provider")));
+  if (params.get("apiKey")) rows = rows.filter((r) => like(r.apiKeyName, params.get("apiKey")) || like(r.apiKeyId, params.get("apiKey")));
+  return rows.slice(0, Number(params.get("limit") ?? 50));
+}
+const decisions = {
+  "log-2": {
+    requestId: "log-2", routeType: "direct", confidence: "medium", summary: "Direct request served by glm/glm-5.2 after claude answered 503.",
+    comboUsed: null, providerSelected: "glm", modelUsed: "glm-5.2",
+    decision: { factors: [{ name: "Direct routing", value: "Direct provider request", status: "neutral", details: "No combo matched." }, { name: "Recent health", value: 0.4, status: "negative", details: "claude failed 3 of the last 5 requests." }], fallbacksTriggered: [{ id: "x", provider: "claude", model: "claude-opus-5-5", status: 503, reason: "upstream unavailable", timestamp: "2026-09-23T10:00:00.000Z" }] },
+    selectedTarget: { provider: "glm", model: "glm-5.2", account: "team@example.com" },
+    request: { path: "/v1/messages", requestedModel: "cc/claude-opus-5-5" },
+    requestBody: LEAK, pipelinePayloads: { clientRequest: LEAK },
+    limitations: ["Detailed request pipeline payloads were not persisted for this log entry."],
+  },
+};
+
 const router = createServer((req, res) => {
   if (routerDown) return req.socket.destroy();
   const auth = req.headers.authorization ?? "";
@@ -113,6 +146,13 @@ const router = createServer((req, res) => {
     return;
   }
   if (req.url === "/api/monitoring/health" && auth !== `Bearer ${TOKEN}` && !manage) return send(200, { status: "healthy" });
+  const url = new URL(req.url, "http://fake");
+  if (url.pathname === "/api/usage/call-logs" && url.searchParams.get("excludeTests") === "1") return auth === `Bearer ${TOKEN}` || manage ? send(200, callLogAnswer(url.searchParams)) : send(401, { error: "Invalid or expired access token" });
+  if (url.pathname.startsWith("/api/routing/decisions/")) {
+    if (auth !== `Bearer ${TOKEN}` && !manage) return send(401, { error: "Invalid or expired access token" });
+    const found = decisions[decodeURIComponent(url.pathname.split("/").pop())];
+    return found ? send(200, found) : send(404, { error: "Routing decision not found" });
+  }
   if (managed[req.url]) return auth === `Bearer ${TOKEN}` || manage ? send(200, managed[req.url]) : req.url === "/api/settings" && auth === `Bearer ${KEY}` ? refuse() : send(401, { error: "Invalid or expired access token" });
   send(404, { error: "not found" });
 });
@@ -183,11 +223,35 @@ try {
 
   process.env.AI_ROUTER_URL = `${LIVE}/v1`;
   ({ result } = await open("claude"));
-  assert.deepEqual(result.env, { KEEP: "1", ANTHROPIC_BASE_URL: LIVE, ANTHROPIC_AUTH_TOKEN: KEY, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1" });
+  const routedEnv = { KEEP: "1", ANTHROPIC_BASE_URL: LIVE, ANTHROPIC_AUTH_TOKEN: KEY, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", ANTHROPIC_CUSTOM_HEADERS: "x-omniroute-session-id: paseo-agent-1" };
+  assert.deepEqual(result.env, routedEnv, "the session header links this agent's requests in OmniRoute's log");
   ({ result } = await open("ai-router"));
-  assert.deepEqual(result.env, { KEEP: "1", ANTHROPIC_BASE_URL: LIVE, ANTHROPIC_AUTH_TOKEN: KEY, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1" });
+  assert.deepEqual(result.env, routedEnv);
   ({ request, result } = await open("codex"));
   assert.equal(result, request, "built-in Codex is never touched");
+  // Headers the person set are kept; the session line is added after them.
+  const own = { agentId: "agent-9", workspaceId: null, provider: "claude", cwd: "/tmp", reason: "create", purpose: "interactive", env: { ANTHROPIC_CUSTOM_HEADERS: "X-Team: blue" } };
+  result = await hook({ request: own }, { paseo, signal: new AbortController().signal });
+  assert.equal(result.env.ANTHROPIC_CUSTOM_HEADERS, "X-Team: blue\nx-omniroute-session-id: paseo-agent-9");
+  assert.equal(own.env.ANTHROPIC_CUSTOM_HEADERS, "X-Team: blue", "Paseo's request is not changed in place");
+  passed += 1;
+
+  // Every decision lands in the session log: private to the daemon's user, newest last, survives a restart.
+  const logPath = join(settingsDir, "sessions.json");
+  assert.equal(statSync(logPath).mode & 0o777, 0o600);
+  const logged = JSON.parse(readFileSync(logPath, "utf8"));
+  assert.deepEqual(logged.slice(-3).map((e) => [e.agentId, e.provider, e.routed, e.tagged]), [["agent-1", "claude", true, true], ["agent-1", "ai-router", true, true], ["agent-9", "claude", true, true]]);
+  const skipped = logged.find((e) => !e.routed && e.kind === "claude");
+  assert.equal(skipped.reason, `no API key set for ${LIVE}`, "a skipped session keeps its reason");
+  assert.equal(JSON.stringify(logged).includes(KEY), false, "no key in the log");
+  const quiet = console.log;
+  console.log = () => {};
+  for (let i = 0; i < 205; i += 1) await hook({ request: { ...own, agentId: `agent-many-${i}`, env: {} } }, { paseo, signal: new AbortController().signal });
+  console.log = quiet;
+  assert.equal(server.readSessionLog().length, 200, "the log keeps the last 200");
+  server.forgetSessionLog();
+  const reread = server.readSessionLog();
+  assert.deepEqual([reread.length, reread[0].agentId, reread.at(-1).agentId], [200, "agent-many-5", "agent-many-204"], "read back from disk after a restart, oldest dropped");
   passed += 1;
 
   // Test connection: key proof, token proof, and nothing saved on failure.
@@ -714,6 +778,104 @@ try {
     passed += 1;
   }
   withCombos = false;
+
+  // ---------------------------------------------------------------- activity
+  {
+    const t = await fresh("activity", full);
+    routingDoc(t.dir, { routeAgents: true });
+    t.api.agents = { list: async () => ({ entries: [{ agent: { id: "agent-1", title: "Fix the login bug", model: "cc/claude-sonnet-5", provider: "claude" } }, { agent: { id: "agent-2", title: "Review the parser", model: "cx/gpt-5.6-sol", provider: "codex-ai-router" } }] }) };
+    await t.mod.handleCodexRouter({ enabled: true }, { paseo: t.api });
+    let hook;
+    t.mod.registerRoutingHooks({ before: (name, handler) => { if (name === "agent.session_open") hook = handler; }, on() {} });
+    const launch = (agentId, provider) => hook({ request: { agentId, workspaceId: null, provider, cwd: "/tmp", reason: "create", purpose: "interactive", env: {} } }, { paseo: t.api, signal: new AbortController().signal });
+    await launch("agent-1", "claude");
+    const codex = await launch("agent-2", "codex-ai-router");
+    assert.equal("ANTHROPIC_CUSTOM_HEADERS" in codex.env, false, "Codex sessions carry no header: Paseo builds their provider config");
+    callLogBase = Date.now() + 1_000; // the requests come after the sessions opened
+    callLogQueries.length = 0;
+
+    const mine = await t.mod.handleActivity({}, { paseo: t.api });
+    t.mod.ActivitySchema.parse(mine);
+    assert.deepEqual(callLogQueries.at(-1), { limit: "26", excludeTests: "1", apiKey: "k1" }, "this daemon, by its key id, 25 and one more");
+    assert.deepEqual(mine.sessions.map((s) => [s.agentId, s.agentTitle, s.kind, s.routed, s.tagged]), [["agent-2", "Review the parser", "codex", true, false], ["agent-1", "Fix the login bug", "claude", true, true]], "newest first, with Paseo's titles");
+    const rows = mine.requests.rows;
+    assert.deepEqual(rows.map((r) => r.id), ["log-5", "log-4", "log-2"]);
+    assert.ok(rows.every((r) => r.thisDaemon && r.daemon === "daemon-a"));
+    assert.deepEqual(rows[0].agent, { id: "agent-1", title: "Fix the login bug", match: "exact" }, "the session tag links it exactly");
+    assert.deepEqual(rows[1].agent, { id: "agent-2", title: "Review the parser", match: "likely" }, "Codex: same daemon, same model, opened before");
+    assert.equal(rows[2].agent, null, "no agent asked for that model");
+    assert.deepEqual([rows[2].fallback, rows[2].requestedModel, rows[2].model, rows[2].providerId], [true, "cc/claude-opus-5-5", "glm-5.2", "glm"]);
+    assert.deepEqual([rows[0].provider, rows[0].account, rows[0].latencyMs, rows[0].tokensIn, rows[0].tokensOut], ["Claude", "so…@example.com", 1840, 12000, 800]);
+    assert.equal(mine.requests.hasMore, false);
+    assert.equal(mine.requests.ownKey, "daemon-a");
+    assert.equal("sessionTag" in rows[0], false, "the raw tag stays on the server");
+
+    const errors = await t.mod.handleActivity({ scope: "all", errorsOnly: true }, { paseo: t.api });
+    assert.deepEqual(callLogQueries.at(-1), { limit: "26", excludeTests: "1", status: "error" });
+    assert.deepEqual(errors.requests.rows.map((r) => [r.id, r.ok, r.status, r.daemon, r.thisDaemon, r.error]), [["log-1", false, 429, "daemon-b", false, "[429] rate limited: try again in 30s"]]);
+    assert.equal(errors.requests.rows[0].agent, null, "another daemon's request is never guessed at");
+    const combo = (await t.mod.handleActivity({ scope: "all", provider: "codex", model: "auto" }, { paseo: t.api })).requests.rows;
+    assert.deepEqual(callLogQueries.at(-1), { limit: "26", excludeTests: "1", model: "auto", provider: "codex" });
+    assert.deepEqual(combo.map((r) => [r.id, r.combo, r.fallback]), [["log-3", "auto/coding", false]], "a combo pick is not a fallback");
+    const page = await t.mod.handleActivity({ scope: "all", limit: 2 }, { paseo: t.api });
+    assert.deepEqual([page.requests.rows.length, page.requests.hasMore, callLogQueries.at(-1).limit], [2, true, "3"]);
+
+    const why = await t.mod.handleActivityDetail({ id: "log-2" });
+    t.mod.RouteExplanationSchema.parse(why);
+    assert.deepEqual([why.state, why.summary, why.provider, why.model, why.account], ["ok", "Direct request served by glm/glm-5.2 after claude answered 503.", "GLM", "glm-5.2", "te…@example.com"]);
+    assert.deepEqual(why.fallbacks, [{ provider: "Claude", model: "claude-opus-5-5", status: 503, reason: "upstream unavailable", at: "2026-09-23T10:00:00.000Z" }]);
+    assert.deepEqual(why.factors.map((f) => [f.name, f.value, f.status]), [["Direct routing", "Direct provider request", "neutral"], ["Recent health", "0.4", "negative"]]);
+    const missing = await t.mod.handleActivityDetail({ id: "log-404" });
+    assert.deepEqual([missing.state, missing.message], ["error", "Routing decision: 404 — /api/routing/decisions/log-404 not found; is OmniRoute older than 3.8?"]);
+    for (const payload of [mine, errors, page, why]) {
+      assert.equal(JSON.stringify(payload).includes(LEAK), false, "no prompt or response content reaches the panel");
+      noSecrets(payload);
+    }
+    t.restore();
+    passed += 1;
+  }
+  {
+    // Without a read token: this daemon's own session log still shows; requests say what unlocks them.
+    const t = await fresh("activity-basic", { router: "omniroute", endpoint: LIVE, apiKey: KEY });
+    routingDoc(t.dir, { routeAgents: true });
+    t.api.agents = { list: () => new Promise(() => {}) }; // Paseo never answers: titles are skipped, not waited on forever
+    let hook;
+    t.mod.registerRoutingHooks({ before: (name, handler) => { if (name === "agent.session_open") hook = handler; }, on() {} });
+    await hook({ request: { agentId: "agent-3", workspaceId: null, provider: "claude", cwd: "/tmp", reason: "create", purpose: "interactive", env: {} } }, { paseo: t.api, signal: new AbortController().signal });
+    const queries = callLogQueries.length;
+    const basic = await t.mod.handleActivity({}, { paseo: t.api });
+    t.mod.ActivitySchema.parse(basic);
+    assert.deepEqual([basic.requests.state, basic.requests.message, basic.requests.rows], ["no-token", "Add a read token to see every request the router served.", []]);
+    assert.equal(callLogQueries.length, queries, "nothing asked of OmniRoute without a read token");
+    assert.deepEqual(basic.sessions.map((s) => [s.agentId, s.agentTitle, s.routed]), [["agent-3", null, true]]);
+    t.restore();
+    passed += 1;
+  }
+
+  // ---------------------------------------------------------- public address
+  {
+    // A working public address: "HTTP OK" (the fake is plain http), and Open dashboard goes there.
+    const port = new URL(LIVE).port;
+    const t = await fresh("public-ok", { ...full, consoleUrl: `http://localhost:${port}/dashboard/` });
+    t.restore();
+    const status = await t.mod.handleStatus({ refresh: true }, { paseo: t.api });
+    t.mod.StatusSchema.parse(status);
+    assert.equal(status.connection.publicUrl, `http://localhost:${port}`, "stored without /dashboard");
+    assert.deepEqual([status.connection.publicCheck.state, status.connection.publicCheck.label], ["ok", `HTTP OK · localhost:${port}`]);
+    assert.match(status.connection.publicCheck.detail, /without HTTPS/);
+    assert.equal(status.connection.dashboardUrl, `http://localhost:${port}/dashboard`);
+    passed += 1;
+  }
+  {
+    // A public address that does not answer: named, and the dashboard link stays on the private endpoint.
+    const t = await fresh("public-dead", { ...full, consoleUrl: DEAD });
+    t.restore();
+    const status = await t.mod.handleStatus({ refresh: true }, { paseo: t.api });
+    t.mod.StatusSchema.parse(status);
+    assert.deepEqual([status.connection.publicUrl, status.connection.publicCheck.state, status.connection.publicCheck.label], [DEAD, "unreachable", "Unreachable"]);
+    assert.equal(status.connection.dashboardUrl, `${LIVE}/dashboard`);
+    passed += 1;
+  }
 
   console.log(`server: ${passed} scenarios passed`);
 } finally {

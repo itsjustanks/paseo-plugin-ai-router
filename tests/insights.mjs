@@ -484,6 +484,90 @@ try {
     assert.deepEqual(real.activity, [{ date: "2026-09-23", tokens: 64141 }]);
   });
 
+  // ------------------------------------------------------------ activity
+  const OWN = { id: "k1", name: "daemon-a" };
+  const logRow = (over) => ({ id: "r1", timestamp: "2026-09-23T01:00:00.000Z", method: "POST", path: "/v1/messages", status: 200, model: "claude-sonnet-5", requestedModel: "cc/claude-sonnet-5", provider: "claude", providerDisplay: null, account: "someone@example.com", duration: 1500, tokens: { in: 1000, out: 200, cacheRead: 5 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: null, requestSummary: { text: "a prompt" }, hasRequestBody: true, ...over });
+
+  check("call-log query", () => {
+    const base = { scope: "daemon", errorsOnly: false, model: null, provider: null, limit: 25 };
+    assert.equal(I.callLogQuery(base, OWN), "/api/usage/call-logs?limit=26&excludeTests=1&apiKey=k1", "by key id, one row more than shown");
+    assert.equal(I.callLogQuery(base, { id: null, name: "daemon-a" }), "/api/usage/call-logs?limit=26&excludeTests=1&apiKey=daemon-a", "the name when the id is unknown");
+    assert.equal(I.callLogQuery(base, null), "/api/usage/call-logs?limit=26&excludeTests=1", "key not found: every daemon");
+    assert.equal(I.callLogQuery({ ...base, scope: "all", errorsOnly: true, model: "cc/claude-sonnet-5", provider: "claude", limit: 500 }, OWN), "/api/usage/call-logs?limit=201&excludeTests=1&status=error&model=cc%2Fclaude-sonnet-5&provider=claude", "capped at 200");
+  });
+
+  check("call-log rows", () => {
+    const body = [
+      logRow({ id: "a", sessionTag: "paseo-agent-1" }),
+      logRow({ id: "b", model: "glm-5.2", provider: "glm", requestedModel: "cc/claude-opus-5-5", apiKeyId: "k2", apiKeyName: "daemon-b" }),
+      logRow({ id: "c", comboName: "auto/coding", requestedModel: "auto/coding", model: "gpt-5.6-sol", provider: "codex", providerDisplay: "codex" }),
+      logRow({ id: "d", status: 200, error: "stream cut after 12s: " + "x".repeat(400) }),
+      logRow({ id: "e", status: 502, tokens: {}, promptTokens: 7, duration: null }),
+      { id: "no-time" },
+      logRow({ id: "f" }),
+    ];
+    const { rows, hasMore } = I.parseCallLogs(body, OWN, 5);
+    assert.equal(hasMore, true, "a sixth usable row means there are older ones");
+    assert.deepEqual(rows.map((r) => r.id), ["a", "b", "c", "d", "e"]);
+    assert.deepEqual([rows[0].thisDaemon, rows[1].thisDaemon, rows[1].daemon], [true, false, "daemon-b"]);
+    assert.deepEqual([rows[0].provider, rows[0].providerId, rows[0].account, rows[0].tokensIn, rows[0].tokensOut, rows[0].latencyMs], ["Claude", "claude", "so…@example.com", 1000, 200, 1500]);
+    assert.deepEqual([rows[0].fallback, rows[1].fallback, rows[2].fallback], [false, true, false], "cc/ vs bare is the same model; another model outside a combo is a fallback; a combo pick is not");
+    assert.equal(rows[2].combo, "auto/coding");
+    assert.deepEqual([rows[3].ok, rows[3].error.length, rows[3].error.endsWith("…")], [false, 238, true], "an error on a 200 still counts as failed; text cut short");
+    assert.deepEqual([rows[4].ok, rows[4].status, rows[4].tokensIn, rows[4].latencyMs], [false, 502, 7, null]);
+    assert.equal(rows[0].sessionTag, "paseo-agent-1");
+    assert.equal(JSON.stringify(rows).includes("a prompt"), false, "request summaries are never read");
+    assert.deepEqual(I.parseCallLogs({ error: "nope" }, OWN, 25), { rows: [], hasMore: false });
+    assert.deepEqual(I.parseCallLogs(body, null, 25).rows.map((r) => r.thisDaemon), [false, false, false, false, false, false], "without our key, nothing is marked ours");
+  });
+
+  check("linking requests to agents", () => {
+    const { rows } = I.parseCallLogs([
+      logRow({ id: "tagged", timestamp: "2026-09-23T01:10:00.000Z", sessionTag: "paseo-agent-1" }),
+      logRow({ id: "codex", timestamp: "2026-09-23T01:09:00.000Z", model: "gpt-5.6-sol", requestedModel: "cx/gpt-5.6-sol", provider: "codex" }),
+      logRow({ id: "early", timestamp: "2026-09-23T00:01:00.000Z", model: "gpt-5.6-sol", requestedModel: "cx/gpt-5.6-sol", provider: "codex" }),
+      logRow({ id: "theirs", timestamp: "2026-09-23T01:09:30.000Z", model: "gpt-5.6-sol", requestedModel: "cx/gpt-5.6-sol", apiKeyId: "k2", apiKeyName: "daemon-b" }),
+      logRow({ id: "other-tag", timestamp: "2026-09-23T01:08:00.000Z", sessionTag: "claude-code-session-9" }),
+    ], OWN, 25);
+    const sessions = [
+      { at: "2026-09-23T00:30:00.000Z", agentId: "agent-2", routed: true },
+      { at: "2026-09-23T01:05:00.000Z", agentId: "agent-3", routed: true },
+      { at: "2026-09-23T01:06:00.000Z", agentId: "agent-4", routed: false },
+    ];
+    const agents = new Map([
+      ["agent-1", { title: "Fix the login bug", model: "cc/claude-sonnet-5" }],
+      ["agent-2", { title: "Older Codex", model: "cx/gpt-5.6-sol" }],
+      ["agent-3", { title: null, model: "gpt-5.6-sol" }],
+      ["agent-4", { title: "Skipped", model: "cx/gpt-5.6-sol" }],
+    ]);
+    const links = I.linkAgents(rows, sessions, agents, (tag) => (tag?.startsWith("paseo-") ? tag.slice(6) : null));
+    assert.deepEqual(links.get("tagged"), { id: "agent-1", title: "Fix the login bug", match: "exact" });
+    assert.deepEqual(links.get("codex"), { id: "agent-3", title: null, match: "likely" }, "the latest routed session with that model, opened before the request");
+    assert.equal(links.has("early"), false, "nothing had opened yet");
+    assert.equal(links.has("theirs"), false, "another daemon's request is never guessed at");
+    assert.equal(links.has("other-tag"), false, "a tag from outside Paseo, and no model match among routed sessions opened before it");
+  });
+
+  check("routing decision whitelist", () => {
+    const explained = I.parseRouteExplanation({
+      requestId: "r1", routeType: "combo", confidence: "high", summary: "auto/coding picked codex.",
+      comboUsed: "auto/coding", providerSelected: "codex", modelUsed: "gpt-5.6-sol",
+      decision: { factors: Array.from({ length: 10 }, (_, i) => ({ name: `f${i}`, value: i, status: "positive", details: null })), fallbacksTriggered: [{ provider: "claude", model: "claude-opus-5-5", status: 429, reason: "rate limited", timestamp: "t" }] },
+      selectedTarget: { provider: "codex", model: "gpt-5.6-sol", account: "person@example.com", connectionId: "c1" },
+      request: { path: "/v1/responses" }, requestBody: "SECRET", responseBody: "SECRET", pipelinePayloads: { clientRequest: "SECRET" }, requestSummary: "SECRET",
+      limitations: ["one", { message: "two" }, { detail: "three" }, 4, "five", "six"],
+    });
+    assert.deepEqual([explained.combo, explained.provider, explained.model, explained.account, explained.routeType, explained.confidence], ["auto/coding", "Codex", "gpt-5.6-sol", "pe…@example.com", "combo", "high"]);
+    assert.equal(explained.factors.length, 8, "at most eight factors");
+    assert.deepEqual(explained.factors[3], { name: "f3", value: "3", status: "positive", details: null });
+    assert.deepEqual(explained.fallbacks, [{ provider: "Claude", model: "claude-opus-5-5", status: 429, reason: "rate limited", at: "t" }]);
+    assert.deepEqual(explained.limitations, ["one", "two", "three", "five"]);
+    assert.equal(JSON.stringify(explained).includes("SECRET"), false, "only routing fields are read");
+    assert.deepEqual(Object.keys(explained).sort(), ["account", "combo", "confidence", "factors", "fallbacks", "limitations", "model", "provider", "routeType", "summary"]);
+    const blank = I.parseRouteExplanation(null);
+    assert.deepEqual([blank.summary, blank.factors, blank.fallbacks], [null, [], []]);
+  });
+
   console.log(`insights: ${passed} checks passed`);
 } finally {
   rmSync(staging, { recursive: true, force: true });

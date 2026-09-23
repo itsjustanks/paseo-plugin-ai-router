@@ -1,5 +1,5 @@
 import type { RouterAdapter } from "..";
-import { currentHealth, healthForPanel, lastSeenAt, recentlyDown, testConnection } from "./health";
+import { currentHealth, healthForPanel, lastSeenAt, publicForPanel, recentlyDown, testConnection } from "./health";
 import {
   accountAction,
   applyRecommendedCompression,
@@ -10,6 +10,8 @@ import {
   getAccess,
   getAccounts,
   getCompression,
+  getExplanation,
+  getRequests,
   getSettings,
   getTunnels,
   getUsage,
@@ -30,6 +32,7 @@ export const omniroute: RouterAdapter = {
   healthForPanel,
   recentlyDown: (connection) => recentlyDown(connection),
   lastSeenAt,
+  publicForPanel,
   models: catalogue,
   testModel,
   access: getAccess,
@@ -44,4 +47,6 @@ export const omniroute: RouterAdapter = {
   tunnels: getTunnels,
   setTunnel,
   knownTunnel,
+  requests: getRequests,
+  explanation: getExplanation,
 };

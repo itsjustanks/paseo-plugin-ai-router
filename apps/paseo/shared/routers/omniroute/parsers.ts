@@ -892,3 +892,160 @@ export function errorWords(type: string): string {
   const known: Record<string, string> = { pre_migration: "before error types were recorded", unclassified: "not classified" };
   return known[type] ?? type.replace(/[_-]+/g, " ");
 }
+
+// ----------------------------------------------------------------- activity
+
+export type ActivityFilter = { scope: "daemon" | "all"; errorsOnly: boolean; model: string | null; provider: string | null; limit: number };
+export const ACTIVITY_MAX = 200;
+
+/**
+ * `/api/usage/call-logs` query for a filter. OmniRoute filters server-side,
+ * each as a substring match: `apiKey` on the key's id or name (the id, when
+ * known, so "daemon-a" never also matches "daemon-a2"), `status=error` is
+ * 4xx/5xx or an error, `model` the requested or served model, `provider` its
+ * provider id; `excludeTests=1` keeps only real /v1 traffic. One row more than
+ * asked says whether there are older ones.
+ */
+export function callLogQuery(filter: ActivityFilter, ownKey: KeyIdentity | null): string {
+  const params = new URLSearchParams({ limit: String(Math.min(ACTIVITY_MAX, Math.max(1, filter.limit)) + 1), excludeTests: "1" });
+  const key = ownKey?.id ?? ownKey?.name ?? null;
+  if (filter.scope === "daemon" && key) params.set("apiKey", key);
+  if (filter.errorsOnly) params.set("status", "error");
+  if (filter.model) params.set("model", filter.model);
+  if (filter.provider) params.set("provider", filter.provider);
+  return `/api/usage/call-logs?${params}`;
+}
+
+export type RequestRow = {
+  id: string;
+  at: string;
+  daemon: string | null;
+  thisDaemon: boolean;
+  requestedModel: string | null;
+  model: string | null;
+  /** OmniRoute's provider id ("claude"), what its provider filter matches. */
+  providerId: string | null;
+  provider: string | null;
+  account: string | null;
+  combo: string | null;
+  /** The served model is not the one asked for, outside a combo: OmniRoute fell back. */
+  fallback: boolean;
+  status: number | null;
+  ok: boolean;
+  latencyMs: number | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  /** OmniRoute's error text, cut short. Never request or response content. */
+  error: string | null;
+  sessionTag: string | null;
+};
+
+/** `cc/claude-sonnet-5` and `claude-sonnet-5` are the same model for comparing requested and served. */
+const bareModel = (id: string | null) => (id ? id.slice(id.lastIndexOf("/") + 1).toLowerCase() : null);
+
+/**
+ * `/api/usage/call-logs` rows → what Activity shows. Only routing metadata is
+ * read; OmniRoute's request and response bodies are never touched.
+ */
+export function parseCallLogs(body: unknown, ownKey: KeyIdentity | null, limit: number): { rows: RequestRow[]; hasMore: boolean } {
+  const all = list(body).map(rec).filter((row) => str(row.id) && str(row.timestamp));
+  const rows = all.slice(0, limit).map((row): RequestRow => {
+    const tokens = rec(row.tokens);
+    const status = num(row.status);
+    const requestedModel = str(row.requestedModel);
+    const model = str(row.model);
+    const combo = str(row.comboName);
+    const daemon = str(row.apiKeyName);
+    const error = str(row.error);
+    const provider = str(row.providerDisplay) ?? str(row.provider);
+    return {
+      id: str(row.id)!,
+      at: str(row.timestamp)!,
+      daemon,
+      thisDaemon: !!ownKey && ((ownKey.id !== null && str(row.apiKeyId) === ownKey.id) || (ownKey.name !== null && daemon === ownKey.name)),
+      requestedModel,
+      model,
+      providerId: str(row.provider),
+      provider: provider ? providerLabel(provider) : null,
+      account: str(row.account) ? maskLabel(str(row.account)!) : null,
+      combo,
+      fallback: !combo && !!requestedModel && !!model && bareModel(requestedModel) !== bareModel(model),
+      status,
+      ok: status !== null && status >= 200 && status < 400 && !error,
+      latencyMs: num(row.duration),
+      tokensIn: num(tokens.in) ?? num(tokens.input) ?? num(row.promptTokens),
+      tokensOut: num(tokens.out) ?? num(tokens.output) ?? num(row.completionTokens),
+      error: error ? (error.length > 240 ? `${error.slice(0, 237)}…` : error) : null,
+      sessionTag: str(row.sessionTag),
+    };
+  });
+  return { rows, hasMore: all.length > limit };
+}
+
+export type AgentLink = { id: string; title: string | null; match: "exact" | "likely" };
+
+/**
+ * Which Paseo agent made each request. Exact when OmniRoute recorded the
+ * session tag the hook sends (`paseo-<agent id>`); otherwise, for this
+ * daemon's own requests, "likely": the agent whose model matches and whose
+ * session opened most recently before the request.
+ */
+export function linkAgents(
+  rows: readonly RequestRow[],
+  sessions: ReadonlyArray<{ at: string; agentId: string; routed: boolean }>,
+  agents: ReadonlyMap<string, { title: string | null; model: string | null }>,
+  tagToAgent: (tag: string | null) => string | null,
+): Map<string, AgentLink> {
+  const links = new Map<string, AgentLink>();
+  const opened = sessions.filter((s) => s.routed).slice().sort((a, b) => b.at.localeCompare(a.at));
+  for (const row of rows) {
+    const tagged = tagToAgent(row.sessionTag);
+    if (tagged) {
+      links.set(row.id, { id: tagged, title: agents.get(tagged)?.title ?? null, match: "exact" });
+      continue;
+    }
+    if (!row.thisDaemon) continue;
+    const wanted = bareModel(row.requestedModel ?? row.model);
+    const candidate = opened.find((s) => s.at <= row.at && wanted !== null && bareModel(agents.get(s.agentId)?.model ?? null) === wanted);
+    if (candidate) links.set(row.id, { id: candidate.agentId, title: agents.get(candidate.agentId)?.title ?? null, match: "likely" });
+  }
+  return links;
+}
+
+export type RouteExplanation = {
+  summary: string | null;
+  routeType: string | null;
+  confidence: string | null;
+  combo: string | null;
+  provider: string | null;
+  model: string | null;
+  account: string | null;
+  factors: Array<{ name: string; value: string; status: string; details: string | null }>;
+  fallbacks: Array<{ provider: string | null; model: string | null; status: number | null; reason: string | null; at: string | null }>;
+  limitations: string[];
+};
+
+/**
+ * `/api/routing/decisions/<call log id>` (read token): why OmniRoute routed
+ * a request where it did. A whitelist of routing fields: nothing from the
+ * request or response is read.
+ */
+export function parseRouteExplanation(body: unknown): RouteExplanation {
+  const root = rec(body);
+  const decision = rec(root.decision);
+  const selected = rec(root.selectedTarget);
+  const fallbackList = list(decision.fallbacksTriggered).length ? list(decision.fallbacksTriggered) : list(root.fallbacksTriggered);
+  const text = (value: unknown) => (typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : null);
+  return {
+    summary: str(root.summary),
+    routeType: str(root.routeType),
+    confidence: str(root.confidence),
+    combo: str(root.comboUsed) ?? str(decision.comboUsed),
+    provider: str(root.providerSelected) ? providerLabel(str(root.providerSelected)!) : null,
+    model: str(root.modelUsed) ?? str(decision.modelUsed),
+    account: str(selected.account) ? maskLabel(str(selected.account)!) : null,
+    factors: list(decision.factors).map(rec).map((f) => ({ name: str(f.name) ?? "factor", value: text(f.value) ?? "", status: str(f.status) ?? "neutral", details: str(f.details) })).slice(0, 8),
+    fallbacks: fallbackList.map(rec).map((t) => ({ provider: str(t.provider) ? providerLabel(str(t.provider)!) : null, model: str(t.model), status: num(t.status), reason: str(t.reason), at: str(t.timestamp) })).slice(0, 8),
+    limitations: list(root.limitations).map((l) => (typeof l === "string" ? l : str(rec(l).message) ?? str(rec(l).detail))).filter((l): l is string => !!l).slice(0, 4),
+  };
+}

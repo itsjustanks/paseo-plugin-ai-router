@@ -9,12 +9,13 @@ type Theme = PluginTheme;
 const RANK: Record<AccessTier, number> = { none: 0, basic: 1, operator: 2, admin: 3 };
 
 /**
- * Seven tabs, one job each, in one row. Icons are Lucide names, drawn by the
+ * Eight tabs, one job each, in one row. Icons are Lucide names, drawn by the
  * Paseo app. Accounts, Usage and Settings need a read token, so they are not
  * shown without one.
  */
 export const TABS = [
   { id: "overview", label: "Overview", icon: "LayoutDashboard", minTier: "none", heading: "Is traffic going through the router, and what to do next." },
+  { id: "activity", label: "Activity", icon: "History", minTier: "none", heading: "What went through the router: each agent session on this daemon and, with a read token, every request and where it was sent." },
   { id: "models", label: "Models", icon: "Boxes", minTier: "none", heading: "The models this key can use through the router, and a quick test for any of them." },
   { id: "providers", label: "Providers", icon: "Plug", minTier: "none", heading: "Every agent provider on this daemon, and which ones can go through OmniRoute." },
   { id: "accounts", label: "Accounts", icon: "Users", minTier: "operator", heading: "Each connected subscription, how much it has left, and the router's health." },

@@ -25,9 +25,15 @@ export const StatusSchema = z.object({
   connection: z.object({
     source: z.enum(["saved", "env", "none"]),
     endpoint: z.string().nullable(),
-    /** As saved; null means the default. */
+    /** As saved: the public address (custom domain), kept under its old name. */
     consoleUrl: z.string().nullable(),
-    /** What "Open OmniRoute dashboard" opens: consoleUrl or endpoint + /dashboard. */
+    /** The public address people and browsers outside the network use, e.g. https://ai-router.example.com. */
+    publicUrl: z.string().nullable(),
+    /** `<public address>/api/health/ping` from this daemon; `checking` while the first answer is on its way. */
+    publicCheck: z
+      .object({ state: z.enum(["ok", "dns", "tls", "http", "unreachable", "checking"]), label: z.string(), detail: z.string().nullable(), checkedAt: z.string().nullable() })
+      .nullable(),
+    /** What "Open OmniRoute dashboard" opens: the public address when it passes its check, else the endpoint's /dashboard. */
     dashboardUrl: z.string().nullable(),
     sshTarget: z.string().nullable(),
     router: z.enum(ROUTER_IDS),
@@ -341,3 +347,86 @@ export const ProfilesSchema = z.object({
 });
 export type Profiles = z.infer<typeof ProfilesSchema>;
 export const profiles = defineRpc({ name: "ai-router.profiles", input: z.object({ apply: z.boolean().optional() }), output: ProfilesSchema });
+
+// ---------------------------------------------------------------- activity
+
+export const SessionEntrySchema = z.object({
+  at: z.string(),
+  agentId: z.string(),
+  /** The agent's title in Paseo, when it could be looked up. */
+  agentTitle: z.string().nullable(),
+  kind: z.enum(["claude", "provider", "codex"]),
+  provider: z.string(),
+  routed: z.boolean(),
+  reason: z.string().nullable(),
+  /** The session carried the header that links its requests to it in OmniRoute. */
+  tagged: z.boolean(),
+});
+
+export const RequestRowSchema = z.object({
+  id: z.string(),
+  at: z.string(),
+  daemon: z.string().nullable(),
+  thisDaemon: z.boolean(),
+  requestedModel: z.string().nullable(),
+  model: z.string().nullable(),
+  providerId: z.string().nullable(),
+  provider: z.string().nullable(),
+  account: z.string().nullable(),
+  combo: z.string().nullable(),
+  fallback: z.boolean(),
+  status: z.number().nullable(),
+  ok: z.boolean(),
+  latencyMs: z.number().nullable(),
+  tokensIn: z.number().nullable(),
+  tokensOut: z.number().nullable(),
+  error: z.string().nullable(),
+  agent: z.object({ id: z.string(), title: z.string().nullable(), match: z.enum(["exact", "likely"]) }).nullable(),
+});
+export type RequestRowView = z.infer<typeof RequestRowSchema>;
+
+/**
+ * What went through the router. `sessions`: this daemon's routing decisions
+ * from its own hook (every tier). `requests`: OmniRoute's call log (read
+ * token), routing metadata only, never prompt or response content.
+ */
+export const ActivitySchema = z.object({
+  sessions: z.array(SessionEntrySchema),
+  requests: z.object({
+    ...Insight,
+    rows: z.array(RequestRowSchema),
+    hasMore: z.boolean(),
+    /** This daemon's key name in OmniRoute, for "This daemon" filtering. */
+    ownKey: z.string().nullable(),
+  }),
+});
+export type Activity = z.infer<typeof ActivitySchema>;
+export const activity = defineRpc({
+  name: "ai-router.activity",
+  input: z.object({
+    scope: z.enum(["daemon", "all"]).optional(),
+    errorsOnly: z.boolean().optional(),
+    model: z.string().max(200).nullable().optional(),
+    provider: z.string().max(200).nullable().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: ActivitySchema,
+});
+
+export const RouteExplanationSchema = z.object({
+  state: z.enum(["ok", "no-token", "error"]),
+  message: z.string().nullable(),
+  summary: z.string().nullable(),
+  routeType: z.string().nullable(),
+  confidence: z.string().nullable(),
+  combo: z.string().nullable(),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  account: z.string().nullable(),
+  factors: z.array(z.object({ name: z.string(), value: z.string(), status: z.string(), details: z.string().nullable() })),
+  fallbacks: z.array(z.object({ provider: z.string().nullable(), model: z.string().nullable(), status: z.number().nullable(), reason: z.string().nullable(), at: z.string().nullable() })),
+  limitations: z.array(z.string()),
+});
+export type RouteExplanationView = z.infer<typeof RouteExplanationSchema>;
+/** Why OmniRoute routed one request where it did (`/api/routing/decisions/<id>`, read token). */
+export const activityDetail = defineRpc({ name: "ai-router.activity.detail", input: z.object({ id: z.string().min(1).max(200) }), output: RouteExplanationSchema });

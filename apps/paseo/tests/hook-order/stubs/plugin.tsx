@@ -6,9 +6,10 @@
  */
 import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { RANGE_DAYS, describeCombos, parseAnalytics, parseByAccount, parseByDaemon, parseSettings, type AnalyticsRange } from "../../../shared/routers/omniroute/parsers";
+import { RANGE_DAYS, describeCombos, linkAgents, parseAnalytics, parseByAccount, parseByDaemon, parseCallLogs, parseRouteExplanation, parseSettings, type AnalyticsRange } from "../../../shared/routers/omniroute/parsers";
 import { AUTO_COMBO_DEFAULT, AUTO_COMBO_KINDS, CUSTOM_COMBO_LOOK } from "../../../shared/routers/omniroute/copy";
-import { comboProfile } from "../../../shared/logic";
+import { agentIdFromTag, classifyPublicCheck, comboProfile } from "../../../shared/logic";
+const PUBLIC = "https://ai-router.example.com";
 
 export function defineRpc<T>(contract: T) { return contract; }
 export function defineSettings<T>(definition: T) { return definition; }
@@ -201,10 +202,22 @@ Object.assign(fixtures, {
     lastSeenAt: new Date(Date.now() - 42 * 60_000).toISOString(),
     lastSession: { at: now, agentId: "agent-4", kind: "claude", routed: false, message: "", reason: "http://10.0.0.5:20128 is down: connection refused at http://10.0.0.5:20128/api/health/ping" },
   },
+  // A public address (custom domain) that answers as OmniRoute over HTTPS, and one whose DNS is not set up yet.
+  "public ok": {
+    ...connected,
+    connection: { ...connected.connection, manageKey: { present: true, last4: "89ab" }, consoleUrl: PUBLIC, publicUrl: PUBLIC, publicCheck: { ...classifyPublicCheck({ status: 200, body: { status: "ok" } }, PUBLIC), checkedAt: now }, dashboardUrl: `${PUBLIC}/dashboard` },
+    lastSession: { at: now, agentId: "agent-7", kind: "claude", routed: true, message: "", reason: null },
+    aiProvider: { ...connected.aiProvider, legacyCodex: false, tests: [] },
+  },
+  "public pending": {
+    ...connected,
+    connection: { ...connected.connection, consoleUrl: PUBLIC, publicUrl: PUBLIC, publicCheck: { ...classifyPublicCheck({ error: Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND", message: "getaddrinfo ENOTFOUND ai-router.example.com" } }) }, PUBLIC), checkedAt: now } },
+    aiProvider: { ...connected.aiProvider, legacyCodex: false, tests: [] },
+  },
   // connection.json names an endpoint that is not a URL: routing is blocked, and the panel opens on Connection.
   misconfigured: {
     connection: { source: "saved", endpoint: null, consoleUrl: null, dashboardUrl: null, sshTarget: null, router: "omniroute", apiKey: { present: true, last4: "abcd" }, token: { present: false, last4: null }, manageKey: { present: false, last4: null } },
-    problem: "the saved endpoint in connection.json is not a usable http(s) URL", warnings: ["The saved dashboard URL is invalid; using the default."], health: null, routeAgents: true, lastSession: null,
+    problem: "the saved endpoint in connection.json is not a usable http(s) URL", warnings: ["The saved public address is not a usable http(s) URL; it is ignored."], health: null, routeAgents: true, lastSession: null,
     aiProvider: { present: true, modelCount: SYNCED.length, legacyCodex: false, summary: "Combo 5 · Claude 4 · Codex 3", models: SYNCED, lastSync: null, tests: [] }, settingsDir: "/root/.paseo/plugin-settings/ai-router",
   },
   // A shared user: endpoint and inference key only.
@@ -239,7 +252,7 @@ Object.assign(accountFixtures, {
 const tierOf = (c: any) => (!c.endpoint || !c.apiKey.present ? "none" : c.manageKey.present ? "admin" : c.token.present ? "operator" : "basic");
 for (const value of Object.values(fixtures)) {
   const f = value as Record<string, any>;
-  f.connection = { tunnel: null, ...f.connection };
+  f.connection = { tunnel: null, publicUrl: null, publicCheck: null, ...f.connection };
   f.tier ??= tierOf(f.connection);
   f.checking ??= false;
   f.lastSeenAt ??= f.health?.up ? f.health.checkedAt : null;
@@ -287,9 +300,105 @@ const tunnelsFixtures: Record<string, unknown> = {
   ] },
 };
 
+// ---------------------------------------------------------------- activity
+// Built with the real parsers from OmniRoute-shaped rows, the way the server answers.
+const MIN = 60_000;
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const SESSIONS = [
+  { at: ago(2 * MIN), agentId: "agent-7", kind: "claude", provider: "claude", routed: true, reason: null, tagged: true },
+  { at: ago(6 * MIN), agentId: "agent-3", kind: "codex", provider: "codex-ai-router", routed: true, reason: null, tagged: false },
+  { at: ago(14 * MIN), agentId: "agent-5", kind: "provider", provider: "ai-router", routed: true, reason: null, tagged: true },
+  { at: ago(38 * MIN), agentId: "agent-4", kind: "claude", provider: "claude", routed: false, reason: "http://10.0.0.5:20128 is down: connection refused at http://10.0.0.5:20128/api/health/ping", tagged: false },
+  { at: ago(55 * MIN), agentId: "agent-2", kind: "provider", provider: "ai-router", routed: false, reason: "no API key set for http://10.0.0.5:20128", tagged: false },
+  ...Array.from({ length: 6 }, (_, i) => ({ at: ago((70 + i * 20) * MIN), agentId: `agent-1${i}`, kind: "claude", provider: "claude", routed: true, reason: null, tagged: true })),
+].reverse() as Array<{ at: string; agentId: string; kind: "claude" | "provider" | "codex"; provider: string; routed: boolean; reason: string | null; tagged: boolean }>;
+const AGENTS = new Map<string, { title: string | null; model: string | null }>([
+  ["agent-7", { title: "Fix the login bug", model: "cc/claude-sonnet-5" }],
+  ["agent-3", { title: "Review the parser", model: "cx/gpt-5.6-sol" }],
+  ["agent-5", { title: "Draft release notes", model: "cc/claude-opus-5-5" }],
+  ["agent-4", { title: "Tidy the docs", model: "cc/claude-sonnet-5" }],
+  ["agent-11", { title: "Rename the settings keys", model: "cc/claude-sonnet-5" }],
+]);
+const OWN_KEY = { id: "k1", name: "daemon-a" };
+const logRow = (secondsAgo: number, over: Record<string, unknown>) => ({
+  id: `r-${secondsAgo}`, timestamp: ago(secondsAgo * 1000), method: "POST", path: "/v1/messages", status: 200,
+  model: "claude-sonnet-5", requestedModel: "cc/claude-sonnet-5", provider: "claude", providerDisplay: null, account: "someone@example.com",
+  duration: 1800, tokens: { in: 12400, out: 820 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: null, ...over,
+});
+const CALL_LOG = [
+  logRow(40, { sessionTag: "paseo-agent-7" }),
+  logRow(95, { model: "gpt-5.6-sol", requestedModel: "cx/gpt-5.6-sol", provider: "codex", account: "worker@example.com", duration: 2300, tokens: { in: 9000, out: 1500 } }),
+  logRow(180, { model: "gpt-5.6-sol", requestedModel: "auto/coding", provider: "codex", account: "worker@example.com", comboName: "auto/coding", apiKeyId: "k2", apiKeyName: "daemon-b", duration: 2100, tokens: { in: 5100, out: 410 } }),
+  logRow(300, { model: "glm-5.2", requestedModel: "cc/claude-opus-5-5", provider: "glm", account: "team@example.com", duration: 950, tokens: { in: 3000, out: 220 }, sessionTag: "paseo-agent-5" }),
+  logRow(420, { status: 429, error: "[429] Rate limited: the 5-hour limit resets at 16:00", duration: 130, tokens: { in: 0, out: 0 }, sessionTag: "paseo-agent-7" }),
+  logRow(540, { model: "claude-haiku-4-5", requestedModel: "cc/claude-haiku-4-5", apiKeyId: "k2", apiKeyName: "daemon-b", duration: 640, tokens: { in: 800, out: 90 } }),
+  logRow(720, { status: 502, model: "gpt-5.6-terra", requestedModel: "cx/gpt-5.6-terra", provider: "codex", account: "worker@example.com", error: "[502] upstream closed the connection", apiKeyId: "k2", apiKeyName: "daemon-b", duration: 30000, tokens: { in: 0, out: 0 } }),
+  logRow(900, { requestedModel: "claude-sonnet-5", duration: 4100, tokens: { in: 48200, out: 2100 }, sessionTag: "paseo-agent-11" }),
+];
+/** Forty of this daemon's requests: one page and then some, for "Show older". */
+const MANY = Array.from({ length: 40 }, (_, i) => logRow(60 + i * 60, i < 25 ? {} : { model: "claude-haiku-4-5", requestedModel: "cc/claude-haiku-4-5" }));
+const DECISIONS: Record<string, unknown> = {
+  "r-300": {
+    routeType: "direct", confidence: "medium", summary: "Direct request served by glm/glm-5.2 after claude answered 503.", comboUsed: null, providerSelected: "glm", modelUsed: "glm-5.2",
+    decision: {
+      factors: [
+        { name: "Direct routing", value: "Direct provider request", status: "neutral", details: "No combo matched cc/claude-opus-5-5." },
+        { name: "Recent health", value: "40%", status: "negative", details: "Claude answered 2 of the last 5 requests." },
+      ],
+      fallbacksTriggered: [{ provider: "claude", model: "claude-opus-5-5", status: 503, reason: "upstream unavailable", timestamp: ago(301_000) }],
+    },
+    selectedTarget: { provider: "glm", model: "glm-5.2", account: "team@example.com" },
+    limitations: ["Detailed request pipeline payloads were not persisted for this log entry."],
+  },
+  "r-180": {
+    routeType: "combo", confidence: "high", summary: "Combo auto/coding picked codex/gpt-5.6-sol at step 1.", comboUsed: "auto/coding", providerSelected: "codex", modelUsed: "gpt-5.6-sol",
+    decision: { factors: [{ name: "Combo routing", value: "auto/coding", status: "positive", details: "Request matched combo auto/coding at step 1." }, { name: "Quota headroom", value: "92%", status: "positive", details: "Codex #1 had the most left." }], fallbacksTriggered: [] },
+    selectedTarget: { provider: "codex", model: "gpt-5.6-sol", account: "worker@example.com" }, limitations: [],
+  },
+};
+const directDecision = (row: ReturnType<typeof logRow>) => ({
+  routeType: "direct", confidence: "medium", summary: `Direct request served by ${row.provider}/${row.model}.`, comboUsed: null, providerSelected: row.provider, modelUsed: row.model,
+  decision: { factors: [{ name: "Direct routing", value: "Direct provider request", status: "neutral", details: null }, { name: "Recent health", value: row.status === 200 ? "96%" : "40%", status: row.status === 200 ? "positive" : "negative", details: null }], fallbacksTriggered: [] },
+  selectedTarget: { provider: row.provider, model: row.model, account: row.account }, limitations: [],
+});
+let activityFixture = "ok";
+export function setActivityFixture(name: string) { activityFixture = name; }
+type ActivityInput = { scope?: "daemon" | "all"; errorsOnly?: boolean; model?: string | null; provider?: string | null; limit?: number };
+function activityAnswer(status: Record<string, any>, input: ActivityInput) {
+  const sessions = SESSIONS.slice().reverse().map((entry) => ({ ...entry, agentTitle: AGENTS.get(entry.agentId)?.title ?? null }));
+  const none = { rows: [], hasMore: false, ownKey: null };
+  if (status.tier !== "operator" && status.tier !== "admin") return { sessions, requests: { ...insight, state: "no-token", message: "Add a read token to see every request the router served.", checkedAt: null, ...none } };
+  const has = (value: unknown, wanted: string) => String(value ?? "").toLowerCase().includes(wanted.toLowerCase());
+  let raw = (activityFixture === "many" ? MANY : activityFixture === "empty" ? [] : CALL_LOG) as Array<ReturnType<typeof logRow>>;
+  if ((input.scope ?? "daemon") === "daemon") raw = raw.filter((r) => r.apiKeyId === OWN_KEY.id);
+  if (input.errorsOnly) raw = raw.filter((r) => r.status >= 400 || r.error);
+  if (input.model) raw = raw.filter((r) => has(r.model, input.model!) || has(r.requestedModel, input.model!));
+  if (input.provider) raw = raw.filter((r) => has(r.provider, input.provider!));
+  const limit = input.limit ?? 25;
+  const { rows, hasMore } = parseCallLogs(raw.slice(0, limit + 1), OWN_KEY, limit);
+  const links = linkAgents(rows, SESSIONS, AGENTS, agentIdFromTag);
+  const down = status.health?.up === false;
+  return {
+    sessions,
+    requests: {
+      ...insight,
+      checkedAt: down ? ago(40 * MIN) : now,
+      stale: down ? { reason: "Requests: the router is not answering (connection refused)." } : null,
+      rows: rows.map(({ sessionTag: _tag, ...row }) => ({ ...row, agent: links.get(row.id) ?? null })),
+      hasMore,
+      ownKey: OWN_KEY.name,
+    },
+  };
+}
+function activityDetailAnswer(id: string) {
+  const row = [...CALL_LOG, ...MANY].find((r) => r.id === id);
+  return { state: "ok", message: null, ...parseRouteExplanation(DECISIONS[id] ?? (row ? directDecision(row) : null)) };
+}
+
 /** Preview: pick every answer at once. */
-export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string }) {
+export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string }) {
   profilesFixture = state.profiles ?? "ok";
+  activityFixture = state.activity ?? "ok";
   savedComboProfiles = null;
   fixture = state.status;
   accountFixture = state.accounts ?? "ok";
@@ -311,7 +420,7 @@ export function setSettingsFixture(name: string) { settingsFixture = name; }
 export function setUsageFixture(name: string) { usageFixture = name; }
 let accountFixture = "ok";
 let usageFixture = "ok";
-export function setStatusFixture(name: string, insights = "ok") { fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; savedComboProfiles = null; }
+export function setStatusFixture(name: string, insights = "ok") { fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; savedComboProfiles = null; }
 
 const pendingRpc = new Set<() => void>();
 export function releaseRpc() { for (const release of pendingRpc) release(); pendingRpc.clear(); }
@@ -332,6 +441,8 @@ export function useRpc(contract: any) {
       "providers.list": () => providersFixtures.ok,
       tunnels: () => (manage ? tunnelsFixtures.ok : { state: "no-manage-key", message: "OmniRoute only shows its tunnels to a manage key.", tunnels: [] }),
       "model.test": () => ({ ok: true, message: `${(input as { model: string }).model} answered in 640 ms` }),
+      activity: () => activityAnswer(status, (input ?? {}) as ActivityInput),
+      "activity.detail": () => activityDetailAnswer((input as { id: string }).id),
       ensure: () => ({ ok: true }),
     };
     const answer = answers[name]?.() ?? { ok: true, saved: true, message: "ok" };

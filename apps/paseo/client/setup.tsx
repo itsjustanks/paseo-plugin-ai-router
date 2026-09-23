@@ -11,6 +11,7 @@ import { Button, Card, Chip, Field, Note, Row, type Tone } from "./ui";
 type Theme = PluginTheme;
 export type Message = { text: string; tone: Tone } | null;
 export const STATUS_KEY = ["ai-router", "status"] as const;
+export const PUBLIC_ADDRESS_WHY = "Your daemons use the endpoint above; people and browsers outside your network use this address.";
 export const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 function Step({ theme, title, why }: { theme: Theme; title: string; why: string }) {
@@ -70,9 +71,9 @@ export function ConnectionForm({ theme, data, onDone }: { theme: Theme; data: St
       <Note theme={theme}>{`Local: ${ENDPOINT_EXAMPLES[0]} · Remote: ${ENDPOINT_EXAMPLES[1]}`}</Note>
       <Step theme={theme} title="3. API key" why={`Proves this daemon may use the router. Make one per daemon (${info.keyWhere}), named after it, so usage shows per daemon.`} />
       <Field theme={theme} label={`API key (${info.keyHint})`} value={apiKey} onChangeText={setApiKey} placeholder={key?.present ? `saved …${key.last4} — leave blank to keep` : info.keyHint} secure />
-      <Step theme={theme} title="Optional: reaching the dashboard" why="Only if you open the router's dashboard at a different address, or over SSH." />
-      <Field theme={theme} label="Dashboard URL" value={consoleUrl} onChangeText={setConsoleUrl} placeholder={`${endpoint || ENDPOINT_EXAMPLES[0]}/dashboard`} />
-      <Field theme={theme} label="SSH target that can reach the router" value={sshTarget} onChangeText={setSshTarget} placeholder="root@router.example.com" />
+      <Step theme={theme} title="Optional: public address (custom domain)" why={PUBLIC_ADDRESS_WHY} />
+      <Field theme={theme} label="Public address (custom domain)" value={consoleUrl} onChangeText={setConsoleUrl} placeholder="https://ai-router.example.com" />
+      <Field theme={theme} label="SSH target that can reach the router (for the dashboard on a private network)" value={sshTarget} onChangeText={setSshTarget} placeholder="root@router.example.com" />
       <Step theme={theme} title="4. Test connection & save" why="Checks the router answers and accepts the key. Nothing is saved until it does." />
       <Row>
         <Button

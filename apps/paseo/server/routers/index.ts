@@ -1,7 +1,7 @@
-import type { Access, Accounts, AnalyticsRangeId, Compression, RouterSettings, Tunnels, Usage } from "../../shared/contracts";
+import type { Access, Accounts, Activity, AnalyticsRangeId, Compression, RouteExplanationView, RouterSettings, Tunnels, Usage } from "../../shared/contracts";
 import type { Connection, HealthProbe, RouterId } from "../../shared/logic";
 import { omniroute } from "./omniroute";
-import type { CatalogModel, ComboInfo, Tunnel } from "../../shared/routers/omniroute/parsers";
+import type { ActivityFilter, CatalogModel, ComboInfo, RequestRow, Tunnel } from "../../shared/routers/omniroute/parsers";
 
 type Result = { ok: boolean; message: string };
 export type Health = {
@@ -30,6 +30,8 @@ export interface RouterAdapter {
   /** Set when a recent check found the router down, so callers answer at once. */
   recentlyDown(connection: Pick<Connection, "endpoint" | "token">): string | null;
   lastSeenAt(endpoint: string | null): string | null;
+  /** The public address's health route, from this daemon, within the panel's wait budget. */
+  publicForPanel(publicUrl: string | null, refresh: boolean): Promise<{ state: "ok" | "dns" | "tls" | "http" | "unreachable" | "checking"; label: string; detail: string | null; checkedAt: string | null } | null>;
   /** Models for the AI Router provider, limited to connected accounts (with a plain key when the router can). */
   models(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[] } | { ok: false; error: string }>;
   testModel(connection: Connection, model: string): Promise<Result>;
@@ -45,6 +47,10 @@ export interface RouterAdapter {
   checkAllAccounts(connection: Connection): Promise<Result>;
   tunnels(connection: Connection, refresh: boolean): Promise<Tunnels>;
   setTunnel(connection: Connection, id: "cloudflared" | "ngrok" | "tailscale", on: boolean): Promise<Result>;
+  /** Recent requests from the router's own log, filtered there; routing metadata only. */
+  requests(connection: Connection, filter: ActivityFilter, refresh: boolean): Promise<Omit<Activity["requests"], "rows"> & { rows: RequestRow[] }>;
+  /** Why the router routed one request where it did. */
+  explanation(connection: Connection, id: string): Promise<RouteExplanationView>;
   /** The running tunnel from the last read only; never waits. */
   knownTunnel(connection: Connection): Tunnel | null;
 }

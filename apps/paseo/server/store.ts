@@ -9,6 +9,9 @@ import {
   CODEX_PROVIDER_ID,
   CODEX_ROUTER_PROVIDER_ID,
   parseRoutingEnvelope,
+  parseSessionLog,
+  pushSession,
+  type SessionEntry,
   resolveConnection,
   type Connection,
   type ResolvedConnection,
@@ -89,6 +92,40 @@ export function readSyncState(): SyncState | null {
 export function writeSyncState(state: SyncState): void {
   mkdirSync(settingsDir(), { recursive: true, mode: 0o700 });
   writeFileSync(syncStatePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
+/**
+ * The last routing decisions the session_open hook made, newest last, kept
+ * across restarts (0600, beside the connection). Agent ids, providers and
+ * reasons only: no keys, no content.
+ */
+const sessionLogPath = () => join(settingsDir(), "sessions.json");
+let sessionLog: SessionEntry[] | null = null;
+export function readSessionLog(): SessionEntry[] {
+  if (sessionLog) return sessionLog;
+  let raw: string | null = null;
+  try {
+    raw = readFileSync(sessionLogPath(), "utf8");
+  } catch {
+    raw = null;
+  }
+  sessionLog = parseSessionLog(raw);
+  return sessionLog;
+}
+export function appendSessionLog(entry: SessionEntry): void {
+  sessionLog = pushSession(readSessionLog(), entry);
+  try {
+    mkdirSync(settingsDir(), { recursive: true, mode: 0o700 });
+    const tmp = `${sessionLogPath()}.tmp-ai-router`;
+    writeFileSync(tmp, `${JSON.stringify(sessionLog)}\n`, { mode: 0o600 });
+    renameSync(tmp, sessionLogPath());
+  } catch {
+    // memory keeps it until the next write
+  }
+}
+/** For tests: forget what was read, as a restarted plugin would. */
+export function forgetSessionLog(): void {
+  sessionLog = null;
 }
 
 /** When the router last answered, so the panel can say "last seen 14:02" after a restart. No secrets. */

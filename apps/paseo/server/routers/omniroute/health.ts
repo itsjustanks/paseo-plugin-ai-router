@@ -1,6 +1,7 @@
 import type { Status } from "../../../shared/contracts";
 import { readLastSeen, writeLastSeen } from "../../store";
 import {
+  classifyPublicCheck,
   describeFetchError,
   describeKeyCheck,
   describePingResponse,
@@ -9,6 +10,7 @@ import {
   type Connection,
   type HealthProbe,
   type MonitoringInfo,
+  type PublicCheck,
 } from "../../../shared/logic";
 
 type Health = NonNullable<Status["health"]>;
@@ -179,4 +181,52 @@ export async function testConnection(candidate: Pick<Connection, "endpoint" | "a
   }
   // An optional credential that is rejected is not saved: the panel would claim access it does not have.
   return { ok: keyed.accepted && tokenOk, message: parts.join(" · ") };
+}
+
+// ---------------------------------------------------------- public address
+
+/** `<public address>/api/health/ping`: OmniRoute's public health route, no credentials sent. */
+const PUBLIC_TIMEOUT_MS = 4_000;
+const PUBLIC_MAX_AGE_MS = 60_000;
+type PublicAnswer = PublicCheck & { checkedAt: string };
+let publicCache: { url: string; at: number; value: PublicAnswer } | null = null;
+let publicInflight: { url: string; promise: Promise<PublicAnswer> } | null = null;
+
+export async function checkPublic(publicUrl: string): Promise<PublicAnswer> {
+  const url = `${publicUrl}/api/health/ping`;
+  let check: PublicCheck;
+  try {
+    const { status, body } = await getJson(url, {}, PUBLIC_TIMEOUT_MS);
+    check = classifyPublicCheck({ status, body }, publicUrl, PUBLIC_TIMEOUT_MS);
+  } catch (error) {
+    check = classifyPublicCheck({ error }, publicUrl, PUBLIC_TIMEOUT_MS);
+  }
+  return { ...check, checkedAt: new Date().toISOString() };
+}
+
+/** The last check if under a minute old, else a fresh one; callers of the same address share it. */
+function currentPublic(publicUrl: string, maxAgeMs: number): Promise<PublicAnswer> {
+  if (maxAgeMs > 0 && publicCache?.url === publicUrl && Date.now() - publicCache.at <= maxAgeMs) return Promise.resolve(publicCache.value);
+  if (publicInflight?.url === publicUrl) return publicInflight.promise;
+  const promise = checkPublic(publicUrl).then((value) => {
+    publicCache = { url: publicUrl, at: Date.now(), value };
+    return value;
+  });
+  publicInflight = { url: publicUrl, promise };
+  void promise.finally(() => {
+    if (publicInflight?.promise === promise) publicInflight = null;
+  });
+  return promise;
+}
+
+/** For the panel: never waits longer than `waitMs`; until the first answer the state is `checking`. */
+export async function publicForPanel(publicUrl: string | null, refresh: boolean, waitMs = 1_500): Promise<(PublicAnswer | { state: "checking"; label: string; detail: null; checkedAt: null }) | null> {
+  if (!publicUrl) return null;
+  const running = currentPublic(publicUrl, refresh ? 0 : PUBLIC_MAX_AGE_MS).catch(() => null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((resolve) => (timer = setTimeout(() => resolve("late"), waitMs)));
+  const first = await Promise.race([running, late]);
+  clearTimeout(timer);
+  if (first && first !== "late") return first;
+  return publicCache?.url === publicUrl ? publicCache.value : { state: "checking", label: "Checking…", detail: null, checkedAt: null };
 }

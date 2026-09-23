@@ -1,10 +1,10 @@
 // The session_open rewrite is adapted from the 9Router Agent Link plugin's server/hooks.ts (MIT); see THIRD-PARTY-NOTICES.md.
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { Status } from "../shared/contracts";
-import { CODEX_ROUTER_PROVIDER_ID, connectionProblem, routeSession, sessionKind, type SessionKind } from "../shared/logic";
+import { CODEX_ROUTER_PROVIDER_ID, connectionProblem, routeSession, sessionKind, withSessionHeader, type SessionKind } from "../shared/logic";
 import { noteActivity } from "./provider";
 import { adapterFor } from "./routers";
-import { readConnection, readProviderEntries, readRoutingSettings } from "./store";
+import { appendSessionLog, readConnection, readProviderEntries, readRoutingSettings } from "./store";
 
 /** A launch re-uses a check this recent; otherwise it pings first (4s timeout). */
 const LAUNCH_HEALTH_MAX_AGE_MS = 30_000;
@@ -12,9 +12,10 @@ const LAUNCH_HEALTH_MAX_AGE_MS = 30_000;
 let lastSession: Status["lastSession"] = null;
 export const getLastSession = () => lastSession;
 
-/** Every decision is logged once per session open; nothing here ever prints a key. */
-function record(agentId: string, kind: SessionKind, routed: boolean, message: string, reason: string | null = null): void {
+/** Every decision is logged once per session open, and kept for the Activity tab; nothing here ever prints a key. */
+function record(agentId: string, kind: SessionKind, provider: string, routed: boolean, message: string, reason: string | null = null, tagged = false): void {
   lastSession = { at: new Date().toISOString(), agentId, kind, routed, message, reason };
+  appendSessionLog({ at: lastSession.at, agentId, kind, provider, routed, reason, tagged });
   (routed ? console.log : console.warn)(`[ai-router] ${message}`);
 }
 
@@ -47,14 +48,17 @@ export function registerRoutingHooks(server: PluginServerContext): void {
       const decision = routeSession({ provider: request.provider, routeAgents: settings.routeAgents, resolved, health, codexBaseUrl: codex });
       if (decision.action === "ignore") return request;
       if (decision.action === "route") {
-        record(request.agentId, kind, true, `${kind} session ${request.agentId} (${request.reason}) routed through ${resolved.connection.endpoint}`);
-        return { ...request, env: { ...request.env, ...decision.env } };
+        // Claude Code sends ANTHROPIC_CUSTOM_HEADERS with every request: the session header links each one to this agent in OmniRoute's log.
+        const tag = kind !== "codex";
+        const env = tag ? { ...decision.env, ANTHROPIC_CUSTOM_HEADERS: withSessionHeader(request.env?.ANTHROPIC_CUSTOM_HEADERS, request.agentId) } : decision.env;
+        record(request.agentId, kind, request.provider, true, `${kind} session ${request.agentId} (${request.reason}) routed through ${resolved.connection.endpoint}`, null, tag);
+        return { ...request, env: { ...request.env, ...env } };
       }
       skipped = decision.reason;
     } catch (error) {
       skipped = `hook failed: ${error instanceof Error ? error.message : String(error)}`;
     }
-    record(request.agentId, kind, false, `routing skipped for ${kind} session ${request.agentId} (${request.reason}): ${skipped}`, skipped);
+    record(request.agentId, kind, request.provider, false, `routing skipped for ${kind} session ${request.agentId} (${request.reason}): ${skipped}`, skipped);
     if (refuse) throw new Error(`AI Router cannot start this agent: ${skipped}. Fix it in the AI Router panel, or pick another provider.`);
     return request;
   });

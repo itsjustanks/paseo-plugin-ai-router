@@ -30,7 +30,14 @@ import {
   parseKeyStatus,
   parseAnalytics,
   describeCombos,
+  callLogQuery,
+  parseCallLogs,
+  parseRouteExplanation,
+  type ActivityFilter,
   type ComboInfo,
+  type KeyIdentity,
+  type RequestRow,
+  type RouteExplanation,
 } from "../../../shared/routers/omniroute/parsers";
 import { describeFetchError, type Connection } from "../../../shared/logic";
 import { AUTO_COMBO_DEFAULT, AUTO_COMBO_KINDS, CUSTOM_COMBO_LOOK, RECOMMENDED_COMPRESSION } from "../../../shared/routers/omniroute/copy";
@@ -472,4 +479,53 @@ export async function applyRecommendedCompression(connection: Connection): Promi
       ? "Compression set to Lite only, with Codex models (cx/*) excluded."
       : "Compression set to Lite only. This OmniRoute cannot exclude models, so Codex shell output over 2,000 characters may be shortened; turn compression off if Codex matters more.",
   };
+}
+
+// ---------------------------------------------------------------- activity
+
+const KEYS_MAX_AGE_MS = 5 * 60_000;
+const REQUESTS_MAX_AGE_MS = 8_000;
+
+/** This daemon's key in OmniRoute's key list (`/api/keys`, masked there), looked up on the daemon only. */
+function ownKeyOf(connection: Connection): Promise<KeyIdentity | null> {
+  return cached(`own-key\n${connection.endpoint}\n${readKey(connection)}`, KEYS_MAX_AGE_MS, async () => {
+    const keys = await read(connection, "/api/keys");
+    return keys.ok ? findOwnKey(keys.body, connection.apiKey) : null;
+  });
+}
+
+type Requests = { state: "ok" | "no-token" | "error"; message: string | null; checkedAt: string | null; notes: string[]; stale: { reason: string } | null; rows: RequestRow[]; hasMore: boolean; ownKey: string | null };
+
+/**
+ * Recent requests from OmniRoute's call log (read token), filtered by
+ * OmniRoute itself. Only routing metadata is parsed; bodies are never read.
+ */
+export async function getRequests(connection: Connection, filter: ActivityFilter, refresh: boolean): Promise<Requests> {
+  const empty = { rows: [] as RequestRow[], hasMore: false, ownKey: null };
+  const stop = precheck(connection);
+  if (stop) return { ...base, ...stop, message: stop.state === "no-token" ? "Add a read token to see every request the router served." : stop.message, ...empty };
+  const key = `requests\n${JSON.stringify(filter)}\n${connection.endpoint}\n${readKey(connection)}`;
+  const down = whileDown<Requests>(connection, key, "Requests", empty);
+  if (down) return down;
+  return cached(key, refresh ? 0 : REQUESTS_MAX_AGE_MS, async () => {
+    const own = await ownKeyOf(connection).catch(() => null);
+    const notes: string[] = [];
+    if (filter.scope === "daemon" && !own?.id && !own?.name) notes.push("This daemon's key could not be found in OmniRoute's key list, so every daemon's requests are shown.");
+    const got = await read(connection, callLogQuery(filter, own));
+    const checkedAt = new Date().toISOString();
+    if (!got.ok) return keepOrFallBack(key, { ...base, state: "error" as const, message: `Requests: ${got.error}`, checkedAt, ...empty });
+    return keepOrFallBack(key, { ...base, checkedAt, notes, ...parseCallLogs(got.body, own, filter.limit), ownKey: own?.name ?? null });
+  });
+}
+
+/** Why OmniRoute routed one request (`/api/routing/decisions/<id>`); a whitelist of routing fields. */
+export async function getExplanation(connection: Connection, id: string): Promise<({ state: "ok" | "no-token" | "error"; message: string | null } & RouteExplanation)> {
+  const blank = parseRouteExplanation(null);
+  const stop = precheck(connection);
+  if (stop) return { ...blank, ...stop };
+  const down = recentlyDown(connection);
+  if (down) return { ...blank, state: "error", message: `Routing decision: ${down}` };
+  const got = await read(connection, `/api/routing/decisions/${encodeURIComponent(id)}`);
+  if (!got.ok) return { ...blank, state: "error", message: `Routing decision: ${got.error}` };
+  return { state: "ok", message: null, ...parseRouteExplanation(got.body) };
 }

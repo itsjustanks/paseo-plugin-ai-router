@@ -14,7 +14,7 @@ import { RouterSettingsCard } from "../../client/insights";
 import { UsageTab } from "../../client/analytics";
 import type { TabId } from "../../client/navigation";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
-import { releaseRpc, setAccessFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import { releaseRpc, setAccessFixture, setActivityFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -24,7 +24,7 @@ const base = { theme: { colors }, host: { id: "test", label: "test" }, navigatio
 
 const wide = { compact: false, platform: "web" } as const;
 const narrow = { compact: true, platform: "ios" } as const;
-type Pick = { tab?: TabId; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string; profiles?: string };
+type Pick = { tab?: TabId; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string; profiles?: string; activity?: string };
 const surface = (status: string, layout: { compact: boolean; platform: "web" | "ios" }, pick: Pick = {}) => () => {
   setStatusFixture(status, pick.accounts);
   setUsageFixture(pick.usage ?? "ok");
@@ -32,6 +32,7 @@ const surface = (status: string, layout: { compact: boolean; platform: "web" | "
   if (pick.access) setAccessFixture(pick.access);
   if (pick.compression) setCompressionFixture(pick.compression);
   if (pick.profiles) setProfilesFixture(pick.profiles);
+  if (pick.activity) setActivityFixture(pick.activity);
   return <AiRouterSurface {...base} layout={layout} initialTab={pick.tab} />;
 };
 
@@ -46,6 +47,22 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "connection tab (basic, narrow)": surface("basic", narrow, { tab: "connection" }),
   "connection tab (editing)": surface("connected", narrow, { tab: "connection" }),
   "connection tab (router down)": surface("router down", wide, { tab: "connection" }),
+  "connection tab (public address ok)": surface("public ok", wide, { tab: "connection" }),
+  "connection tab (public address pending, narrow)": surface("public pending", narrow, { tab: "connection" }),
+  "connection tab (no public address)": surface("connected", narrow, { tab: "connection" }),
+  "overview (public address ok)": surface("public ok", wide),
+  // Activity
+  "activity (operator)": surface("routing on", wide, { tab: "activity" }),
+  "activity (operator, narrow, all sessions)": surface("routing on", narrow, { tab: "activity" }),
+  "activity (errors only)": surface("routing on", narrow, { tab: "activity" }),
+  "activity (all daemons, a model)": surface("admin", wide, { tab: "activity" }),
+  "activity (why this route)": surface("routing on", wide, { tab: "activity" }),
+  "activity (show older)": surface("routing on", narrow, { tab: "activity", activity: "many" }),
+  "activity (nothing yet)": surface("routing on", wide, { tab: "activity", activity: "empty" }),
+  "activity (basic)": surface("basic", narrow, { tab: "activity" }),
+  "activity (router down, last answer)": surface("router down", wide, { tab: "activity" }),
+  "activity (not connected)": surface("not connected", wide, { tab: "activity" }),
+  "overview (last agent links to Activity)": surface("routing on", wide),
   // Overview
   "overview (routing on, narrow)": surface("routing on", narrow),
   "overview (basic)": surface("basic", wide),
@@ -104,6 +121,13 @@ export const presses: Record<string, string[]> = {
   "usage tab (30 days, narrow)": ["Last 30 days"],
   "usage tab (24 hours)": ["Last 24 hours"],
   "models tab (switch combo profiles)": ["Show combos as agent profiles"],
+  "connection tab (public address ok)": ["Copy the Claude Code setup"],
+  "activity (operator, narrow, all sessions)": ["Show all 11"],
+  "activity (errors only)": ["Errors only"],
+  "activity (all daemons, a model)": ["All daemons", "Only claude-haiku-4-5"],
+  "activity (why this route)": ["Request r-300, succeeded; show why"],
+  "activity (show older)": ["Show older"],
+  "overview (last agent links to Activity)": ["See every agent session in Activity"],
 };
 
 /** Mounts whose every visible tab is pressed in turn, then the first again. */

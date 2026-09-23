@@ -2,6 +2,8 @@ import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin
 import {
   accountAction,
   accounts,
+  activity,
+  activityDetail,
   accountsCheckAll,
   aiProvider,
   codexRouter,
@@ -26,6 +28,8 @@ import {
 import { routingSettings } from "./shared/settings";
 import {
   handleAccountAction,
+  handleActivity,
+  handleActivityDetail,
   handleAccounts,
   handleAccountsCheckAll,
   handleAiProvider,
@@ -82,6 +86,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(tunnelSet, active(handleTunnelSet));
   server.handle(access, active(handleAccess));
   server.handle(profiles, active(handleProfiles));
+  server.handle(activity, active(handleActivity));
+  server.handle(activityDetail, active(handleActivityDetail));
   server.handle(compression, active(handleCompression));
   server.handle(compressionApply, active(handleCompressionApply));
   // Also checks the AI Router provider once at load, with no Paseo handle yet (see server/provider.ts).

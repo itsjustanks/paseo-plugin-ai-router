@@ -38,9 +38,8 @@ try {
   check("dashboard URL", () => {
     assert.equal(L.normaliseConsoleUrl("https://omni.example.com/dashboard/"), "https://omni.example.com/dashboard");
     assert.equal(L.normaliseConsoleUrl("not a url"), null);
-    assert.equal(L.consoleUrlFor({ endpoint: REMOTE, consoleUrl: null }), `${REMOTE}/dashboard`);
-    assert.equal(L.consoleUrlFor({ endpoint: REMOTE, consoleUrl: "https://omni.example.com" }), "https://omni.example.com");
-    assert.equal(L.consoleUrlFor({ endpoint: null, consoleUrl: null }), null);
+    assert.equal(L.privateDashboardUrl({ endpoint: REMOTE }), `${REMOTE}/dashboard`);
+    assert.equal(L.privateDashboardUrl({ endpoint: null }), null);
   });
 
   check("private network detection", () => {
@@ -456,6 +455,89 @@ try {
     assert.deepEqual(L.parseRoutingEnvelope(null), { routeAgents: false, comboProfiles: true });
     assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: true } })), { routeAgents: true, comboProfiles: true });
     assert.deepEqual(L.parseRoutingEnvelope(JSON.stringify({ version: 1, values: { routeAgents: false, comboProfiles: false } })), { routeAgents: false, comboProfiles: false });
+  });
+
+  check("public address: stored as consoleUrl, read as its origin, dashboard beneath it", () => {
+    assert.equal(L.publicAddress({ consoleUrl: "https://ai-router.example.com" }), "https://ai-router.example.com");
+    assert.equal(L.publicAddress({ consoleUrl: "https://ai-router.example.com/dashboard/" }), "https://ai-router.example.com", "an old saved dashboard URL still works");
+    assert.equal(L.publicAddress({ consoleUrl: null }), null);
+    assert.equal(L.privateDashboardUrl({ endpoint: REMOTE }), `${REMOTE}/dashboard`);
+    const merged = L.mergeConnection(L.resolveConnection(null, {}).connection, { endpoint: REMOTE, consoleUrl: "https://ai-router.example.com/dashboard" });
+    assert.equal(merged.value.consoleUrl, "https://ai-router.example.com", "saved as the bare address");
+    assert.match(L.mergeConnection(merged.value, { endpoint: REMOTE, consoleUrl: "not a url" }).error, /not a usable public address/);
+    const env = L.resolveConnection(null, { AI_ROUTER_URL: REMOTE, AI_ROUTER_KEY: "sk", AI_ROUTER_CONSOLE_URL: "https://ai-router.example.com" });
+    assert.equal(L.publicAddress(env.connection), "https://ai-router.example.com", "seeded from AI_ROUTER_CONSOLE_URL");
+    const saved = L.resolveConnection(JSON.stringify({ endpoint: REMOTE, apiKey: "sk", consoleUrl: "https://mine.example.com" }), { AI_ROUTER_URL: LOCAL, AI_ROUTER_CONSOLE_URL: "https://env.example.com" });
+    assert.equal(L.publicAddress(saved.connection), "https://mine.example.com", "same precedence: saved wins");
+  });
+
+  check("public address status: DNS, TLS, HTTP and network failures each say what to fix", () => {
+    const url = "https://ai-router.example.com";
+    const failing = (code, message = "fetch failed") => ({ error: Object.assign(new TypeError("fetch failed"), { cause: { code, message } }) });
+    const state = (input) => { const c = L.classifyPublicCheck(input, url); return [c.state, c.label]; };
+    assert.deepEqual(state({ status: 200, body: { status: "ok" } }), ["ok", "HTTPS OK · ai-router.example.com"]);
+    assert.deepEqual(L.classifyPublicCheck({ status: 200, body: { status: "ok" } }, "http://ai-router.example.com").label, "HTTP OK · ai-router.example.com");
+    assert.match(L.classifyPublicCheck({ status: 200, body: { status: "ok" } }, "http://ai-router.example.com").detail, /without HTTPS/);
+    assert.deepEqual(state(failing("ENOTFOUND")), ["dns", "DNS not pointing here yet"]);
+    assert.deepEqual(state(failing("EAI_AGAIN")), ["dns", "DNS not pointing here yet"]);
+    assert.deepEqual(state(failing("ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR")), ["tls", "Certificate not issued yet"], "Caddy before its certificate");
+    assert.deepEqual(state(failing("ECONNRESET", "Client network socket disconnected before secure TLS connection was established")), ["tls", "Certificate not issued yet"], "a TLS server with no certificate for the name (measured with Node's fetch)");
+    assert.deepEqual(state(failing("DEPTH_ZERO_SELF_SIGNED_CERT")), ["tls", "Certificate not issued yet"]);
+    assert.deepEqual(state(failing("ERR_TLS_CERT_ALTNAME_INVALID")), ["tls", "Certificate is for another name"]);
+    assert.deepEqual(state(failing("CERT_HAS_EXPIRED")), ["tls", "Certificate expired"]);
+    assert.deepEqual(state(failing("ERR_SSL_PACKET_LENGTH_TOO_LONG")), ["tls", "Not serving HTTPS on this address"]);
+    assert.deepEqual(state(failing("ECONNREFUSED")), ["unreachable", "Unreachable"]);
+    assert.deepEqual(state(failing("ECONNRESET", "socket hang up")), ["unreachable", "Unreachable"]);
+    assert.deepEqual(state({ error: Object.assign(new Error("aborted"), { name: "AbortError" }) }), ["unreachable", "Unreachable"]);
+    assert.deepEqual(state({ status: 502, body: null }), ["http", "HTTPS works, but OmniRoute behind it is not answering (502)"]);
+    assert.deepEqual(state({ status: 404, body: null })[0], "http");
+    assert.deepEqual(state({ status: 200, body: "<html>" }), ["http", "Answers, but not as OmniRoute"]);
+    assert.match(L.classifyPublicCheck(failing("ENOTFOUND"), url).detail, /ai-router\.example\.com does not resolve \(ENOTFOUND\)/);
+  });
+
+  check("share snippets: the public address, a placeholder key, never a real one", () => {
+    const snippets = L.shareSnippets("https://ai-router.example.com/");
+    assert.deepEqual(snippets.map((s) => s.id), ["claude", "codex", "paseo"]);
+    assert.equal(snippets[0].text, "export ANTHROPIC_BASE_URL=https://ai-router.example.com\nexport ANTHROPIC_AUTH_TOKEN=<your key>\nexport CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1");
+    assert.equal(snippets[0].text.includes("/v1"), false, "Claude Code takes the root");
+    assert.match(snippets[0].why, /beta header/);
+    assert.match(snippets[1].text, /base_url = "https:\/\/ai-router\.example\.com\/v1"/);
+    assert.match(snippets[1].text, /wire_api = "responses"/);
+    assert.ok(snippets[1].text.indexOf('model_provider = "omniroute"') < snippets[1].text.indexOf("[model_providers"), "TOML: the top-level key before the table");
+    assert.match(snippets[2].text, /paseo plugin install git:https:\/\/github\.com\/itsjustanks\/paseo-plugin-ai-router\.git:apps\/paseo/);
+    assert.match(snippets[2].text, /AI_ROUTER_URL=https:\/\/ai-router\.example\.com\n/);
+    for (const s of snippets) assert.equal(/sk-[A-Za-z0-9]|oma_live_/.test(s.text), false, "no key-shaped text");
+  });
+
+  // ------------------------------------------------------------ activity
+  check("session header", () => {
+    assert.equal(L.SESSION_HEADER, "x-omniroute-session-id");
+    assert.equal(L.withSessionHeader(undefined, "agent-1"), "x-omniroute-session-id: paseo-agent-1");
+    assert.equal(L.withSessionHeader("", "agent-1"), "x-omniroute-session-id: paseo-agent-1");
+    assert.equal(L.withSessionHeader("X-Team: blue\nX-Cost-Centre: 42", "agent-1"), "X-Team: blue\nX-Cost-Centre: 42\nx-omniroute-session-id: paseo-agent-1", "the person's headers first, untouched");
+    assert.equal(L.withSessionHeader("X-Omniroute-Session-Id: mine", "agent-1"), "X-Omniroute-Session-Id: mine", "a session id the person set wins");
+    assert.equal(L.agentIdFromTag("paseo-agent-1"), "agent-1");
+    assert.equal(L.agentIdFromTag("paseo-"), null);
+    assert.equal(L.agentIdFromTag("someone-else"), null, "only tags this plugin sends");
+    assert.equal(L.agentIdFromTag(null), null);
+    assert.equal(L.agentIdFromTag(L.sessionTagFor("3f2a-77")), "3f2a-77", "round trip");
+  });
+
+  check("session log ring buffer", () => {
+    const entry = (i) => ({ at: new Date(Date.UTC(2026, 8, 23, 0, 0, i)).toISOString(), agentId: `agent-${i}`, kind: "claude", provider: "claude", reason: null, routed: true, tagged: true });
+    let log = [];
+    for (let i = 0; i < 205; i += 1) log = L.pushSession(log, entry(i));
+    assert.equal(log.length, L.SESSION_LOG_SIZE);
+    assert.deepEqual([log[0].agentId, log.at(-1).agentId], ["agent-5", "agent-204"], "newest last, oldest dropped");
+    assert.deepEqual(L.pushSession([entry(1)], entry(2), 1).map((e) => e.agentId), ["agent-2"]);
+    assert.deepEqual(L.parseSessionLog(JSON.stringify(log)), log, "round trip through the file");
+    assert.deepEqual(L.parseSessionLog(null), []);
+    assert.deepEqual(L.parseSessionLog("{ not json"), [], "a damaged file reads as empty, not a crash");
+    assert.deepEqual(L.parseSessionLog(JSON.stringify({ entries: [] })), []);
+    const mixed = [entry(1), { agentId: 7 }, { ...entry(2), kind: "gemini" }, { ...entry(3), reason: "no API key set", routed: false }, "junk"];
+    assert.deepEqual(L.parseSessionLog(JSON.stringify(mixed)).map((e) => [e.agentId, e.routed, e.reason]), [["agent-1", true, null], ["agent-3", false, "no API key set"]], "only well-formed entries are kept");
+    const big = Array.from({ length: 250 }, (_, i) => entry(i));
+    assert.equal(L.parseSessionLog(JSON.stringify(big)).length, 200, "a longer file is cut to the last 200");
   });
 
   console.log(`logic: ${passed} checks passed`);

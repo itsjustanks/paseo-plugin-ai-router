@@ -1,12 +1,13 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput } from "@getpaseo/plugin";
 import type { Status, connectionTest } from "../shared/contracts";
-import { accessTier, connectionProblem, consoleUrlFor, maskSecret, mergeConnection, tunnelDashboardUrl } from "../shared/logic";
+import { accessTier, agentIdFromTag, connectionProblem, maskSecret, mergeConnection, privateDashboardUrl, publicAddress, tunnelDashboardUrl } from "../shared/logic";
+import { linkAgents } from "../shared/routers/omniroute/parsers";
 import { getLastSession } from "./hooks";
 import { checkAutoSync, listOwnProfiles, noteActivity, providerState, setCodexRouter, syncAiProvider, testProviderModel } from "./provider";
 import { listProviders, setProviderEnabled, tidyProviders } from "./providers";
 import { adapterFor } from "./routers";
-import { clearConnection, readConnection, readProviderEntries, readRoutingSettings, settingsDir, writeConnection } from "./store";
+import { clearConnection, readConnection, readProviderEntries, readRoutingSettings, readSessionLog, settingsDir, writeConnection } from "./store";
 
 /** The panel polls every 20s; a check younger than this is served from cache. */
 const PANEL_HEALTH_MAX_AGE_MS = 15_000;
@@ -23,9 +24,11 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
   const { connection } = resolved;
   const router = adapterFor(connection.router);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const [{ health, checking }, entries] = await Promise.all([
+  const publicUrl = publicAddress(connection);
+  const [{ health, checking }, entries, publicCheck] = await Promise.all([
     router.healthForPanel(connection, refresh ? 0 : PANEL_HEALTH_MAX_AGE_MS),
     Promise.race([readProviderEntries(paseo).catch(() => null), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ENTRIES_TIMEOUT_MS)))]),
+    router.publicForPanel(publicUrl, refresh === true),
   ]);
   clearTimeout(timer);
   const tunnel = router.knownTunnel(connection);
@@ -34,7 +37,10 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
       source: connection.source,
       endpoint: connection.endpoint,
       consoleUrl: connection.consoleUrl,
-      dashboardUrl: consoleUrlFor(connection),
+      publicUrl,
+      publicCheck,
+      // The public address once it answers as OmniRoute; until then the private endpoint (tunnel and SSH help apply there).
+      dashboardUrl: publicUrl && publicCheck?.state === "ok" ? `${publicUrl}/dashboard` : privateDashboardUrl(connection),
       sshTarget: connection.sshTarget,
       router: connection.router,
       apiKey: maskSecret(connection.apiKey),
@@ -135,3 +141,39 @@ export const handleTunnelSet = async ({ id, on }: { id: "cloudflared" | "ngrok" 
 export const handleAccess = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).access(c, refresh === true); };
 export const handleCompression = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).compression(c, refresh === true); };
 export const handleCompressionApply = async () => { const c = await current(); return adapterFor(c.router).applyRecommendedCompression(c); };
+
+/** Agent titles and models from Paseo, for naming sessions and requests. Never waits more than 2 s. */
+async function agentsById(paseo: PluginHandlerContext["paseo"]): Promise<Map<string, { title: string | null; model: string | null }>> {
+  const byId = new Map<string, { title: string | null; model: string | null }>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const listed = await Promise.race([
+      paseo.agents.list({}),
+      new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), 2_000))),
+    ]);
+    for (const entry of (listed as { entries?: Array<{ agent?: { id?: unknown; title?: unknown; model?: unknown } }> } | null)?.entries ?? []) {
+      const agent = entry?.agent;
+      if (typeof agent?.id === "string") byId.set(agent.id, { title: typeof agent.title === "string" && agent.title ? agent.title : null, model: typeof agent.model === "string" ? agent.model : null });
+    }
+  } catch {
+    // titles are a nicety; ids still show
+  } finally {
+    clearTimeout(timer);
+  }
+  return byId;
+}
+
+/** Activity: this daemon's routing decisions (every tier), and the router's recent requests (read token). */
+export async function handleActivity(input: { scope?: "daemon" | "all"; errorsOnly?: boolean; model?: string | null; provider?: string | null; limit?: number }, { paseo }: PluginHandlerContext) {
+  const connection = await current();
+  const filter = { scope: input.scope ?? "daemon", errorsOnly: input.errorsOnly === true, model: input.model?.trim() || null, provider: input.provider?.trim() || null, limit: input.limit ?? 25 };
+  const [agents, requests] = await Promise.all([agentsById(paseo), adapterFor(connection.router).requests(connection, filter, false)]);
+  const log = readSessionLog();
+  const links = linkAgents(requests.rows, log, agents, agentIdFromTag);
+  return {
+    sessions: log.slice().reverse().map((entry) => ({ ...entry, agentTitle: agents.get(entry.agentId)?.title ?? null })),
+    requests: { ...requests, rows: requests.rows.map(({ sessionTag: _tag, ...row }) => ({ ...row, agent: links.get(row.id) ?? null })) },
+  };
+}
+
+export const handleActivityDetail = async ({ id }: { id: string }) => { const c = await current(); return adapterFor(c.router).explanation(c, id); };

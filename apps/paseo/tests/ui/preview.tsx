@@ -6,13 +6,16 @@ import type { TabId } from "../../client/navigation";
 import { setPreview } from "./plugin";
 
 /** Every state the screenshots cover: `?state=<name>&theme=light|dark`. Tiers: basic = key only, operator = read token, admin = manage key. */
-export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; range?: "1d" | "7d" | "30d" }> = {
+export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: "1d" | "7d" | "30d" }> = {
   setup: { status: "not connected" },
   overview: { status: "routing on", settings: "calm" },
   "overview-basic": { status: "basic" },
   "overview-admin": { status: "admin" },
   "overview-router-down": { status: "router down" },
   "overview-claude-paused": { status: "claude paused" },
+  activity: { status: "routing on", tab: "activity" },
+  "activity-basic": { status: "basic", tab: "activity" },
+  "activity-router-down": { status: "router down", tab: "activity" },
   models: { status: "routing on", tab: "models" },
   "models-basic": { status: "basic", tab: "models" },
   "models-profiles-off": { status: "routing on", tab: "models", profiles: "off" },
@@ -34,6 +37,8 @@ export const STATES: Record<string, { status: string; tab?: TabId; accounts?: st
   "connection-admin": { status: "admin", tab: "connection" },
   "connection-router-down": { status: "router down", tab: "connection" },
   "connection-misconfigured": { status: "misconfigured" },
+  "connection-public": { status: "public ok", tab: "connection" },
+  "connection-public-pending": { status: "public pending", tab: "connection" },
 };
 
 const params = new URLSearchParams(location.search);

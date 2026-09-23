@@ -98,8 +98,19 @@ export function normaliseConsoleUrl(raw: unknown): string | null {
   return url ? url.toString().replace(/\/+$/, "") : null;
 }
 
-export function consoleUrlFor(connection: Pick<Connection, "endpoint" | "consoleUrl">): string | null {
-  if (connection.consoleUrl) return connection.consoleUrl;
+/**
+ * The public address (custom domain) people and browsers outside the network
+ * use, e.g. `https://ai-router.example.com`. Stored as `consoleUrl` for
+ * compatibility; a saved dashboard URL (`…/dashboard`) reads as its origin.
+ */
+export function publicAddress(connection: Pick<Connection, "consoleUrl">): string | null {
+  const url = parseHttpUrl(connection.consoleUrl);
+  if (!url) return null;
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, "").replace(/\/dashboard$/, "");
+}
+
+/** The dashboard on the private endpoint, which daemons reach directly. */
+export function privateDashboardUrl(connection: Pick<Connection, "endpoint">): string | null {
   return connection.endpoint ? `${connection.endpoint}${DASHBOARD_PATH}` : null;
 }
 
@@ -182,7 +193,7 @@ export function resolveConnection(savedRaw: string | null, env: Env, savedName =
     }
     const endpoint = normaliseEndpoint(saved?.endpoint);
     const consoleUrl = normaliseConsoleUrl(saved?.consoleUrl);
-    if (text(saved?.consoleUrl) && !consoleUrl) warnings.push("The saved dashboard URL is invalid; using the default.");
+    if (text(saved?.consoleUrl) && !consoleUrl) warnings.push("The saved public address is not a usable http(s) URL; it is ignored.");
     const sshTarget = text(saved?.sshTarget);
     if (saved?.router !== undefined && !isRouterId(saved.router)) {
       return { connection: { ...EMPTY, source: "saved" }, blocked: `${savedName} names an unknown router "${String(saved.router)}"`, warnings };
@@ -207,7 +218,7 @@ export function resolveConnection(savedRaw: string | null, env: Env, savedName =
   }
   const endpoint = normaliseEndpoint(rawUrl);
   const consoleUrl = normaliseConsoleUrl(env[ENV_KEYS.console]);
-  if (text(env[ENV_KEYS.console]) && !consoleUrl) warnings.push(`${ENV_KEYS.console} is not a valid URL; using the default.`);
+  if (text(env[ENV_KEYS.console]) && !consoleUrl) warnings.push(`${ENV_KEYS.console} (the public address) is not a valid URL; it is ignored.`);
   const connection: Connection = { ...EMPTY, endpoint, apiKey: text(env[ENV_KEYS.key]), token: text(env[ENV_KEYS.token]), consoleUrl, source: "env" };
   return { connection, blocked: endpoint ? null : `${ENV_KEYS.url} is not a usable http(s) URL`, warnings };
 }
@@ -244,8 +255,8 @@ export function mergeConnection(
   if (!endpoint) return { ok: false, error: `"${patch.endpoint}" is not a usable http(s) URL. Try ${ENDPOINT_EXAMPLES.join(" or ")}.` };
   const secret = (next: string | null | undefined, kept: string | null) => (next === null ? null : text(next) ?? kept);
   const consoleText = text(patch.consoleUrl);
-  const consoleUrl = consoleText ? normaliseConsoleUrl(consoleText) : null;
-  if (consoleText && !consoleUrl) return { ok: false, error: `"${consoleText}" is not a usable dashboard URL.` };
+  const consoleUrl = consoleText ? publicAddress({ consoleUrl: normaliseConsoleUrl(consoleText) }) : null;
+  if (consoleText && !consoleUrl) return { ok: false, error: `"${consoleText}" is not a usable public address. Try https://ai-router.example.com.` };
   const sshTarget = text(patch.sshTarget);
   if (sshTarget && !isValidSshTarget(sshTarget)) return { ok: false, error: `"${sshTarget}" is not an SSH target like root@router.example.com.` };
   return {
@@ -313,6 +324,76 @@ export function describeFetchError(error: unknown, url: string, timeoutMs: numbe
   if (code === "ECONNRESET") return `connection reset by ${url}`;
   if (/CERT|SSL|TLS/i.test(code)) return `TLS error at ${url} (${code})`;
   return `${String(err.cause?.message ?? err.message ?? error)} at ${url}`;
+}
+
+// --------------------------------------------------------- public address
+
+export type PublicCheck = { state: "ok" | "dns" | "tls" | "http" | "unreachable"; label: string; detail: string | null };
+
+/**
+ * `GET <public address>/api/health/ping`, in words, from its answer or from
+ * the fetch error. DNS, TLS and HTTP failures read differently because each
+ * has a different fix: point the DNS record, wait for the certificate, or
+ * check what answers behind the proxy.
+ */
+export function classifyPublicCheck(input: { status: number; body: unknown } | { error: unknown }, url: string, timeoutMs = 4_000): PublicCheck {
+  const parsed = parseHttpUrl(url);
+  const host = parsed?.host ?? url;
+  const secure = parsed?.protocol === "https:";
+  if ("status" in input) {
+    const body = asBody(input.body);
+    if (input.status === 200 && body.status === "ok") {
+      return secure ? { state: "ok", label: `HTTPS OK · ${host}`, detail: null } : { state: "ok", label: `HTTP OK · ${host}`, detail: "Answers, but without HTTPS: browsers will warn, and keys travel unencrypted." };
+    }
+    if (input.status === 502 || input.status === 503 || input.status === 504) return { state: "http", label: `${secure ? "HTTPS" : "HTTP"} works, but OmniRoute behind it is not answering (${input.status})`, detail: "The proxy is up; check that it forwards to OmniRoute's port and that OmniRoute is running." };
+    if (input.status === 404) return { state: "http", label: "Answers, but not as OmniRoute (404 on /api/health/ping)", detail: "Something else is serving this address, or the proxy forwards to the wrong port." };
+    if (input.status === 401 || input.status === 403) return { state: "http", label: `Answers, but asks for a login on its health route (${input.status})`, detail: "The health route should be public; check the proxy in front of OmniRoute." };
+    if (input.status === 200) return { state: "http", label: "Answers, but not as OmniRoute", detail: "The page at /api/health/ping is not OmniRoute's health answer." };
+    return { state: "http", label: `Answers with HTTP ${input.status}`, detail: null };
+  }
+  const err = (input.error ?? {}) as { name?: unknown; message?: unknown; code?: unknown; cause?: { code?: unknown; message?: unknown } };
+  const code = String(err.cause?.code ?? err.code ?? "");
+  const message = String(err.cause?.message ?? err.message ?? "");
+  if (err.name === "AbortError" || err.name === "TimeoutError") return { state: "unreachable", label: "Unreachable", detail: `No answer from ${host} within ${Math.round(timeoutMs / 1000)} s.` };
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "EAI_NODATA" || code === "EAI_NONAME") return { state: "dns", label: "DNS not pointing here yet", detail: `${parsed?.hostname ?? host} does not resolve (${code}). Add or fix its DNS record; changes can take a while to spread.` };
+  if (code === "ERR_TLS_CERT_ALTNAME_INVALID") return { state: "tls", label: "Certificate is for another name", detail: `The server at ${host} shows a certificate for a different name: the DNS record may still point at another server.` };
+  if (code === "CERT_HAS_EXPIRED") return { state: "tls", label: "Certificate expired", detail: `Renew the certificate for ${host}.` };
+  if (/WRONG_VERSION_NUMBER|PACKET_LENGTH_TOO_LONG|HTTP_REQUEST/.test(code)) return { state: "tls", label: "Not serving HTTPS on this address", detail: `${host} answers with plain HTTP where HTTPS was expected.` };
+  if (/CERT|SSL|TLS|EPROTO/i.test(code) || (code === "ECONNRESET" && /TLS|secure/i.test(message))) return { state: "tls", label: "Certificate not issued yet", detail: `${host} is reachable but has no valid certificate yet (${code}). With Caddy's automatic HTTPS this clears once DNS points at the server.` };
+  if (code === "ECONNREFUSED") return { state: "unreachable", label: "Unreachable", detail: `${host} refused the connection: nothing listens on that port.` };
+  if (code === "EHOSTUNREACH" || code === "ENETUNREACH" || code === "ETIMEDOUT" || code === "ECONNRESET") return { state: "unreachable", label: "Unreachable", detail: `${host}: ${code}.` };
+  return { state: "unreachable", label: "Unreachable", detail: `${message || "no answer"}${code ? ` (${code})` : ""}.` };
+}
+
+/** Where the plugin can be installed from; the Share card's Paseo snippet. */
+export const PLUGIN_GIT_SOURCE = "git:https://github.com/itsjustanks/paseo-plugin-ai-router.git:apps/paseo";
+
+/**
+ * Setup snippets for someone else using this router through its public
+ * address. Never a real key: `<your key>` is theirs to fill in.
+ */
+export function shareSnippets(publicUrl: string): Array<{ id: "claude" | "codex" | "paseo"; title: string; why: string; text: string }> {
+  const base = publicUrl.replace(/\/+$/, "");
+  return [
+    {
+      id: "claude",
+      title: "Claude Code",
+      why: "The last line turns off Claude Code's experimental request features: the router rewrites the beta header they need, so requests using them would be refused.",
+      text: [`export ANTHROPIC_BASE_URL=${base}`, "export ANTHROPIC_AUTH_TOKEN=<your key>", "export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1"].join("\n"),
+    },
+    {
+      id: "codex",
+      title: "Codex and other OpenAI-compatible tools",
+      why: `Base URL ${base}/v1, with your key as the API key. For Codex, add this to ~/.codex/config.toml and set OMNIROUTE_API_KEY.`,
+      text: ['model_provider = "omniroute"', "", "[model_providers.omniroute]", 'name = "OmniRoute"', `base_url = "${base}/v1"`, 'env_key = "OMNIROUTE_API_KEY"', 'wire_api = "responses"'].join("\n"),
+    },
+    {
+      id: "paseo",
+      title: "Another Paseo daemon",
+      why: "Install AI Router there, then enter this address as the endpoint and your key on its Connection tab (or set the two variables before the daemon starts).",
+      text: [`paseo plugin install ${PLUGIN_GIT_SOURCE}`, `export AI_ROUTER_URL=${base}`, "export AI_ROUTER_KEY=<your key>"].join("\n"),
+    },
+  ];
 }
 
 export type KeyCheck = { accepted: boolean; models: number | null; error: string | null };
@@ -695,4 +776,54 @@ export function tunnelKind(url: string | null): string | null {
   if (/\.ngrok(-free)?\.(app|dev|io)$/.test(host)) return "via ngrok tunnel";
   if (/\.ts\.net$/.test(host)) return "via Tailscale Funnel";
   return null;
+}
+
+// ------------------------------------------------------------ activity
+
+/**
+ * OmniRoute records this request header as the call log's `sessionTag` (its
+ * conversation id; a client-supplied value wins outright). The hook sends
+ * `paseo-<agent id>` through Claude Code's ANTHROPIC_CUSTOM_HEADERS, so a
+ * request links to the Paseo agent that made it.
+ */
+export const SESSION_HEADER = "x-omniroute-session-id";
+const SESSION_TAG_PREFIX = "paseo-";
+export const sessionTagFor = (agentId: string) => `${SESSION_TAG_PREFIX}${agentId}`;
+export function agentIdFromTag(tag: unknown): string | null {
+  return typeof tag === "string" && tag.startsWith(SESSION_TAG_PREFIX) && tag.length > SESSION_TAG_PREFIX.length ? tag.slice(SESSION_TAG_PREFIX.length) : null;
+}
+
+/**
+ * ANTHROPIC_CUSTOM_HEADERS with the session header added: `Name: value`
+ * lines. A person's own headers are kept; one they set for this header wins.
+ */
+export function withSessionHeader(existing: string | undefined, agentId: string): string {
+  const lines = (existing ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.some((line) => line.toLowerCase().startsWith(`${SESSION_HEADER}:`))) return lines.join("\n");
+  return [...lines, `${SESSION_HEADER}: ${sessionTagFor(agentId)}`].join("\n");
+}
+
+/** One routing decision from the session_open hook, for the Activity tab. No secrets, no content. */
+export type SessionEntry = { at: string; agentId: string; kind: "claude" | "provider" | "codex"; provider: string; reason: string | null; routed: boolean; tagged: boolean };
+export const SESSION_LOG_SIZE = 200;
+
+/** Newest last, at most `size` entries. */
+export function pushSession(log: readonly SessionEntry[], entry: SessionEntry, size = SESSION_LOG_SIZE): SessionEntry[] {
+  return [...log, entry].slice(-size);
+}
+
+/** The saved session log, keeping only well-formed entries; anything unreadable is an empty log. */
+const SESSION_KINDS: ReadonlyArray<SessionEntry["kind"]> = ["claude", "provider", "codex"];
+export function parseSessionLog(raw: string | null): SessionEntry[] {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw) as unknown;
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((e): e is SessionEntry => !!e && typeof e === "object" && typeof (e as SessionEntry).at === "string" && typeof (e as SessionEntry).agentId === "string" && typeof (e as SessionEntry).routed === "boolean" && SESSION_KINDS.includes((e as SessionEntry).kind))
+      .map((e): SessionEntry => ({ at: e.at, agentId: e.agentId, kind: e.kind, provider: typeof e.provider === "string" ? e.provider : "claude", reason: typeof e.reason === "string" ? e.reason : null, routed: e.routed, tagged: e.tagged === true }))
+      .slice(-SESSION_LOG_SIZE);
+  } catch {
+    return [];
+  }
 }

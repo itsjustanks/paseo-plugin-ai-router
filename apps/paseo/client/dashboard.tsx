@@ -24,15 +24,15 @@ export function useLinks(say: Say) {
 }
 
 /**
- * Where "Open dashboard" goes: a running OmniRoute tunnel an admin's manage
- * key can see, else the dashboard address from the connection settings or
- * AI_ROUTER_CONSOLE_URL, which is how everyone else gets a tunnel address.
+ * Where "Open dashboard" goes: the public address (custom domain) once it
+ * answers as OmniRoute; else a running OmniRoute tunnel an admin's manage key
+ * can see; else the private endpoint, where the SSH help applies.
  */
 export function dashboardTarget(data: Status): { url: string | null; via: string | null } {
-  const tunnel = data.connection.tunnel;
+  const { publicUrl, publicCheck, tunnel, dashboardUrl } = data.connection;
+  if (publicUrl && publicCheck?.state === "ok") return { url: dashboardUrl, via: "via custom domain" };
   if (tunnel) return { url: tunnel.dashboardUrl, via: `via ${tunnel.label}` };
-  const url = data.connection.dashboardUrl;
-  return { url, via: tunnelKind(url) };
+  return { url: dashboardUrl, via: tunnelKind(dashboardUrl) };
 }
 
 export function OpenDashboardButton({ theme, data, say, primary, label }: { theme: Theme; data: Status; say: Say; primary?: boolean; label?: string }) {

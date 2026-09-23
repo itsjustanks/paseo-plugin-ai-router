@@ -9,12 +9,14 @@ import { CODEX_LOGIN_PORT, TIER_LABELS, lastAgentLine, privateDashboardAccess, t
 import { routingSettings } from "../shared/settings";
 import { ROUTERS } from "../shared/routers/copy";
 import { OpenDashboardButton, dashboardTarget, useLinks } from "./dashboard";
+import { ActivityTab } from "./activity";
 import { AccountsTab } from "./insights";
 import { UsageTab } from "./analytics";
 import { SectionHeading, TabBar, visibleTabs, type TabId } from "./navigation";
 import { ProvidersTab } from "./providers";
 import { SettingsTab } from "./settings";
-import { ConnectionForm, KeysCard, STATUS_KEY, errorText, type Message } from "./setup";
+import { ConnectionForm, KeysCard, PUBLIC_ADDRESS_WHY, STATUS_KEY, errorText, type Message } from "./setup";
+import { ShareCard } from "./share";
 import { Banner, Button, Card, Chip, Fact, Field, Link, Note, Row, StatusLine, Toggle, type Tone } from "./ui";
 
 type Theme = PluginTheme;
@@ -120,7 +122,14 @@ function OverviewTab({ theme, data, go, say }: { theme: Theme; data: Status; go:
         <StatusLine theme={theme} label="Claude routing" value={on ? "On" : "Off"} tone={on ? "success" : "neutral"} hint={on ? "Claude agents go through the router" : "Claude agents use their own sign-in"} />
         <StatusLine theme={theme} label="Models in Paseo" value={present ? `${modelCount} synced` : "Not synced"} tone={present ? "success" : "neutral"} action={{ label: "Models", onPress: () => go("models") }} />
         <StatusLine theme={theme} label="Access" value={TIER_LABELS[data.tier]} tone="neutral" action={{ label: "Connection", onPress: () => go("connection") }} />
-        {last ? <Note theme={theme} tone={last.routed ? "success" : "warning"}>{lastAgentLine(last, name, hhmm(last.at))}</Note> : null}
+        {last ? (
+          <Pressable accessibilityRole="link" accessibilityLabel="See every agent session in Activity" onPress={() => go("activity")}>
+            <Note theme={theme} tone={last.routed ? "success" : "warning"}>
+              {`${lastAgentLine(last, name, hhmm(last.at))}  `}
+              <Text style={{ color: theme.colors.accent, fontSize: 12, fontWeight: "600" }}>Activity →</Text>
+            </Note>
+          </Pressable>
+        ) : null}
       </Card>
       <Card theme={theme}>
         <Row>
@@ -340,13 +349,13 @@ function TunnelsSection({ theme, data, say }: { theme: Theme; data: Status; say:
             <Row>
               <Text selectable style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{tunnel.url}</Text>
               <Link theme={theme} label="Copy" accessibilityLabel={`Copy ${tunnel.label} address`} onPress={() => links.copy(tunnelDashboardUrl(tunnel.url!), "the tunnel address")} />
-              {data.connection.consoleUrl !== tunnelDashboardUrl(tunnel.url) ? <Link theme={theme} label={save.isPending ? "Saving…" : "Use as this daemon's dashboard address"} onPress={() => save.mutate(tunnelDashboardUrl(tunnel.url!))} /> : null}
+              {data.connection.publicUrl !== tunnel.url.replace(/\/+$/, "") ? <Link theme={theme} label={save.isPending ? "Saving…" : "Use as the public address"} onPress={() => save.mutate(tunnel.url!)} /> : null}
             </Row>
           ) : null}
           {tunnel.error ? <Note theme={theme} tone="warning">{tunnel.error}</Note> : null}
         </View>
       ))}
-      <Note theme={theme}>For every daemon to open the dashboard through the tunnel, set its address as AI_ROUTER_CONSOLE_URL there, or save it on each daemon's Connection tab.</Note>
+      <Note theme={theme}>To make a tunnel the public address everywhere, set it as AI_ROUTER_CONSOLE_URL on each daemon, or save it on each daemon's Connection tab.</Note>
     </View>
   );
 }
@@ -395,6 +404,16 @@ function ConnectionTab({ theme, data, configured, say }: { theme: Theme; data: S
       <Card theme={theme} title={name}>
         {warnings}
         <Fact theme={theme} label="Endpoint" value={connection.endpoint ?? "none"} />
+        <Fact theme={theme} label="Public address" value={connection.publicUrl ?? "not set"} />
+        {connection.publicCheck ? (
+          <View style={{ gap: 4 }}>
+            <Row>
+              <Chip theme={theme} label={connection.publicCheck.label} tone={connection.publicCheck.state === "ok" ? "success" : connection.publicCheck.state === "checking" ? "neutral" : "warning"} />
+            </Row>
+            {connection.publicCheck.detail ? <Note theme={theme}>{connection.publicCheck.detail}</Note> : null}
+          </View>
+        ) : null}
+        <Note theme={theme}>{connection.publicUrl ? PUBLIC_ADDRESS_WHY : `No public address (custom domain) yet: add one under Edit. ${PUBLIC_ADDRESS_WHY}`}</Note>
         <Fact theme={theme} label="API key" value={masked(connection.apiKey)} />
         <Fact theme={theme} label="Set by" value={connection.source === "env" ? "AI_ROUTER_* environment variables" : "saved plugin settings"} />
         {health?.error ? <Note theme={theme} tone="danger">{health.error}</Note> : null}
@@ -406,6 +425,7 @@ function ConnectionTab({ theme, data, configured, say }: { theme: Theme; data: S
         </Row>
         <Note theme={theme}>{`Stored in ${data.settingsDir}`}</Note>
       </Card>
+      <ShareCard theme={theme} data={data} say={say} />
       <KeysCard theme={theme} data={data} tokenProblem={health?.monitoringError ?? null} onMessage={say} />
       {dashboard ? (
         <Card theme={theme} title="Dashboard">
@@ -482,7 +502,8 @@ export function AiRouterSurface({ theme, layout, initialTab, initialRange }: Plu
       {message ? <View style={{ marginBottom: 12 }}><Note theme={theme} tone={message.tone}>{message.text}</Note></View> : null}
       {tab === "connection" ? <ConnectionTab theme={theme} data={data} configured={configured} say={setMessage} /> : null}
       {tab === "providers" ? <ProvidersTab theme={theme} data={data} say={setMessage} compact={layout.compact} /> : null}
-      {tab !== "connection" && tab !== "providers" && !configured ? (
+      {tab === "activity" ? <ActivityTab theme={theme} data={data} /> : null}
+      {tab !== "connection" && tab !== "providers" && tab !== "activity" && !configured ? (
         <Banner theme={theme} tone="neutral" title="Connect a router first">
           <Note theme={theme}>{data.problem ? `Not connected yet: ${data.problem}.` : "No router is set up."}</Note>
           <Row><Button theme={theme} label="Open Connection" primary onPress={() => go("connection")} /></Row>

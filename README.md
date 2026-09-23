@@ -26,24 +26,25 @@ For a fleet, give every daemon the connection through the environment and nothin
 
 ```sh
 AI_ROUTER_URL=http://10.0.0.5:20128   AI_ROUTER_KEY=sk-…   # one key per daemon, named after it
-AI_ROUTER_CONSOLE_URL=https://…/dashboard                   # optional: where "Open dashboard" goes
+AI_ROUTER_CONSOLE_URL=https://ai-router.example.com         # optional: the public address (custom domain)
 ```
 
 ## The panel
 
-Seven tabs in one row; at narrow widths each shows its icon and the active one its name too. Tabs
+Eight tabs in one row; at narrow widths each shows its icon and the active one its name too. Tabs
 that need more access than the daemon has are not shown, and one small line says what a read token or
 manage key would add.
 
 | Tab | What it holds |
 | --- | --- |
 | **Overview** | Router up, down or paused; Claude routing; models in Paseo; this daemon's access; the last agent; open dashboard, sync models, routing on or off. When the router is unreachable: when it was last seen, the error, and **Open Connection**. |
+| **Activity** | What went through the router. **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it; filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
 | **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
 | **Providers** | Every Paseo provider on this daemon with its status and an enabled switch, and what OmniRoute can do for it: Claude's routing switch, **Codex via OmniRoute**, or "not supported". **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
 | **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. |
 | **Usage** | **Usage & analytics** for 24 hours, 7 days or 30 days: requests, tokens, estimated cost and latency; requests per day; tokens per day stacked by provider; the provider split; top models; by daemon and by account; failed requests by kind; a year of activity. |
 | **Settings** | Context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
-| **Connection** | Router, endpoint, key, where they come from; the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
+| **Connection** | Router, endpoint, **public address** and whether it answers, key, where they come from; **Share this router** (how others connect through the public address, never with a key); the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
 
 The plugin never stores, shows or asks for OmniRoute's admin password. The panel says "Dashboard
 login: ask your router admin" where it matters.
@@ -57,6 +58,10 @@ this daemon holds, and a key never sees another key's data.
 | --- | --- | --- | --- |
 | Routing Claude and the AI Router provider, the hook | yes | yes | yes |
 | Router up/down and latency | `GET /api/health/ping` (public) | same | same |
+| Public address status | `GET <public address>/api/health/ping` (public, no credentials sent) | same | same |
+| Activity: agent sessions on this daemon | yes (this daemon's own hook; no router call) | yes | yes |
+| Activity: requests | — | `GET /api/usage/call-logs`, `GET /api/keys` | same |
+| Activity: why a request went where it did | — | `GET /api/routing/decisions/{callLogId}` | same |
 | Version, uptime, paused providers | — | `GET /api/monitoring/health` | same |
 | Model list for the AI Router provider | `GET /v1/models?configuredOnly=true` (OmniRoute limits it to active accounts and the key's allowed models) | `GET /v1/models` filtered by active accounts in `GET /api/providers` | same |
 | Test a model | `POST /v1/messages` | same | same |
@@ -145,7 +150,7 @@ The `agent.session_open` hook only edits the launch environment.
 
 | Session | Rewritten when | Environment added |
 | --- | --- | --- |
-| Built-in `claude` provider | routing is on | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` |
+| Built-in `claude` provider | routing is on | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, and `x-omniroute-session-id: paseo-<agent id>` added to `ANTHROPIC_CUSTOM_HEADERS` |
 | `ai-router` provider | always (choosing it is the opt-in) | the same |
 | `codex-ai-router` ("Codex via OmniRoute") | always, while its entry points at the endpoint | `OPENAI_API_KEY=<key>` |
 | `ai-router-codex` (0.1.0, legacy; syncing removes it) | the same | `OPENAI_API_KEY=<key>` |
@@ -162,6 +167,11 @@ ai-router`) and shown in the panel, e.g.
 `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`: OmniRoute replaces Claude Code's `anthropic-beta` header
 with its own list, and without the per-turn-control beta Claude Code 2.1.280's per-turn effort is
 refused with 400 "messages.1.output_config: Extra inputs are not permitted".
+
+`ANTHROPIC_CUSTOM_HEADERS` holds newline-separated `Name: value` lines that Claude Code sends with
+every request. The hook keeps any lines already there and adds `x-omniroute-session-id`, unless one is
+already set; OmniRoute records it as the request's `sessionTag`, which is how Activity names the agent
+behind each request exactly. It carries only the Paseo agent id.
 
 **Codex via OmniRoute.** Built-in Codex builds its model provider from config, not from launch env,
 and most daemons have no Codex login. The Providers tab adds `codex-ai-router`:
@@ -192,14 +202,67 @@ and `bodyAdapter.ts`. **Apply recommended…** (manage key, after a confirmation
 other engine off, and adds the exclusions when the router's compression settings support them. It is
 never applied on its own.
 
-## Dashboard access
+## Activity
 
-"Open dashboard" uses, in order: a running OmniRoute tunnel an admin's manage key can see, then the
-dashboard URL from the connection settings or `AI_ROUTER_CONSOLE_URL`, then `<endpoint>/dashboard`.
-A tunnel host (`*.trycloudflare.com`, `*.ngrok-free.app`, `*.ts.net`) shows "via Cloudflare tunnel"
-and similar. Admins can start and stop OmniRoute's Cloudflare, ngrok and Tailscale tunnels on the
-Connection tab ("makes the dashboard reachable from the internet; its login is still required") and
-save a running tunnel's address as this daemon's dashboard URL. For every daemon to use it, set it as
+**Agent sessions on this daemon**, for every tier: each time an agent starts or resumes, the hook
+records the agent id, the provider, whether it was routed, and if not, why. The last 200 are kept in
+`$PASEO_HOME/plugin-settings/ai-router/sessions.json` (mode 0600; no keys, no content), so they
+survive a restart. Titles come from Paseo's `agents.list`.
+
+**Requests through the router**, with a read token, from OmniRoute's call log:
+
+- `GET /api/usage/call-logs?limit=<n+1>&excludeTests=1`, plus `apiKey=<this key's id>` for "This
+  daemon", `status=error` for "Errors only", and `model=` or `provider=` for a filter chip. OmniRoute
+  matches these as substrings. `excludeTests=1` keeps only real `/v1` traffic. Pages are 25 rows, up
+  to 200, and one extra row says whether there are older ones.
+- Fields read from each row: `id`, `timestamp`, `status`, `requestedModel`, `model`, `provider`,
+  `providerDisplay`, `account` (shown masked), `duration`, `tokens.in` and `tokens.out`, `apiKeyId`,
+  `apiKeyName`, `comboName`, `error` (cut to 240 characters) and `sessionTag`. Nothing else is read.
+  A row is a **fallback** when it was not a combo and the model served is not the one asked for
+  (`cc/claude-sonnet-5` and `claude-sonnet-5` count as the same model).
+- `GET /api/keys` finds this daemon's key (by its masked form) for "This daemon" and the
+  "this daemon" mark.
+- Tapping a row reads `GET /api/routing/decisions/{id}`, keeping only `summary`, `routeType`,
+  `confidence`, `comboUsed`, `providerSelected`, `modelUsed`, `selectedTarget.account` (masked),
+  `decision.factors` (name, value, status, details; at most 8), `decision.fallbacksTriggered`
+  (provider, model, status, reason, time; at most 8) and `limitations`.
+- Prompts and responses are never read or shown. `/api/usage/call-logs/{id}` is not used, because it
+  returns the request and response bodies.
+
+**Which agent sent it.** Claude sessions (built-in Claude while routing is on, and the AI Router
+provider) send `x-omniroute-session-id: paseo-<agent id>`, so those rows name their agent exactly.
+Codex via OmniRoute cannot carry a header (Paseo builds its model provider), so its rows are matched
+as **likely**: this daemon's key, the agent whose model matches, and the most recent routed session
+that opened before the request. Other daemons' requests are never matched.
+
+## Public address and dashboard access
+
+OmniRoute can have a **public address** (custom domain), such as `https://ai-router.example.com`.
+The daemons keep using the private endpoint; people and browsers outside the network use the public
+address. It is set on the Connection tab (**Public address (custom domain)**) or with
+`AI_ROUTER_CONSOLE_URL`, under the same precedence as the rest of the connection, and stored without
+a trailing `/dashboard`.
+
+The Connection tab checks it with `GET <public address>/api/health/ping` (4 s, no credentials,
+re-checked after a minute or on **Check now**) and says what it found: "HTTPS OK · host", or
+"DNS not pointing here yet", "Certificate not issued yet", "Certificate is for another name",
+"Certificate expired", "Not serving HTTPS on this address", "HTTPS works, but OmniRoute behind it is
+not answering (502)", "Answers, but not as OmniRoute" or "Unreachable".
+
+**Share this router** (every tier) shows how someone else connects through the public address, with
+`<your key>` in place of a key (each person or machine should get its own):
+
+- Claude Code: `ANTHROPIC_BASE_URL=<public address>`, `ANTHROPIC_AUTH_TOKEN=<your key>` and
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` (see [Routing](#routing) for why).
+- Codex and other OpenAI-compatible tools: `<public address>/v1`, with a `~/.codex/config.toml` block.
+- Another Paseo daemon: install this plugin from GitHub, then use the public address as its endpoint.
+
+"Open dashboard" uses, in order: the public address when its check passed ("via custom domain"), a
+running OmniRoute tunnel an admin's manage key can see, then `<endpoint>/dashboard`. A tunnel host
+(`*.trycloudflare.com`, `*.ngrok-free.app`, `*.ts.net`) shows "via Cloudflare tunnel" and similar.
+Admins can start and stop OmniRoute's Cloudflare, ngrok and Tailscale tunnels on the Connection tab
+("makes the dashboard reachable from the internet; its login is still required") and save a running
+tunnel's address as this daemon's public address. For every daemon to use it, set it as
 `AI_ROUTER_CONSOLE_URL` there.
 
 If the dashboard is on a private network (10.x, 172.16–31.x, 192.168.x, 127.x, 100.64/10, `.local`,
@@ -216,7 +279,7 @@ forward** (router host, remote port 20128).
 
 The panel opens at once whatever the router does. The status call waits at most 1.5 s for a health
 check, then answers with the previous result marked "checking"; every router request has a timeout
-(4 s for health, 10 s for reads). Once a check has found the router down, the Accounts, Usage and
+(4 s for health, 10 s for reads). Once a check has found the router down, the Activity, Accounts, Usage and
 Settings tabs answer immediately with their last good answer, marked "Router unreachable — showing its
 answer as of HH:MM", or with the error if there is none. The Overview says when the router was last
 seen (kept across restarts) and offers **Open Connection**, where the health check, editing the
@@ -226,8 +289,8 @@ endpoint and keys, Test & save and Disconnect all work without the router.
 
 | Source | Where | Notes |
 | --- | --- | --- |
-| Saved plugin settings | `$PASEO_HOME/plugin-settings/ai-router/connection.json` (mode 0600) | Written by **Test & save** only. Wins outright. Holds the router type, endpoint, key, read token and manage key. |
-| Environment | `AI_ROUTER_URL`, `AI_ROUTER_KEY`, `AI_ROUTER_TOKEN`, `AI_ROUTER_CONSOLE_URL` | Used only when nothing is saved. Seeds the connection for fleet installs. |
+| Saved plugin settings | `$PASEO_HOME/plugin-settings/ai-router/connection.json` (mode 0600) | Written by **Test & save** only. Wins outright. Holds the router type, endpoint, public address, key, read token and manage key. |
+| Environment | `AI_ROUTER_URL`, `AI_ROUTER_KEY`, `AI_ROUTER_TOKEN`, `AI_ROUTER_CONSOLE_URL` (the public address) | Used only when nothing is saved. Seeds the connection for fleet installs. |
 | Defaults | none | There is no default endpoint. |
 
 - Precedence is per record, not per field: once a connection is saved, the `AI_ROUTER_*` variables are
@@ -249,23 +312,25 @@ apps/paseo/
   client/                             the panel (tabs, cards)
   server/                             hooks, the provider sync, Paseo's config, the Providers tab
   server/routers/index.ts             the router registry and the adapter interface
-  server/routers/copy.ts              each router's UI copy, safe for the client
-  server/routers/omniroute/           OmniRoute: adapter, HTTP reads, parsers, copy
-  shared/                             contracts and pure logic
+  server/routers/omniroute/           OmniRoute: adapter and HTTP reads
+  shared/                             contracts and pure logic, the only code the client imports
+  shared/routers/                     each router's UI copy and response parsers
 ```
 
-Adding a router means one more folder under `server/routers/` and its id in `shared/logic.ts`.
+Adding a router means one more folder under `server/routers/` (and `shared/routers/`) and its id in
+`shared/logic.ts`.
 
 ## Seeing it without a daemon
 
 `npm run preview:ui` (in `apps/paseo`) serves the panel in a browser at
 `http://127.0.0.1:43199/?state=setup&theme=light`, fed by the same fixtures as the hook-order test,
 with the Lucide icons the Paseo app draws. States: `setup`, `overview`, `overview-basic`,
-`overview-admin`, `overview-router-down`, `overview-claude-paused`, `models`, `models-basic`,
+`overview-admin`, `overview-router-down`, `overview-claude-paused`, `activity`, `activity-basic`,
+`activity-router-down`, `models`, `models-basic`,
 `providers`, `providers-admin`, `accounts-operator`, `accounts-admin`, `accounts-claude-paused`,
 `models-profiles-off`, `usage-populated`, `usage-30-days`, `usage-24-hours`, `usage-empty`, `usage-router-down`, `settings-operator`, `settings-manage-key`, `settings-recommended`,
 `connection`, `connection-basic`, `connection-admin`, `connection-router-down`,
-`connection-misconfigured`. `npm run screenshots` renders every state in light and dark at 1280 px and
+`connection-misconfigured`, `connection-public`, `connection-public-pending`. `npm run screenshots` renders every state in light and dark at 1280 px and
 420 px into `docs/screenshots/`, using the installed Google Chrome. `docs/screenshots/before/` holds
 three 0.3.4 views under the name of the current screenshot they compare with.
 
