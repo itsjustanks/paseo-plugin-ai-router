@@ -533,7 +533,10 @@ export function withProviderEntries(raw: string, entries: Record<string, unknown
     return { ok: false, error: "config.json is not valid JSON" };
   }
   const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-  if (!isObject(config) || typeof config.version !== "number") return { ok: false, error: "config.json does not look like a Paseo daemon config" };
+  // A fresh daemon's config may hold only some sections (e.g. pluginsEnabled, plugins, agents, features);
+  // `version` and `daemon` appear once the app saves something. Any known section is enough.
+  const PASEO_SECTIONS = ["version", "daemon", "app", "providers", "pluginsEnabled", "plugins", "agents", "features"];
+  if (!isObject(config) || !PASEO_SECTIONS.some((key) => key in config)) return { ok: false, error: "config.json does not look like a Paseo daemon config" };
   if (config.agents !== undefined && !isObject(config.agents)) return { ok: false, error: "config.json has an unexpected agents section" };
   const agents = (config.agents ?? {}) as Record<string, unknown>;
   if (agents.providers !== undefined && !isObject(agents.providers)) return { ok: false, error: "config.json has an unexpected agents.providers section" };

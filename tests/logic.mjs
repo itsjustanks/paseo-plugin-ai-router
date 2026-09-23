@@ -351,10 +351,17 @@ try {
     assert.ok(next.text.endsWith("\n"));
     assert.equal(L.withProviderEntries(next.text, { "ai-router": entry }).changed, false, "an unchanged entry is not rewritten");
     assert.equal(L.withProviderEntries(JSON.stringify({ version: 1 }), { "ai-router": entry }).ok, true, "no agents section yet is fine");
-    for (const bad of ["{", "[]", JSON.stringify({ agents: {} }), JSON.stringify({ version: 1, agents: [] }), JSON.stringify({ version: 1, agents: { providers: [] } })]) {
+    for (const bad of ["{", "[]", JSON.stringify({ unrelated: true }), JSON.stringify({ version: 1, agents: [] }), JSON.stringify({ version: 1, agents: { providers: [] } })]) {
       assert.equal(L.withProviderEntries(bad, { "ai-router": entry }).ok, false, `refuses ${bad}`);
     }
     assert.equal(L.withProviderEntries(JSON.stringify({ version: 1 }), { "Bad Id": {} }).ok, false);
+    // A fresh daemon's real config has no version/daemon keys yet; it must still sync.
+    const minimal = { pluginsEnabled: true, plugins: { "ai-router": { source: "directory", path: "/x" } }, agents: { providers: { copilot: { enabled: false } } }, features: {} };
+    const synced = L.withProviderEntries(JSON.stringify(minimal), { "ai-router": entry });
+    assert.equal(synced.ok, true, "minimal fresh-daemon config is accepted");
+    const after = JSON.parse(synced.text);
+    assert.deepEqual(after.agents.providers.copilot, { enabled: false }, "other providers untouched");
+    assert.deepEqual(after.plugins, minimal.plugins, "other sections untouched");
   });
 
   check("Tidy up: only Paseo's own providers that cannot run, never the protected ones or a person's", () => {
