@@ -483,28 +483,39 @@ export function prettyModel(root: string): string {
 
 export type CatalogModel = { id: string; label: string; provider: string };
 
+/** Without a read token the dashboard's combo list is unknown; the core `auto`, `auto/<name>` combos stand in for it. */
+const CORE_COMBO = /^auto(\/[a-z0-9-]+)?$/;
+const MAX_FALLBACK_COMBOS = 10;
+
 /**
  * `/v1/models` limited to connected, active providers by `owned_by`. When
  * OmniRoute lists both `cc/x` and its canonical twin `claude/x`, the twin
  * names the first in `parent` and is dropped. `active: null` means OmniRoute
  * already did the filtering (`?configuredOnly=true`, what a plain key can ask).
+ *
+ * OmniRoute's combos (`owned_by: "combo"`) come first, in the dashboard's
+ * order: `combos` is the dashboard list (auto combos, then custom ones) when a
+ * read token could fetch it; otherwise the core auto combos, capped.
  */
-export function buildModelList(modelsBody: unknown, active: ReadonlySet<string> | null): CatalogModel[] {
+export function buildModelList(modelsBody: unknown, active: ReadonlySet<string> | null, combos: ReadonlyArray<string> | null = null): CatalogModel[] {
   const entries = list(rec(modelsBody).data).map(rec);
   const ids = new Set(entries.map((entry) => str(entry.id)));
   const seen = new Set<string>();
   const models: CatalogModel[] = [];
+  const comboIds = new Set(entries.filter((entry) => str(entry.owned_by) === "combo").map((entry) => str(entry.id)).filter((id): id is string => !!id));
+  const wanted = combos ? combos.filter((id) => comboIds.has(id)) : [...comboIds].filter((id) => CORE_COMBO.test(id)).slice(0, MAX_FALLBACK_COMBOS);
+  const comboModels: CatalogModel[] = [...new Set(wanted)].map((id) => ({ id, provider: "combo", label: `Combo · ${id}` }));
   for (const entry of entries) {
     const id = str(entry.id);
     const owner = str(entry.owned_by);
-    if (!id || !owner || (active && !active.has(owner)) || seen.has(id)) continue;
+    if (!id || !owner || owner === "combo" || (active && !active.has(owner)) || seen.has(id)) continue;
     const parent = str(entry.parent);
     if (parent && ids.has(parent)) continue;
     seen.add(id);
     const root = str(entry.root) ?? id.slice(id.indexOf("/") + 1);
     models.push({ id, provider: owner, label: `${providerLabel(owner)} · ${prettyModel(root)}` });
   }
-  return models.sort((a, b) => a.label.localeCompare(b.label));
+  return [...comboModels, ...models.sort((a, b) => a.label.localeCompare(b.label))];
 }
 
 // ---------------------------------------------------------- router settings

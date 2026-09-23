@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { parseSettings } from "../../../server/routers/omniroute/parsers";
+import { parseSettings } from "../../../shared/routers/omniroute/parsers";
 
 export function defineRpc<T>(contract: T) { return contract; }
 export function defineSettings<T>(definition: T) { return definition; }

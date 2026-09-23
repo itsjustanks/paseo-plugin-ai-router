@@ -18,7 +18,7 @@ const check = (name, fn) => {
 };
 const clone = (value) => JSON.parse(JSON.stringify(value));
 try {
-  const source = readFileSync(new URL("../apps/paseo/server/routers/omniroute/parsers.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../apps/paseo/shared/routers/omniroute/parsers.ts", import.meta.url), "utf8");
   writeFileSync(join(staging, "insights.mjs"), ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
   const I = await import(join(staging, "insights.mjs"));
   const R = JSON.parse(readFileSync(new URL("./fixtures/omniroute-3.8.50.json", import.meta.url), "utf8")).responses;
@@ -211,6 +211,7 @@ try {
       ],
     };
     assert.deepEqual(I.buildModelList(catalogue, active), [
+      { id: "auto/best", provider: "combo", label: "Combo · auto/best" },
       { id: "cc/claude-opus-5-5", provider: "claude", label: "Claude · Opus 5.5" },
       { id: "cc/claude-sonnet-5", provider: "claude", label: "Claude · Sonnet 5" },
       { id: "cx/gpt-5.6-sol", provider: "codex", label: "Codex · GPT-5.6 Sol" },
@@ -371,6 +372,22 @@ try {
   });
 
   check("model list from ?configuredOnly=true: OmniRoute filtered it, twins still dropped", () => {
+    {
+      // Combos come first: the dashboard's order when known, else the core auto combos.
+      const body = { data: [
+        { id: "cc/claude-sonnet-5", owned_by: "cc" },
+        { id: "auto/pro-coding", owned_by: "combo" },
+        { id: "auto/coding:fast", owned_by: "combo" },
+        { id: "auto/coding", owned_by: "combo" },
+        { id: "auto", owned_by: "combo" },
+        { id: "my-team-combo", owned_by: "combo" },
+      ] };
+      const known = I.buildModelList(body, new Set(["cc"]), ["auto", "auto/coding", "auto/missing", "my-team-combo"]);
+      assert.deepEqual(known.map((m) => m.id), ["auto", "auto/coding", "my-team-combo", "cc/claude-sonnet-5"], "dashboard combos first, in order, only if the key can use them");
+      assert.equal(known[0].label, "Combo · auto");
+      const fallback = I.buildModelList(body, new Set(["cc"]));
+      assert.deepEqual(fallback.map((m) => m.id), ["auto/pro-coding", "auto/coding", "auto", "cc/claude-sonnet-5"], "no read token: core auto combos only (no ':' variants, no custom)");
+    }
     const list = I.buildModelList({ data: [
       { id: "cc/claude-sonnet-5", owned_by: "claude", root: "claude-sonnet-5" },
       { id: "claude/claude-sonnet-5", owned_by: "claude", root: "claude-sonnet-5", parent: "cc/claude-sonnet-5" },

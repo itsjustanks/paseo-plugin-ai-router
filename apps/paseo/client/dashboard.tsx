@@ -2,7 +2,7 @@ import React from "react";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { Status } from "../shared/contracts";
 import { tunnelKind } from "../shared/logic";
-import { ROUTERS } from "../server/routers/copy";
+import { ROUTERS } from "../shared/routers/copy";
 import { copyLink, openInBrowser } from "./links";
 import type { Message } from "./setup";
 import { Banner, Button, Chip, Note, Row } from "./ui";

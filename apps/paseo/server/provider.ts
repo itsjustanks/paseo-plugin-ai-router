@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { Status } from "../shared/contracts";
-import { providerLabel, type CatalogModel } from "./routers/omniroute/parsers";
+import { providerLabel, type CatalogModel } from "../shared/routers/omniroute/parsers";
 import {
   AI_ROUTER_PROVIDER_ID,
   CODEX_PROVIDER_ID,

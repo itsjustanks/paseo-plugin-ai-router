@@ -1,7 +1,7 @@
 import type { Access, Accounts, Compression, RouterSettings, Tunnels, Usage } from "../../shared/contracts";
 import type { Connection, HealthProbe, RouterId } from "../../shared/logic";
 import { omniroute } from "./omniroute";
-import type { CatalogModel, Tunnel } from "./omniroute/parsers";
+import type { CatalogModel, Tunnel } from "../../shared/routers/omniroute/parsers";
 
 type Result = { ok: boolean; message: string };
 export type Health = {

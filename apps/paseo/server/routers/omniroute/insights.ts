@@ -28,9 +28,9 @@ import {
   parseTotals,
   parseTrend,
   parseKeyStatus,
-} from "./parsers";
+} from "../../../shared/routers/omniroute/parsers";
 import { describeFetchError, type Connection } from "../../../shared/logic";
-import { RECOMMENDED_COMPRESSION } from "./copy";
+import { RECOMMENDED_COMPRESSION } from "../../../shared/routers/omniroute/copy";
 import { bearer, getJson, recentlyDown } from "./health";
 
 const TIMEOUT_MS = 10_000;
@@ -167,6 +167,22 @@ async function loadUsage(connection: Connection, empty: Omit<Usage, keyof typeof
 
 // ------------------------------------------------------------------ models
 
+/**
+ * The combos the dashboard shows, in its order: auto combos, then custom ones.
+ * Read-token calls; null (fall back to the core auto combos) if either fails.
+ */
+async function dashboardCombos(connection: Connection): Promise<string[] | null> {
+  const names = (body: unknown): string[] => {
+    const root = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
+    const items = Array.isArray(body) ? body : Array.isArray(root.combos) ? root.combos : Array.isArray(root.data) ? root.data : [];
+    return items.map((item) => (item && typeof item === "object" ? ((item as Record<string, unknown>).id ?? (item as Record<string, unknown>).name) : item))
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
+  };
+  const [auto, custom] = await Promise.all([read(connection, "/api/combos/auto"), read(connection, "/api/combos")]);
+  if (!auto.ok) return null;
+  return [...names(auto.body), ...(custom.ok ? names(custom.body) : [])];
+}
+
 /** More than this after `?configuredOnly=true` means the router ignored the filter (an older OmniRoute). */
 const UNFILTERED_MODELS = 300;
 
@@ -196,7 +212,7 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
     if (!providers.ok) return { ok: false, error: `Connected accounts: ${providers.error}` };
     active = activeProviders(providers.body);
   }
-  const list = buildModelList(models.body, active);
+  const list = buildModelList(models.body, active, operator ? await dashboardCombos(connection) : null);
   if (!list.length) return { ok: false, error: active ? `OmniRoute lists no models for the active accounts (${[...active].join(", ") || "none"}).` : "OmniRoute lists no models this key can use on connected accounts." };
   if (!active && list.length > UNFILTERED_MODELS) {
     return { ok: false, error: `OmniRoute listed ${list.length} models without narrowing them to connected accounts; this version may not support that for a plain key. Add a read token on the Connection tab, or update OmniRoute.` };

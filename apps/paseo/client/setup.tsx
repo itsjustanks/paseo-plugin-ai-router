@@ -5,7 +5,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { connectionTest, type Status } from "../shared/contracts";
 import { ENDPOINT_EXAMPLES, ROUTER_IDS, type RouterId } from "../shared/logic";
-import { ROUTERS } from "../server/routers/copy";
+import { ROUTERS } from "../shared/routers/copy";
 import { Button, Card, Chip, Field, Note, Row, type Tone } from "./ui";
 
 type Theme = PluginTheme;

@@ -1,4 +1,4 @@
-import type { RouterId } from "../../shared/logic";
+import type { RouterId } from "../logic";
 import { COMPRESSION_ENGINES, OMNIROUTE_COPY, OMNIROUTE_MORE, RECOMMENDED_COMPRESSION } from "./omniroute/copy";
 
 /**
