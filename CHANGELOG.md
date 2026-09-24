@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.0 — 2026-09-24
+
+- **The sync works again on a busy router.** Auto combos (and their `ai-router:auto/…` profiles) now
+  come from `/v1/models`, which the sync reads anyway; custom combos still come from `/api/combos`.
+  `/api/combos/auto` is no longer called at all, from the sync or the Settings tab: it scores every
+  candidate pool on each call and took 79 s at full CPU, so every sync timed out ("Couldn't read
+  OmniRoute's combo list") and ten daemons retrying it kept OmniRoute busy. The profile ids stay the
+  same, so nothing is renamed or duplicated; auto combo notes lose their "Picks from …" line. The
+  model list gets 30 s instead of 10, as it runs in the background.
+- **Each model's own thinking levels.** The AI Router provider lists OmniRoute's effort tiers for a
+  model, else Paseo's own levels for the same upstream model, instead of the generic four for every
+  model: Opus 5.5 gets Low to Max with Extra High and Medium by default, GPT-6 Sol defaults to Extra
+  High, Haiku gets none. Only levels OmniRoute carries through are offered (no off, ultracode or ultra).
+- **Fast fails safe.** Routed Claude sessions (re-routed Claude and the AI Router provider) run with
+  `CLAUDE_CODE_DISABLE_FAST_MODE=1`, so a Fast switch left on no longer turns every request into
+  400 "speed: Extra inputs are not permitted"; OmniRoute can't pass Fast mode on yet. The Providers tab
+  says so, and "Share this router" includes the line for Claude Code.
+
 ## 0.11.0 — 2026-09-24
 
 Building on what Paseo already does, instead of repeating it (checked against the Paseo 0.9.1 app).

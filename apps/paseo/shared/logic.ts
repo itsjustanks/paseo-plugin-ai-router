@@ -384,8 +384,8 @@ export function shareSnippets(publicUrl: string): Array<{ id: "claude" | "codex"
     {
       id: "claude",
       title: "Claude Code",
-      why: "The last line turns off Claude Code's experimental request features: the router rewrites the beta header they need, so requests using them would be refused.",
-      text: [`export ANTHROPIC_BASE_URL=${base}`, "export ANTHROPIC_AUTH_TOKEN=<your key>", "export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1"].join("\n"),
+      why: "The last two lines turn off Claude Code's experimental request features and Fast mode: the router rewrites the beta header they need, so requests using them would be refused.",
+      text: [`export ANTHROPIC_BASE_URL=${base}`, "export ANTHROPIC_AUTH_TOKEN=<your key>", "export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1", "export CLAUDE_CODE_DISABLE_FAST_MODE=1"].join("\n"),
     },
     {
       id: "codex",
@@ -530,13 +530,17 @@ export type RouteDecision =
 /**
  * Extra env for every Claude Code session that goes through the router.
  * OmniRoute swaps Claude Code's anthropic-beta header for its own pinned list.
- * Claude Code 2.1.280 attaches `output_config` (per-turn effort) to a
- * mid-conversation system message, which needs the newer per-turn-control
- * beta; without it Anthropic answers 400 "messages.1.output_config: Extra
- * inputs are not permitted" and OmniRoute opens its Claude breaker. Turning
- * experimental betas off keeps effort at the top level, which works.
+ * - Claude Code 2.1.280 attaches `output_config` (per-turn effort) to a
+ *   mid-conversation system message, which needs the newer per-turn-control
+ *   beta; without it Anthropic answers 400 "messages.1.output_config: Extra
+ *   inputs are not permitted" and OmniRoute opens its Claude breaker. Turning
+ *   experimental betas off keeps effort at the top level, which works.
+ * - Fast mode sends `speed: "fast"`, which needs the fast-mode beta OmniRoute
+ *   neither sends nor forwards (3.8.51): Anthropic answers 400 "speed: Extra
+ *   inputs are not permitted". CLAUDE_CODE_DISABLE_FAST_MODE makes Claude Code
+ *   leave it out even when Paseo's Fast switch is on, mid-chat included.
  */
-export const ROUTED_CLAUDE_ENV = { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1" } as const;
+export const ROUTED_CLAUDE_ENV = { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", CLAUDE_CODE_DISABLE_FAST_MODE: "1" } as const;
 
 export function routeSession(input: RouteInput): RouteDecision {
   const kind = sessionKind(input.provider);
@@ -564,14 +568,74 @@ export function routeSession(input: RouteInput): RouteDecision {
  * Messages API to every provider it serves, so Claude Code can run `cx/…` GPT
  * models too. The key is added at launch, never written here.
  */
-export function aiRouterProviderEntry(endpoint: string, models: ReadonlyArray<{ id: string; label: string }>) {
+// ------------------------------------------------------------ thinking levels
+//
+// Paseo gives a model it doesn't recognise (every `cc/…` and `cx/…` id) the
+// generic low/medium/high/max. The AI Router provider lists each model's own
+// levels instead: OmniRoute's `effort_tiers` for it, else Paseo's own levels
+// for the same upstream model. Only Claude Code effort levels that OmniRoute
+// carries through are offered. Not "off": Paseo refuses it for gateway ids.
+// Not "ultracode" or Codex's "ultra": not proven through OmniRoute yet.
+
+/** Effort levels Paseo hands Claude Code as they are, and that OmniRoute passes on (low and max proven on cc/ and cx/). */
+export const ROUTED_EFFORT_IDS = ["low", "medium", "high", "xhigh", "max"] as const;
+const EFFORT_LABELS: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra High", max: "Max" };
+
+/** Paseo's own levels per model id (`claude-opus-5-5`, `gpt-6-sol`), from its provider model lists. */
+export type NativeThinking = Record<string, { options: Array<{ id: string; label: string }>; defaultId: string | null }>;
+export type ThinkingOption = { id: string; label: string; isDefault?: true };
+
+/** Paseo's `providers.listModels` answers (claude, codex) as one map; a model without levels maps to none. */
+export function nativeThinkingFrom(answers: readonly unknown[]): NativeThinking {
+  const map: NativeThinking = {};
+  for (const answer of answers) {
+    const models = (answer as { models?: unknown } | null)?.models;
+    for (const model of Array.isArray(models) ? models : []) {
+      const row = model as { id?: unknown; thinkingOptions?: unknown; defaultThinkingOptionId?: unknown } | null;
+      if (typeof row?.id !== "string" || map[row.id]) continue;
+      const options = (Array.isArray(row.thinkingOptions) ? row.thinkingOptions : [])
+        .map((option) => option as { id?: unknown; label?: unknown; isDefault?: unknown })
+        .filter((option): option is { id: string; label?: unknown; isDefault?: unknown } => typeof option?.id === "string");
+      const marked = options.find((option) => option.isDefault === true)?.id ?? null;
+      map[row.id] = {
+        options: options.map((option) => ({ id: option.id, label: typeof option.label === "string" ? option.label : option.id })),
+        defaultId: typeof row.defaultThinkingOptionId === "string" ? row.defaultThinkingOptionId : marked,
+      };
+    }
+  }
+  return map;
+}
+
+/**
+ * One model's levels on the AI Router provider. Undefined leaves Paseo's
+ * generic set (combos, and models nothing is known about); an empty list
+ * means none (a model Paseo itself gives no levels, such as Haiku).
+ */
+export function routedThinkingOptions(model: { provider: string; root: string | null; tiers: readonly string[] | null }, native: NativeThinking | null): ThinkingOption[] | undefined {
+  if (model.provider === "combo") return undefined;
+  const own = model.root && native ? native[model.root] : undefined;
+  const source = model.tiers?.length ? model.tiers : own ? own.options.map((option) => option.id) : null;
+  if (!source) return undefined;
+  const ids: string[] = ROUTED_EFFORT_IDS.filter((id) => source.includes(id));
+  const preferred = own?.defaultId && ids.includes(own.defaultId) ? own.defaultId : ids.includes("high") ? "high" : ids.includes("medium") ? "medium" : ids[0];
+  return ids.map((id) => ({
+    id,
+    label: own?.options.find((option) => option.id === id)?.label ?? EFFORT_LABELS[id],
+    ...(id === preferred ? { isDefault: true as const } : {}),
+  }));
+}
+
+export function aiRouterProviderEntry(endpoint: string, models: ReadonlyArray<{ id: string; label: string; provider?: string; root?: string | null; tiers?: readonly string[] | null }>, native: NativeThinking | null = null) {
   const preferred = models.find((model) => /sonnet/i.test(model.id)) ?? models[0];
   return {
     extends: "claude",
     label: "AI Router",
     description: "Every model of your connected OmniRoute accounts",
     env: { ANTHROPIC_BASE_URL: endpoint, ANTHROPIC_AUTH_TOKEN: KEY_PLACEHOLDER, ...ROUTED_CLAUDE_ENV },
-    models: models.map((model) => ({ id: model.id, label: model.label, ...(model === preferred ? { isDefault: true } : {}) })),
+    models: models.map((model) => {
+      const thinkingOptions = routedThinkingOptions({ provider: model.provider ?? "", root: model.root ?? null, tiers: model.tiers ?? null }, native);
+      return { id: model.id, label: model.label, ...(model === preferred ? { isDefault: true } : {}), ...(thinkingOptions ? { thinkingOptions } : {}) };
+    }),
   };
 }
 
@@ -593,16 +657,17 @@ export function codexRouterProviderEntry(endpoint: string, models: ReadonlyArray
 }
 
 /** The same entry, field by field: only these are ours to compare. */
-export function sameProviderEntry(current: unknown, desired: { label: string; env: Record<string, string>; models: ReadonlyArray<{ id: string; label: string; isDefault?: boolean }> }): boolean {
+export function sameProviderEntry(current: unknown, desired: { label: string; env: Record<string, string>; models: ReadonlyArray<{ id: string; label: string; isDefault?: boolean; thinkingOptions?: readonly ThinkingOption[] }> }): boolean {
   if (!current || typeof current !== "object") return false;
   const entry = current as { label?: unknown; env?: unknown; models?: unknown };
-  const models = Array.isArray(entry.models) ? (entry.models as Array<{ id?: unknown; label?: unknown; isDefault?: unknown }>) : [];
+  const models = Array.isArray(entry.models) ? (entry.models as Array<{ id?: unknown; label?: unknown; isDefault?: unknown; thinkingOptions?: unknown }>) : [];
+  const levels = (value: unknown) => JSON.stringify(value ?? null);
   const env = entry.env && typeof entry.env === "object" ? (entry.env as Record<string, unknown>) : {};
   return (
     entry.label === desired.label &&
     Object.entries(desired.env).every(([name, value]) => env[name] === value) &&
     models.length === desired.models.length &&
-    desired.models.every((model, index) => models[index]?.id === model.id && models[index]?.label === model.label && (models[index]?.isDefault === true) === (model.isDefault === true))
+    desired.models.every((model, index) => models[index]?.id === model.id && models[index]?.label === model.label && (models[index]?.isDefault === true) === (model.isDefault === true) && levels(models[index]?.thinkingOptions) === levels(model.thinkingOptions))
   );
 }
 

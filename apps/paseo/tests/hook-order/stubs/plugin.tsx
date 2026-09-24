@@ -143,9 +143,8 @@ const COMBO_MODELS = { data: [
   { id: "auto", owned_by: "combo" }, { id: "auto/coding", owned_by: "combo" }, { id: "auto/fast", owned_by: "combo" }, { id: "auto/best-reasoning", owned_by: "combo" },
   { id: "team-review", owned_by: "combo", display_name: "Team review", description: "Opus 5.5 first, GPT-6 Sol when Claude is busy" },
 ] };
-const COMBO_AUTO = { combos: [{ id: "auto", candidatePool: ["codex", "claude"] }, { id: "auto/coding", candidatePool: ["codex", "claude"] }, { id: "auto/fast", candidatePool: ["codex", "claude"] }, { id: "auto/best-reasoning", candidatePool: ["claude", "codex"] }] };
 const COMBO_CUSTOM = { combos: [{ name: "team-review", models: [{}, {}], strategy: "priority" }] };
-const comboList = describeCombos(COMBO_MODELS.data.map((m) => m.id), COMBO_MODELS, COMBO_AUTO, COMBO_CUSTOM, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK })
+const comboList = describeCombos(COMBO_MODELS.data.map((m) => m.id), COMBO_MODELS, COMBO_CUSTOM, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK })
   .map(comboProfile)
   .map((p) => ({ id: p.id, name: p.name, model: p.model ?? null, notes: p.notes ?? null, icon: p.icon ?? null, color: p.color ?? null }));
 const profilesFixtures: Record<string, unknown> = {

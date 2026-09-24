@@ -498,7 +498,12 @@ export function prettyModel(root: string): string {
   return out.join(" ");
 }
 
-export type CatalogModel = { id: string; label: string; provider: string };
+/**
+ * `root`: the upstream model (`claude-opus-5-5`, `gpt-6-sol`). `tiers`: the
+ * effort levels OmniRoute lists for it (`capabilities.effort_tiers`), or null
+ * when it lists none (Codex models, combos).
+ */
+export type CatalogModel = { id: string; label: string; provider: string; root: string | null; tiers: string[] | null };
 
 /** Without a read token the dashboard's combo list is unknown; the core `auto`, `auto/<name>` combos stand in for it. */
 const CORE_COMBO = /^auto(\/[a-z0-9-]+)?$/;
@@ -529,7 +534,7 @@ export function buildModelList(modelsBody: unknown, active: ReadonlySet<string> 
   const models: CatalogModel[] = [];
   const comboIds = new Set(entries.filter((entry) => str(entry.owned_by) === "combo").map((entry) => str(entry.id)).filter((id): id is string => !!id));
   const wanted = combos ? combos.filter((id) => comboIds.has(id)) : [...comboIds].filter((id) => CORE_COMBO.test(id)).slice(0, MAX_FALLBACK_COMBOS);
-  const comboModels: CatalogModel[] = [...new Set(wanted)].map((id) => ({ id, provider: "combo", label: `Combo · ${id}` }));
+  const comboModels: CatalogModel[] = [...new Set(wanted)].map((id) => ({ id, provider: "combo", label: `Combo · ${id}`, root: null, tiers: null }));
   for (const entry of entries) {
     const id = str(entry.id);
     const owner = str(entry.owned_by);
@@ -538,7 +543,8 @@ export function buildModelList(modelsBody: unknown, active: ReadonlySet<string> 
     if (parent && ids.has(parent)) continue;
     seen.add(id);
     const root = str(entry.root) ?? id.slice(id.indexOf("/") + 1);
-    models.push({ id, provider: owner, label: `${providerLabel(owner)} · ${prettyModel(root)}` });
+    const tiers = list(rec(entry.capabilities).effort_tiers).map(str).filter((tier): tier is string => !!tier);
+    models.push({ id, provider: owner, label: `${providerLabel(owner)} · ${prettyModel(root)}`, root, tiers: tiers.length ? tiers : null });
   }
   return [...comboModels, ...models.sort((a, b) => a.label.localeCompare(b.label))];
 }
@@ -751,28 +757,35 @@ export function autoComboName(id: string): string {
   return `Auto · ${rest.replace(/:/g, ", ").replace(/[-_]/g, " ")}`;
 }
 
-const pool = (value: unknown) => list(value).map((p) => (typeof p === "string" ? providerLabel(p) : null)).filter((p): p is string => !!p);
 const byKey = (body: unknown, key: (row: Rec) => string | null) => new Map(list(rec(body).combos).map(rec).map((row) => [key(row), row] as const));
+
+/**
+ * Every auto combo `/v1/models` lists (`auto` and `auto/…`), in its order.
+ * That is the set a key may use; OmniRoute's `/api/combos/auto` also returns
+ * internal ones (such as `auto/lkgp`) the catalogue does not offer.
+ */
+export function listedAutoCombos(modelsBody: unknown): string[] {
+  return list(rec(modelsBody).data).map(rec)
+    .filter((row) => str(row.owned_by) === "combo")
+    .map((row) => str(row.id))
+    .filter((id): id is string => !!id && /^auto(\/|$)/.test(id));
+}
 
 /**
  * One entry per combo id, for Paseo agent profiles: a plain name, OmniRoute's
  * own description, and a look. Custom combos carry their own description and
  * display name (in `/v1/models` for any key, `/api/combos` with a read token);
- * auto combos get OmniRoute's variant wording and, with a read token, the
- * providers they pick from (`/api/combos/auto`).
+ * auto combos get OmniRoute's variant wording.
  */
-export function describeCombos(ids: readonly string[], modelsBody: unknown, autoBody: unknown, customBody: unknown, kinds: { auto: readonly ComboLook[]; fallback: Omit<ComboLook, "match">; custom: { icon: string; color: string } }): ComboInfo[] {
+export function describeCombos(ids: readonly string[], modelsBody: unknown, customBody: unknown, kinds: { auto: readonly ComboLook[]; fallback: Omit<ComboLook, "match">; custom: { icon: string; color: string } }): ComboInfo[] {
   const listed = new Map(list(rec(modelsBody).data).map(rec).filter((row) => str(row.owned_by) === "combo").map((row) => [str(row.id), row] as const));
-  const autos = byKey(autoBody, (row) => str(row.id));
   const customs = byKey(customBody, (row) => str(row.name));
   return [...new Set(ids)].map((id) => {
     const entry = listed.get(id) ?? {};
-    const auto = autos.get(id);
     const isAuto = /^auto(\/|$)/.test(id) && !customs.has(id);
     if (isAuto) {
       const kind = kinds.auto.find((k) => k.match.test(id.replace(/^auto\/?/, ""))) ?? kinds.fallback;
-      const from = pool(auto?.candidatePool);
-      const notes = `OmniRoute auto combo "${id}": ${kind.words}.${from.length ? ` Picks from ${from.join(", ")}.` : ""} Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.`;
+      const notes = `OmniRoute auto combo "${id}": ${kind.words}. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.`;
       return { id, name: autoComboName(id), notes, icon: kind.icon, color: kind.color };
     }
     const custom = customs.get(id) ?? {};

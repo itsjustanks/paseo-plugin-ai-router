@@ -237,7 +237,7 @@ try {
 
   check("routing on: Claude gets the endpoint (no /v1) and key", () => {
     const decision = L.routeSession({ provider: "claude", routeAgents: true, resolved: configured(`${REMOTE}/v1`), health: up });
-    assert.deepEqual(decision, { action: "route", kind: "claude", env: { ANTHROPIC_BASE_URL: REMOTE, ANTHROPIC_AUTH_TOKEN: "sk-test", CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1" } });
+    assert.deepEqual(decision, { action: "route", kind: "claude", env: { ANTHROPIC_BASE_URL: REMOTE, ANTHROPIC_AUTH_TOKEN: "sk-test", CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", CLAUDE_CODE_DISABLE_FAST_MODE: "1" } });
   });
 
   check("routing off: nothing is touched, even with env configured", () => {
@@ -278,7 +278,7 @@ try {
     const resolved = configured(`${REMOTE}/`);
     for (const routeAgents of [false, true]) {
       const routed = L.routeSession({ provider: L.AI_ROUTER_PROVIDER_ID, routeAgents, resolved, health: up });
-      assert.deepEqual(routed, { action: "route", kind: "provider", env: { ANTHROPIC_BASE_URL: REMOTE, ANTHROPIC_AUTH_TOKEN: "sk-test", CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1" } }, "choosing the provider is the opt-in");
+      assert.deepEqual(routed, { action: "route", kind: "provider", env: { ANTHROPIC_BASE_URL: REMOTE, ANTHROPIC_AUTH_TOKEN: "sk-test", CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", CLAUDE_CODE_DISABLE_FAST_MODE: "1" } }, "choosing the provider is the opt-in");
     }
     assert.deepEqual(L.routeSession({ provider: L.AI_ROUTER_PROVIDER_ID, routeAgents: true, resolved: configured(REMOTE, null), health: up }), { action: "skip", kind: "provider", reason: `no API key set for ${REMOTE}` });
     assert.equal(L.routeSession({ provider: L.AI_ROUTER_PROVIDER_ID, routeAgents: true, resolved, health: down }).reason, `${REMOTE} is down: connection refused at ${REMOTE}/api/health/ping`);
@@ -289,9 +289,11 @@ try {
     const models = [{ id: "cc/claude-opus-5-5", label: "Claude · Opus 5.5" }, { id: "cc/claude-sonnet-5", label: "Claude · Sonnet 5" }, { id: "cx/gpt-5.6-sol", label: "Codex · GPT-5.6 Sol" }];
     const entry = L.aiRouterProviderEntry(REMOTE, models);
     assert.equal(entry.extends, "claude");
-    assert.deepEqual(entry.env, { ANTHROPIC_BASE_URL: REMOTE, ANTHROPIC_AUTH_TOKEN: L.KEY_PLACEHOLDER, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1" });
+    assert.deepEqual(entry.env, { ANTHROPIC_BASE_URL: REMOTE, ANTHROPIC_AUTH_TOKEN: L.KEY_PLACEHOLDER, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", CLAUDE_CODE_DISABLE_FAST_MODE: "1" });
     // Claude Code 2.1.280 + OmniRoute: per-turn output_config needs a beta OmniRoute strips, so routed sessions turn experimental betas off.
     assert.equal(L.ROUTED_CLAUDE_ENV.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS, "1");
+    // OmniRoute neither sends nor forwards the fast-mode beta, so `speed: "fast"` is refused: routed Claude Code never sends it.
+    assert.equal(L.ROUTED_CLAUDE_ENV.CLAUDE_CODE_DISABLE_FAST_MODE, "1");
     assert.deepEqual(entry.models, [
       { id: "cc/claude-opus-5-5", label: "Claude · Opus 5.5" },
       { id: "cc/claude-sonnet-5", label: "Claude · Sonnet 5", isDefault: true },
@@ -460,6 +462,50 @@ try {
     assert.equal(L.ROUTING_SETTINGS_VERSION, 1, "a new version would read every saved document as newer and turn routing off");
   });
 
+  check("thinking levels: OmniRoute's effort tiers, else Paseo's own for the same model; only levels OmniRoute carries", () => {
+    // Paseo's own levels, as `paseo provider models claude|codex` lists them.
+    const opt = (ids, def) => ({ thinkingOptions: ids.map((id) => ({ id, label: { xhigh: "Extra High", max: "Max", off: "Off", ultracode: "Ultracode", ultra: "Ultra" }[id] ?? id[0].toUpperCase() + id.slice(1), ...(id === def ? { isDefault: true } : {}) })) });
+    const native = L.nativeThinkingFrom([
+      { provider: "claude", models: [
+        { id: "claude-opus-5-5", ...opt(["low", "medium", "high", "xhigh", "max", "ultracode"], "medium"), defaultThinkingOptionId: "medium" },
+        { id: "claude-sonnet-5", ...opt(["off", "low", "medium", "high", "xhigh", "max", "ultracode"], "high") },
+        { id: "claude-haiku-4-5" },
+      ] },
+      { provider: "codex", models: [{ id: "gpt-6-sol", ...opt(["low", "medium", "high", "xhigh", "max", "ultra"], "xhigh"), defaultThinkingOptionId: "xhigh" }] },
+      null,
+    ]);
+    assert.deepEqual(native["claude-haiku-4-5"], { options: [], defaultId: null });
+    assert.equal(native["claude-sonnet-5"].defaultId, "high", "the default read from the marked option when no id is given");
+    const ids = (levels) => levels?.map((o) => `${o.id}${o.isDefault ? "*" : ""}`);
+    // cc/claude-opus-5-5: OmniRoute's tiers; "none" dropped (Paseo refuses "off" for gateway ids), Paseo's default kept.
+    assert.deepEqual(ids(L.routedThinkingOptions({ provider: "claude", root: "claude-opus-5-5", tiers: ["none", "low", "medium", "high", "xhigh", "max"] }, native)), ["low", "medium*", "high", "xhigh", "max"]);
+    assert.equal(L.routedThinkingOptions({ provider: "claude", root: "claude-opus-5-5", tiers: ["low", "xhigh"] }, native).find((o) => o.id === "xhigh").label, "Extra High", "Paseo's own label");
+    // cx/gpt-6-sol: no tiers, so Paseo's Codex levels; "ultra" is not a Claude Code level and not proven, so left out.
+    assert.deepEqual(ids(L.routedThinkingOptions({ provider: "codex", root: "gpt-6-sol", tiers: null }, native)), ["low", "medium", "high", "xhigh*", "max"]);
+    // ultracode never, even when Paseo lists it and OmniRoute has no tiers.
+    assert.deepEqual(ids(L.routedThinkingOptions({ provider: "claude", root: "claude-sonnet-5", tiers: null }, native)), ["low", "medium", "high*", "xhigh", "max"]);
+    // Haiku: no levels in Paseo, none from OmniRoute: explicitly none, so no effort is sent.
+    assert.deepEqual(L.routedThinkingOptions({ provider: "claude", root: "claude-haiku-4-5", tiers: null }, native), []);
+    // Nothing known: Paseo's generic set (undefined), as before. Combos: always the generic set.
+    assert.equal(L.routedThinkingOptions({ provider: "glm", root: "glm-5.2", tiers: null }, native), undefined);
+    assert.equal(L.routedThinkingOptions({ provider: "combo", root: null, tiers: null }, native), undefined);
+    assert.deepEqual(ids(L.routedThinkingOptions({ provider: "claude", root: "claude-opus-5-5", tiers: ["low", "high", "max"] }, null)), ["low", "high*", "max"], "no Paseo levels known yet: OmniRoute's tiers, default high");
+    assert.deepEqual(L.ROUTED_EFFORT_IDS, ["low", "medium", "high", "xhigh", "max"]);
+
+    const entry = L.aiRouterProviderEntry(REMOTE, [
+      { id: "auto", label: "Combo · auto", provider: "combo", root: null, tiers: null },
+      { id: "cc/claude-opus-5-5", label: "Claude · Opus 5.5", provider: "claude", root: "claude-opus-5-5", tiers: ["none", "low", "medium", "high", "xhigh", "max"] },
+      { id: "cx/gpt-6-sol", label: "Codex · GPT-6 Sol", provider: "codex", root: "gpt-6-sol", tiers: null },
+    ], native);
+    assert.equal("thinkingOptions" in entry.models[0], false, "combos keep Paseo's generic levels");
+    assert.deepEqual(ids(entry.models[1].thinkingOptions), ["low", "medium*", "high", "xhigh", "max"]);
+    assert.deepEqual(ids(entry.models[2].thinkingOptions), ["low", "medium", "high", "xhigh*", "max"]);
+    // A change of levels alone is a change to write; the same levels are not.
+    const bare = L.aiRouterProviderEntry(REMOTE, [{ id: "cc/claude-opus-5-5", label: "Claude · Opus 5.5", provider: "claude", root: "claude-opus-5-5", tiers: null }], null);
+    assert.equal(L.sameProviderEntry(bare, entry), false);
+    assert.equal(L.sameProviderEntry(JSON.parse(JSON.stringify(entry)), entry), true);
+  });
+
   check("public address: stored as consoleUrl, read as its origin, dashboard beneath it", () => {
     assert.equal(L.publicAddress({ consoleUrl: "https://ai-router.example.com" }), "https://ai-router.example.com");
     assert.equal(L.publicAddress({ consoleUrl: "https://ai-router.example.com/dashboard/" }), "https://ai-router.example.com", "an old saved dashboard URL still works");
@@ -501,7 +547,7 @@ try {
   check("share snippets: the public address, a placeholder key, never a real one", () => {
     const snippets = L.shareSnippets("https://ai-router.example.com/");
     assert.deepEqual(snippets.map((s) => s.id), ["claude", "codex", "paseo"]);
-    assert.equal(snippets[0].text, "export ANTHROPIC_BASE_URL=https://ai-router.example.com\nexport ANTHROPIC_AUTH_TOKEN=<your key>\nexport CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1");
+    assert.equal(snippets[0].text, "export ANTHROPIC_BASE_URL=https://ai-router.example.com\nexport ANTHROPIC_AUTH_TOKEN=<your key>\nexport CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1\nexport CLAUDE_CODE_DISABLE_FAST_MODE=1");
     assert.equal(snippets[0].text.includes("/v1"), false, "Claude Code takes the root");
     assert.match(snippets[0].why, /beta header/);
     assert.match(snippets[1].text, /base_url = "https:\/\/ai-router\.example\.com\/v1"/);

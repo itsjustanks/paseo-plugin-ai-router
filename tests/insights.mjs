@@ -214,7 +214,7 @@ try {
         { owned_by: "codex" },
       ],
     };
-    assert.deepEqual(I.buildModelList(catalogue, active), [
+    assert.deepEqual(I.buildModelList(catalogue, active).map(({ id, label, provider }) => ({ id, label, provider })), [
       { id: "auto/best", provider: "combo", label: "Combo · auto/best" },
       { id: "cc/claude-opus-5-5", provider: "claude", label: "Claude · Opus 5.5" },
       { id: "cc/claude-sonnet-5", provider: "claude", label: "Claude · Sonnet 5" },
@@ -409,6 +409,17 @@ try {
       { id: "auto", owned_by: null },
     ] }, null);
     assert.deepEqual(list.map((m) => m.label), ["Claude · Sonnet 5", "Codex · GPT-6 Sol"]);
+    // Each model carries its upstream model and OmniRoute's effort tiers, for its thinking levels in Paseo.
+    const tiered = I.buildModelList({ data: [
+      { id: "cc/claude-opus-5-5", owned_by: "claude", root: "claude-opus-5-5", capabilities: { effort_tiers: ["none", "low", "medium", "high", "xhigh", "max"], reasoning: true } },
+      { id: "cx/gpt-6-sol", owned_by: "codex", root: "gpt-6-sol", capabilities: { vision: true, tool_calling: true, reasoning: true } },
+      { id: "auto", owned_by: "combo" },
+    ] }, null, ["auto"]);
+    assert.deepEqual(tiered.map(({ id, root, tiers }) => [id, root, tiers]), [
+      ["auto", null, null],
+      ["cc/claude-opus-5-5", "claude-opus-5-5", ["none", "low", "medium", "high", "xhigh", "max"]],
+      ["cx/gpt-6-sol", "gpt-6-sol", null],
+    ]);
   });
 
   check("combos as profiles: plain names, OmniRoute's own words, a look per kind", () => {
@@ -419,9 +430,8 @@ try {
       { id: "plain", owned_by: "combo" },
       { id: "cc/claude-sonnet-5", owned_by: "claude" },
     ] };
-    const autoBody = { combos: [{ id: "auto", candidatePool: ["codex", "claude", "opencode"] }, { id: "auto/coding", candidatePool: ["codex", "claude"] }] };
     const customBody = { combos: [{ name: "team-review", models: [{}, {}, {}], strategy: "priority" }] };
-    const combos = I.describeCombos(["auto", "auto/coding", "auto/fast", "auto/best-reasoning", "auto/lkgp", "team-review", "plain", "auto"], models, autoBody, customBody, KINDS);
+    const combos = I.describeCombos(["auto", "auto/coding", "auto/fast", "auto/best-reasoning", "auto/lkgp", "team-review", "plain", "auto"], models, customBody, KINDS);
     assert.deepEqual(combos.map((c) => [c.id, c.name, c.icon, c.color]), [
       ["auto", "Auto", "sparkles", "violet"],
       ["auto/coding", "Auto · coding", "code", "blue"],
@@ -431,13 +441,29 @@ try {
       ["team-review", "Team review", "boxes", "sky"],
       ["plain", "plain", "boxes", "sky"],
     ], "one per combo, duplicates dropped");
-    assert.equal(combos[0].notes, 'OmniRoute auto combo "auto": Self-healing smart routing pool with multi-factor scoring. Picks from Codex, Claude, OpenCode. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.');
-    assert.equal(combos[2].notes, 'OmniRoute auto combo "auto/fast": Low-latency routing. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.', "no read token: no pool, still the words");
+    assert.equal(combos[0].notes, 'OmniRoute auto combo "auto": Self-healing smart routing pool with multi-factor scoring. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.');
+    assert.equal(combos[2].notes, 'OmniRoute auto combo "auto/fast": Low-latency routing. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.');
     assert.equal(combos[5].notes, 'OmniRoute combo "team-review": Opus 5.5 first, GPT-6 Sol when Claude is busy. 3 models, priority strategy. Use it as the model on the AI Router provider.');
     assert.equal(combos[6].notes, 'OmniRoute combo "plain": a custom combo set up in the OmniRoute dashboard. Use it as the model on the AI Router provider.');
     const icons = new Set(combos.map((c) => c.icon));
     for (const icon of icons) assert.ok(["code", "terminal", "bug", "wrench", "hammer", "flask", "testTube", "microscope", "search", "eye", "palette", "feather", "pencil", "fileText", "book", "rocket", "package", "boxes", "server", "database", "cpu", "cloud", "globe", "gitBranch", "layers", "compass", "brain", "sparkles", "shield"].includes(icon), `${icon} is one of Paseo's profile icons`);
     for (const kind of [...C.AUTO_COMBO_KINDS, C.AUTO_COMBO_DEFAULT, C.CUSTOM_COMBO_LOOK]) assert.ok(["violet", "sky", "emerald", "orange", "pink", "indigo", "teal", "red", "amber", "blue"].includes(kind.color), `${kind.color} is one of Paseo's identity colours`);
+  });
+
+  check("auto combos come from /v1/models: every listed auto id, in its order, nothing else", () => {
+    const body = { data: [
+      { id: "cc/claude-sonnet-5", owned_by: "claude" },
+      { id: "auto", owned_by: "combo" }, { id: "auto/best-coding", owned_by: "combo" }, { id: "auto/coding:fast", owned_by: "combo" },
+      { id: "Kimi Coding", owned_by: "combo", display_name: "Kimi Coding" },
+      { id: "auto/claude-opus", owned_by: "combo" },
+      { id: "automatic-thing", owned_by: "combo" },
+      { id: "auto/not-a-combo", owned_by: "claude" },
+    ] };
+    assert.deepEqual(I.listedAutoCombos(body), ["auto", "auto/best-coding", "auto/coding:fast", "auto/claude-opus"], "internal ids such as auto/lkgp, which /v1/models doesn't list, never appear");
+    assert.deepEqual(I.listedAutoCombos(null), []);
+    // With a read token the sync passes these plus the custom names: the model list keeps that order, combos first.
+    const list = I.buildModelList(body, new Set(["claude"]), [...I.listedAutoCombos(body), "Kimi Coding"]);
+    assert.deepEqual(list.filter((m) => m.provider === "combo").map((m) => m.id), ["auto", "auto/best-coding", "auto/coding:fast", "auto/claude-opus", "Kimi Coding"]);
   });
 
   check("analytics: one range from /api/usage/analytics, zero-filled days, tokens stacked by provider", () => {

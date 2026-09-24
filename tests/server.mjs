@@ -104,7 +104,10 @@ const decisions = {
 
 /** Paths a web server's console lock (basic auth) answers before OmniRoute sees them, as Caddy does. */
 const consoleLocked = new Set();
+/** Every path the fake router was asked for, so a test can show one is never called. */
+const requested = [];
 const router = createServer((req, res) => {
+  requested.push(req.url);
   if (routerDown) return req.socket.destroy();
   if (consoleLocked.has(req.url)) {
     res.writeHead(401, { "www-authenticate": 'Basic realm="restricted"', "content-type": "text/html" });
@@ -229,7 +232,7 @@ try {
 
   process.env.AI_ROUTER_URL = `${LIVE}/v1`;
   ({ result } = await open("claude"));
-  const routedEnv = { KEEP: "1", ANTHROPIC_BASE_URL: LIVE, ANTHROPIC_AUTH_TOKEN: KEY, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", ANTHROPIC_CUSTOM_HEADERS: "x-omniroute-session-id: paseo-agent-1" };
+  const routedEnv = { KEEP: "1", ANTHROPIC_BASE_URL: LIVE, ANTHROPIC_AUTH_TOKEN: KEY, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", CLAUDE_CODE_DISABLE_FAST_MODE: "1", ANTHROPIC_CUSTOM_HEADERS: "x-omniroute-session-id: paseo-agent-1" };
   assert.deepEqual(result.env, routedEnv, "the session header links this agent's requests in OmniRoute's log");
   ({ result } = await open("ai-router"));
   assert.deepEqual(result.env, routedEnv);
@@ -711,7 +714,7 @@ try {
     assert.deepEqual(t.box.profiles.map((p) => p.id), ["legacy_favorite:codex:gpt-5.6-sol", "ai-router:auto", "ai-router:auto/coding", "ai-router:auto/fast", "ai-router:team-review"]);
     assert.equal(t.box.profiles[0], userProfile, "a person's profile is passed back exactly");
     const coding = t.box.profiles.find((p) => p.id === "ai-router:auto/coding");
-    assert.deepEqual(coding, { id: "ai-router:auto/coding", name: "Auto · coding", icon: "code", color: "blue", provider: "ai-router", model: "auto/coding", notes: 'OmniRoute auto combo "auto/coding": Quality-first for code. Picks from Codex, Claude. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.' });
+    assert.deepEqual(coding, { id: "ai-router:auto/coding", name: "Auto · coding", icon: "code", color: "blue", provider: "ai-router", model: "auto/coding", notes: 'OmniRoute auto combo "auto/coding": Quality-first for code. Use it as the model on the AI Router provider; OmniRoute chooses the account and model per request.' });
     assert.match(t.box.profiles.at(-1).notes, /Opus 5\.5 first, GPT-6 Sol when Claude is busy\. 2 models, priority strategy\./);
     assert.deepEqual(t.box.providers["ai-router"].models.slice(0, 4).map((m) => m.id), ["auto", "auto/coding", "auto/fast", "team-review"], "combos also lead the model list");
     const listed = await t.mod.handleProfiles({}, { paseo: t.api });
@@ -732,22 +735,23 @@ try {
     assert.deepEqual([auto.icon, auto.thinkingOptionId], ["rocket", "high"], "an icon or effort a person set on ours survives");
 
     // OmniRoute's combo list can't be read for a moment: keep models and profiles exactly as they are.
-    const savedAuto = managed["/api/combos/auto"];
-    delete managed["/api/combos/auto"];
+    const savedCustom = managed["/api/combos"];
+    delete managed["/api/combos"];
     const idsBefore = t.box.profiles.map((p) => p.id);
     const modelsBefore = t.box.providers["ai-router"].models.map((m) => m.id);
     const missing = await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
-    managed["/api/combos/auto"] = savedAuto;
+    managed["/api/combos"] = savedCustom;
     assert.deepEqual(t.box.profiles.map((p) => p.id), idsBefore, "a failed combo read leaves the profiles alone");
     assert.deepEqual(t.box.providers["ai-router"].models.map((m) => m.id), modelsBefore, "and the model list");
-    assert.equal(missing.message, "Couldn't read OmniRoute's combo list (404 — /api/combos/auto not found; is OmniRoute older than 3.8?); kept the current models and profiles. Will retry.", "the reason, with its HTTP status");
+    assert.equal(missing.message, "Couldn't read OmniRoute's combo list (404 — /api/combos not found; is OmniRoute older than 3.8?); kept the current models and profiles. Will retry.", "the reason, with its HTTP status");
     // A console lock (basic auth) in front of OmniRoute answers 401 before OmniRoute sees the token: named as such.
-    consoleLocked.add("/api/combos/auto");
+    consoleLocked.add("/api/combos");
     const locked = await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
     consoleLocked.clear();
     assert.equal(locked.ok, false);
-    assert.match(locked.message, /^Couldn't read OmniRoute's combo list \(401 from the console lock \(basic auth\) in front of OmniRoute at 127\.0\.0\.1:\d+, not from OmniRoute: \/api\/combos\/auto is not let through it, so the token never reached the router\); kept the current models and profiles\. Will retry\.$/);
+    assert.match(locked.message, /^Couldn't read OmniRoute's combo list \(401 from the console lock \(basic auth\) in front of OmniRoute at 127\.0\.0\.1:\d+, not from OmniRoute: \/api\/combos is not let through it, so the token never reached the router\); kept the current models and profiles\. Will retry\.$/);
     assert.deepEqual(t.box.profiles.map((p) => p.id), idsBefore, "still nothing written");
+    assert.equal(requested.includes("/api/combos/auto"), false, "the sync never asks for /api/combos/auto: it scores every pool on each call and can take minutes");
 
     // The switch off: ours go, the person's stays; back on: they return.
     routingDoc(t.dir, { routeAgents: false, comboProfiles: false });
@@ -863,6 +867,41 @@ try {
     assert.equal(callLogQueries.length, queries, "nothing asked of OmniRoute without a read token");
     assert.deepEqual(basic.sessions.map((s) => [s.agentId, s.agentTitle, s.routed]), [["agent-3", null, true]]);
     t.restore();
+    passed += 1;
+  }
+
+  // ---------------------------------------------------------- thinking levels
+  {
+    // OmniRoute's effort tiers where it lists them (cc/claude-opus-5-5), Paseo's own levels for the same model
+    // otherwise (Sonnet, Codex): only low…max, never off, ultracode or ultra.
+    const t = await fresh("thinking", full);
+    t.restore();
+    const opts = (ids) => ids.map((id) => ({ id, label: { xhigh: "Extra High" }[id] ?? id[0].toUpperCase() + id.slice(1) }));
+    const asked = [];
+    t.api.providers.listModels = async (provider) => {
+      asked.push(provider);
+      return provider === "claude"
+        ? { provider, models: [{ id: "claude-opus-5-5", thinkingOptions: opts(["low", "medium", "high", "xhigh", "max", "ultracode"]), defaultThinkingOptionId: "medium" }, { id: "claude-sonnet-5", thinkingOptions: opts(["off", "low", "medium", "high", "xhigh", "max", "ultracode"]), defaultThinkingOptionId: "high" }] }
+        : { provider, models: [{ id: "gpt-5.6-sol", thinkingOptions: opts(["low", "medium", "high", "xhigh", "max", "ultra"]), defaultThinkingOptionId: "xhigh" }] };
+    };
+    catalogue.data[0].capabilities = { effort_tiers: ["none", "low", "medium", "high", "xhigh", "max"], reasoning: true };
+    const synced = await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
+    delete catalogue.data[0].capabilities;
+    assert.equal(synced.ok, true, synced.message);
+    const levels = Object.fromEntries(t.box.providers["ai-router"].models.map((m) => [m.id, m.thinkingOptions?.map((o) => `${o.id}${o.isDefault ? "*" : ""}`) ?? null]));
+    assert.deepEqual(levels["cc/claude-opus-5-5"], ["low", "medium*", "high", "xhigh", "max"], "OmniRoute's tiers, Paseo's default");
+    assert.deepEqual(levels["cc/claude-sonnet-5"], ["low", "medium", "high*", "xhigh", "max"], "no tiers: Paseo's own, without off and ultracode");
+    assert.deepEqual(levels["cx/gpt-5.6-sol"], ["low", "medium", "high", "xhigh*", "max"], "Codex: Paseo's own, without ultra");
+    assert.deepEqual(asked.sort(), ["claude", "codex"]);
+    const saved = JSON.parse(readFileSync(join(t.dir, "plugin-settings", "ai-router", "native-thinking.json"), "utf8"));
+    assert.deepEqual(saved["gpt-5.6-sol"].defaultId, "xhigh", "kept for the load-time sync");
+    await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
+    assert.equal(asked.length, 2, "Paseo's lists are read at most every 10 minutes");
+    // A host without listModels: the sync still works, with OmniRoute's tiers only.
+    const u = await fresh("thinking-no-list", full);
+    u.restore();
+    const plain = await u.mod.handleAiProvider({ enabled: true }, { paseo: u.api });
+    assert.equal(plain.ok, true, plain.message);
     passed += 1;
   }
 

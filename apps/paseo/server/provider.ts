@@ -12,10 +12,12 @@ import {
   connectionProblem,
   isOwnProfile,
   mergeAgentProfiles,
+  nativeThinkingFrom,
   sameProviderEntry,
   withProviderEntries,
   type AgentProfile,
   type Connection,
+  type NativeThinking,
 } from "../shared/logic";
 import { adapterFor } from "./routers";
 import {
@@ -26,10 +28,12 @@ import {
   readConnection,
   readRoutingSettings,
   readDaemonConfig,
+  readNativeThinking,
   readProviderEntries,
   readSyncState,
   refreshProviders,
   writeDaemonConfig,
+  writeNativeThinking,
   writeSyncState,
   type ProviderEntries,
 } from "./store";
@@ -67,13 +71,36 @@ function catalogueFor(connection: Connection, fresh = false) {
 
 const codexModels = (list: CatalogModel[]) => list.filter((model) => model.provider === "codex");
 
+// Paseo's own thinking levels per model (its claude and codex model lists): the
+// fallback for models OmniRoute lists no effort tiers for. Read through the
+// Paseo handle at most every 10 minutes, 5 s at most each; kept on disk for the
+// load-time sync. A failed read keeps what was known.
+const NATIVE_MAX_AGE_MS = 10 * 60_000;
+const NATIVE_TIMEOUT_MS = 5_000;
+let nativeSeen: { at: number; value: NativeThinking } | null = null;
+async function nativeThinking(paseo: Paseo | null): Promise<NativeThinking | null> {
+  if (nativeSeen && Date.now() - nativeSeen.at <= NATIVE_MAX_AGE_MS) return nativeSeen.value;
+  if (!paseo) return nativeSeen?.value ?? readNativeThinking();
+  const late = <T>(promise: Promise<T>) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([promise, new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), NATIVE_TIMEOUT_MS)))]).finally(() => clearTimeout(timer));
+  };
+  // Through a promise, so a host without listModels (or one that throws) reads as "not known" instead of failing the sync.
+  const answers = await Promise.all((["claude", "codex"] as const).map((provider) => late(Promise.resolve().then(() => paseo.providers.listModels(provider))).catch(() => null)));
+  const value = nativeThinkingFrom(answers);
+  if (!Object.keys(value).length) return nativeSeen?.value ?? readNativeThinking();
+  nativeSeen = { at: Date.now(), value };
+  writeNativeThinking(value);
+  return value;
+}
+
 /**
  * The provider entries that should be in Paseo for this model list: AI Router
  * always, Codex via OmniRoute only if it is already there (a person turns it
  * on), and the 0.1.0 Codex provider gone.
  */
-export function desiredEntries(connection: Connection, list: CatalogModel[], entries: ProviderEntries): Record<string, unknown | null> {
-  const desired: Record<string, unknown | null> = { [AI_ROUTER_PROVIDER_ID]: aiRouterProviderEntry(connection.endpoint!, list) };
+export function desiredEntries(connection: Connection, list: CatalogModel[], entries: ProviderEntries, native: NativeThinking | null = null): Record<string, unknown | null> {
+  const desired: Record<string, unknown | null> = { [AI_ROUTER_PROVIDER_ID]: aiRouterProviderEntry(connection.endpoint!, list, native) };
   const codex = codexModels(list);
   if (entries.codexRouter.present && codex.length) desired[CODEX_ROUTER_PROVIDER_ID] = codexRouterProviderEntry(connection.endpoint!, codex);
   if (entries.codex.present) desired[CODEX_PROVIDER_ID] = null;
@@ -163,7 +190,7 @@ export async function syncAiProvider(paseo: Paseo, connection: Connection, enabl
     writeSyncState({ at, ok: false, message: result.error, endpoint: connection.endpoint });
     return { ok: false, message: result.error, log: `model sync failed: ${result.error}` };
   }
-  const desired = desiredEntries(connection, result.list, entries);
+  const desired = desiredEntries(connection, result.list, entries, await nativeThinking(paseo));
   const settings = await readRoutingSettings();
   const merged = mergeAgentProfiles(entries.profiles, desiredProfiles(result.combos, settings.comboProfiles));
   await applyThroughApi(paseo, desired, merged.changed ? merged.next : null);
@@ -254,7 +281,7 @@ export function checkAutoSync(paseo: Paseo | null): Promise<void> {
       const entries = daemon;
       const result = await catalogueFor(connection);
       if (!result.ok) return say(`model sync skipped: ${result.error}`, true);
-      const changed = changedEntries(desiredEntries(connection, result.list, entries), entries);
+      const changed = changedEntries(desiredEntries(connection, result.list, entries, await nativeThinking(paseo)), entries);
       const wantedProfiles = desiredProfiles(result.combos, settings.comboProfiles);
       const profiles = mergeAgentProfiles(entries.profiles, wantedProfiles);
       const reason = syncReason({ removed: false, present: entries.aiRouter.present, changed: [...Object.keys(changed), ...(profiles.changed ? ["combo profiles"] : [])] });

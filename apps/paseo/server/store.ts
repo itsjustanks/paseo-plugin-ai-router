@@ -14,6 +14,7 @@ import {
   type SessionEntry,
   resolveConnection,
   type Connection,
+  type NativeThinking,
   type ResolvedConnection,
   type RoutingSettingsShape,
 } from "../shared/logic";
@@ -92,6 +93,25 @@ export function readSyncState(): SyncState | null {
 export function writeSyncState(state: SyncState): void {
   mkdirSync(settingsDir(), { recursive: true, mode: 0o700 });
   writeFileSync(syncStatePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
+/** Paseo's own thinking levels per model, as last read through its API, for the load-time sync (no Paseo handle yet). No secrets. */
+const nativeThinkingPath = () => join(settingsDir(), "native-thinking.json");
+export function readNativeThinking(): NativeThinking | null {
+  try {
+    const value = JSON.parse(readFileSync(nativeThinkingPath(), "utf8")) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as NativeThinking) : null;
+  } catch {
+    return null;
+  }
+}
+export function writeNativeThinking(value: NativeThinking): void {
+  try {
+    mkdirSync(settingsDir(), { recursive: true, mode: 0o700 });
+    writeFileSync(nativeThinkingPath(), `${JSON.stringify(value)}\n`, { mode: 0o600 });
+  } catch {
+    // memory keeps it for this run
+  }
 }
 
 /**

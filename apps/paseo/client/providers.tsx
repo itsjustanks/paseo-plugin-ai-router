@@ -40,9 +40,10 @@ function ClaudeReroute({ theme, say }: { theme: Theme; say: Say }) {
         <Toggle theme={theme} label="Re-route Claude through OmniRoute" value={on} busy={settings.saving} disabled={settings.status !== "ready" || asking !== null} onChange={(next) => setAsking(next)} />
         <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{on ? "Through OmniRoute" : "Own sign-in"}</Text>
       </Row>
+      {on && asking === null ? <Note theme={theme}>Paseo's Fast switch has no effect on these chats: OmniRoute can't pass Fast mode on yet, so it stays off instead of failing.</Note> : null}
       {asking === true ? (
         <>
-          <Note theme={theme} tone="warning">New Claude chats on this daemon will use OmniRoute's accounts instead of this daemon's own Claude sign-in. Open chats switch when they reopen. ~/.claude is not changed, and if OmniRoute is down a chat keeps its own sign-in.</Note>
+          <Note theme={theme} tone="warning">New Claude chats on this daemon will use OmniRoute's accounts instead of this daemon's own Claude sign-in. Open chats switch when they reopen. ~/.claude is not changed, and if OmniRoute is down a chat keeps its own sign-in. Fast mode stays off for them: OmniRoute can't pass it on yet.</Note>
           <Row>
             <Button theme={theme} label="Re-route Claude" primary busy={settings.saving} onPress={confirm} />
             <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />

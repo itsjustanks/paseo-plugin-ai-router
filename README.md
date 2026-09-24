@@ -75,8 +75,8 @@ this daemon holds, and a key never sees another key's data.
 | Providers tab, Codex via OmniRoute, Tidy up | yes (Paseo's own API; models from the list above) | yes | yes |
 | Accounts: health, quota, cooldowns, expiry | — | `GET /api/providers`, `/api/rate-limits`, `/api/usage/provider-limits`, `/api/providers/health-matrix`, `/api/providers/expiration`, `/api/provider-stats`, `/api/monitoring/health` | same |
 | Usage & analytics, all keys | — | `GET /api/usage/analytics?range=1d`, `7d` or `30d`, `GET /api/keys` | same |
-| Combo descriptions for profiles | `GET /v1/models` (custom combos' own descriptions) | `GET /api/combos/auto`, `GET /api/combos` | same |
-| Router settings, read | — | `GET /api/settings`, `/api/context/combos/default`, `/api/analytics/compression`, `/api/resilience`, `/api/resilience/model-cooldowns`, `/api/combos/auto` | same |
+| Combo descriptions for profiles | `GET /v1/models` (custom combos' own descriptions) | `GET /v1/models`, `GET /api/combos` (never `/api/combos/auto`) | same |
+| Router settings, read | — | `GET /api/settings`, `/api/context/combos/default`, `/api/analytics/compression`, `/api/resilience`, `/api/resilience/model-cooldowns` | same |
 | Settings changes, breaker reset | — | — | `PUT /api/settings/compression`, `PATCH /api/settings`, `POST /api/resilience/reset` |
 | Apply recommended compression | — | — | `GET` then `PUT /api/settings/compression` |
 | Account actions | — | — | `POST /api/providers/{id}/test`, `/api/providers/{id}/refresh`, `/api/providers/test-batch` |
@@ -117,24 +117,40 @@ OmniRoute translates the Anthropic Messages API for every provider it serves.
 ```json
 { "extends": "claude", "label": "AI Router",
   "env": { "ANTHROPIC_BASE_URL": "<endpoint>", "ANTHROPIC_AUTH_TOKEN": "set-at-launch-by-ai-router",
-           "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1" },
-  "models": [{ "id": "cc/claude-sonnet-5", "label": "Claude · Sonnet 5", "isDefault": true },
-             { "id": "cx/gpt-6-sol", "label": "Codex · GPT-6 Sol" }, "…"] }
+           "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1", "CLAUDE_CODE_DISABLE_FAST_MODE": "1" },
+  "models": [{ "id": "cc/claude-sonnet-5", "label": "Claude · Sonnet 5", "isDefault": true,
+               "thinkingOptions": [{ "id": "low", "label": "Low" }, "…", { "id": "high", "label": "High", "isDefault": true }, "…"] },
+             { "id": "cx/gpt-6-sol", "label": "Codex · GPT-6 Sol", "thinkingOptions": ["…"] }, "…"] }
 ```
+
+**Thinking levels.** Paseo gives a model id it doesn't know (every `cc/…` and `cx/…`) the generic
+low, medium, high and max. The entry lists each model's own levels instead:
+
+- OmniRoute's `capabilities.effort_tiers` for the model in `/v1/models` (Claude models list them);
+- otherwise Paseo's own levels for the same upstream model (`root`, such as `gpt-6-sol`), read with
+  `providers.listModels("claude" | "codex")` at most every 10 minutes and kept in
+  `plugin-settings/ai-router/native-thinking.json` for the sync at plugin load;
+- only levels Claude Code sends as effort and OmniRoute carries through: low, medium, high, Extra High
+  and max. Not "off" (Paseo refuses it for gateway ids and would not start the agent), not "ultracode"
+  and not Codex's "ultra" (not proven through OmniRoute yet). A model Paseo itself gives no levels
+  (Haiku) gets none; combos, and models nothing is known about, keep Paseo's generic set.
+- The default is Paseo's own for that model, else High.
 
 If an older OmniRoute ignores `?configuredOnly=true` for a plain key (hundreds of models come back),
 the sync refuses rather than list them all, and says to add a read token or update OmniRoute.
 
 ## Combos as agent profiles
 
-Each OmniRoute combo in the AI Router model list (the dashboard's auto and custom combos with a read
-token; the core auto combos without one) becomes a Paseo agent profile, so it can be picked directly
-when starting an agent:
+Each OmniRoute combo in the AI Router model list becomes a Paseo agent profile, so it can be picked
+directly when starting an agent. With a read token that is every auto combo `/v1/models` lists (`auto`,
+`auto/…`) plus the custom combos `/api/combos` names; without one, the core auto combos. The sync never
+calls `/api/combos/auto`: it scores every candidate pool across the whole catalogue on each call (79 s
+at full CPU on a 1,500-model router), and `/v1/models` already lists the same ids.
 
 ```json
 { "id": "ai-router:auto/coding", "name": "Auto · coding", "icon": "code", "color": "blue",
   "provider": "ai-router", "model": "auto/coding",
-  "notes": "OmniRoute auto combo \"auto/coding\": Quality-first for code. Picks from Codex, Claude. …" }
+  "notes": "OmniRoute auto combo \"auto/coding\": Quality-first for code. Use it as the model on …" }
 ```
 
 The notes are OmniRoute's own description: its wording for the auto variants, and a custom combo's
@@ -159,7 +175,7 @@ The `agent.session_open` hook only edits the launch environment.
 
 | Session | Rewritten when | Environment added |
 | --- | --- | --- |
-| Built-in `claude` provider | re-routed on Providers (off by default; turning it on asks first) | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, and `x-omniroute-session-id: paseo-<agent id>` added to `ANTHROPIC_CUSTOM_HEADERS` |
+| Built-in `claude` provider | re-routed on Providers (off by default; turning it on asks first) | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, `CLAUDE_CODE_DISABLE_FAST_MODE=1`, and `x-omniroute-session-id: paseo-<agent id>` added to `ANTHROPIC_CUSTOM_HEADERS` |
 | `ai-router` provider | always (choosing it is the opt-in) | the same |
 | `codex-ai-router` ("Codex via OmniRoute") | always, while its entry points at the endpoint | `OPENAI_API_KEY=<key>` |
 | `ai-router-codex` (0.1.0, legacy; syncing removes it) | the same | `OPENAI_API_KEY=<key>` |
@@ -176,6 +192,12 @@ ai-router`) and shown in the panel, e.g.
 `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`: OmniRoute replaces Claude Code's `anthropic-beta` header
 with its own list, and without the per-turn-control beta Claude Code 2.1.280's per-turn effort is
 refused with 400 "messages.1.output_config: Extra inputs are not permitted".
+
+`CLAUDE_CODE_DISABLE_FAST_MODE=1`: Fast mode sends `speed: "fast"`, which needs the fast-mode beta.
+OmniRoute (3.8.51) neither sends that beta nor forwards the client's, so Anthropic answers 400
+"speed: Extra inputs are not permitted". With this, Claude Code leaves `speed` out even when Paseo's
+Fast switch is on, including one flipped mid-chat; the switch has no effect on routed chats, and the
+Providers tab says so. Paseo shows no Fast switch for the AI Router provider's `cc/…` models anyway.
 
 `ANTHROPIC_CUSTOM_HEADERS` holds newline-separated `Name: value` lines that Claude Code sends with
 every request. The hook keeps any lines already there and adds `x-omniroute-session-id`, unless one is
@@ -312,8 +334,9 @@ not answering (502)", "Answers, but not as OmniRoute" or "Unreachable".
 **Share this router** (every tier) shows how someone else connects through the public address, with
 `<your key>` in place of a key (each person or machine should get its own):
 
-- Claude Code: `ANTHROPIC_BASE_URL=<public address>`, `ANTHROPIC_AUTH_TOKEN=<your key>` and
-  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` (see [Routing](#routing) for why).
+- Claude Code: `ANTHROPIC_BASE_URL=<public address>`, `ANTHROPIC_AUTH_TOKEN=<your key>`,
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` and `CLAUDE_CODE_DISABLE_FAST_MODE=1` (see
+  [Routing](#routing) for why).
 - Codex and other OpenAI-compatible tools: `<public address>/v1`, with a `~/.codex/config.toml` block.
 - Another Paseo daemon: install this plugin from GitHub, then use the public address as its endpoint.
 

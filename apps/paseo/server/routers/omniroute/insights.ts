@@ -32,6 +32,7 @@ import {
   parseKeyStatus,
   parseAnalytics,
   describeCombos,
+  listedAutoCombos,
   callLogQuery,
   parseCallLogs,
   parseRouteExplanation,
@@ -182,29 +183,28 @@ async function loadUsage(connection: Connection, range: AnalyticsRangeId, empty:
 // ------------------------------------------------------------------ models
 
 /**
- * The combos the dashboard shows, in its order: auto combos, then custom ones.
- * Read-token calls; null (fall back to the core auto combos) if either fails.
- * The bodies come back too, for the combo descriptions on agent profiles.
+ * Custom combos, by name, from `/api/combos` (read token): what /v1/models
+ * lists them as (their id is an internal UUID). The body comes back too, for
+ * their descriptions. Auto combos are not read here: /v1/models lists them,
+ * and `/api/combos/auto` scores every candidate pool across the whole
+ * catalogue on each call (79 s at 100 % CPU on a 1,500-model router), so
+ * the sync never calls it.
  */
-async function dashboardCombos(connection: Connection): Promise<{ ids: string[] | null; auto: unknown; custom: unknown; error: string | null }> {
-  // Auto combos are addressed by id ("auto/coding"); custom combos by their name ("Kimi Coding"),
-  // which is what /v1/models lists — their id is an internal UUID.
-  const names = (body: unknown, key: "id" | "name"): string[] => {
-    const root = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
-    const items = Array.isArray(body) ? body : Array.isArray(root.combos) ? root.combos : Array.isArray(root.data) ? root.data : [];
-    const other = key === "id" ? "name" : "id";
-    return items.map((item) => (item && typeof item === "object" ? ((item as Record<string, unknown>)[key] ?? (item as Record<string, unknown>)[other]) : item))
-      .filter((value): value is string => typeof value === "string" && value.length > 0);
-  };
-  const [auto, custom] = await Promise.all([read(connection, "/api/combos/auto"), read(connection, "/api/combos")]);
-  const autoBody = auto.ok ? auto.body : null;
-  const customBody = custom.ok ? custom.body : null;
-  if (!auto.ok) return { ids: null, auto: autoBody, custom: customBody, error: auto.error };
-  // The dashboard's core auto combos, then combos a person made. The built-in "auto/…" variants that
-  // /api/combos returns for admins are left out, so the list (and the combo profiles) stay short.
-  const own = custom.ok ? names(custom.body, "name").filter((name) => name !== "auto" && !name.startsWith("auto/")) : [];
-  return { ids: [...names(auto.body, "id"), ...own], auto: autoBody, custom: customBody, error: null };
+async function customCombos(connection: Connection): Promise<{ names: string[] | null; body: unknown; error: string | null }> {
+  const custom = await read(connection, "/api/combos");
+  if (!custom.ok) return { names: null, body: null, error: custom.error };
+  const root = custom.body && typeof custom.body === "object" && !Array.isArray(custom.body) ? (custom.body as Record<string, unknown>) : {};
+  const items = Array.isArray(custom.body) ? custom.body : Array.isArray(root.combos) ? root.combos : Array.isArray(root.data) ? root.data : [];
+  const names = items
+    .map((item) => (item && typeof item === "object" ? ((item as Record<string, unknown>).name ?? (item as Record<string, unknown>).id) : item))
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    // The built-in "auto/…" entries /api/combos returns for admins are OmniRoute's, not a person's.
+    .filter((name) => name !== "auto" && !name.startsWith("auto/"));
+  return { names, body: custom.body, error: null };
 }
+
+/** The model list, read in the background sync only; OmniRoute took about 9 s for it under load. */
+const CATALOGUE_TIMEOUT_MS = 30_000;
 
 /** More than this after `?configuredOnly=true` means the router ignored the filter (an older OmniRoute). */
 const UNFILTERED_MODELS = 300;
@@ -224,9 +224,10 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
   const url = `${connection.endpoint}${path}`;
   let models: { status: number; body: unknown };
   try {
-    models = await getJson(url, bearer(connection.apiKey), TIMEOUT_MS);
+    // The sync runs in the background and OmniRoute builds this list live (its auto combos included), so it gets longer.
+    models = await getJson(url, bearer(connection.apiKey), CATALOGUE_TIMEOUT_MS);
   } catch (error) {
-    return { ok: false, error: describeFetchError(error, url, TIMEOUT_MS) };
+    return { ok: false, error: describeFetchError(error, url, CATALOGUE_TIMEOUT_MS) };
   }
   if (models.status !== 200) return { ok: false, error: describeManagementStatus(models.status, models.body, "/v1/models", "API key") };
   let active: Set<string> | null = null;
@@ -235,17 +236,18 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
     if (!providers.ok) return { ok: false, error: `Connected accounts: ${providers.error}` };
     active = activeProviders(providers.body);
   }
-  const dashboard = operator ? await dashboardCombos(connection) : { ids: null, auto: null, custom: null, error: null };
-  // With a read token the combo list comes from the dashboard. If that read fails, don't fall back to
-  // the short list: that would drop combos and their profiles until the next sync. Say why it failed.
-  if (operator && dashboard.ids === null) return { ok: false, error: `Couldn't read OmniRoute's combo list (${dashboard.error ?? "no answer"}); kept the current models and profiles. Will retry.` };
-  const list = buildModelList(models.body, active, dashboard.ids);
+  // With a read token: every auto combo /v1/models lists, then the custom ones /api/combos names. If that
+  // read fails, don't fall back to the short list: that would drop combos and their profiles until the
+  // next sync. Say why it failed.
+  const custom = operator ? await customCombos(connection) : null;
+  if (custom && custom.names === null) return { ok: false, error: `Couldn't read OmniRoute's combo list (${custom.error ?? "no answer"}); kept the current models and profiles. Will retry.` };
+  const list = buildModelList(models.body, active, custom ? [...listedAutoCombos(models.body), ...(custom.names ?? [])] : null);
   if (!list.length) return { ok: false, error: active ? `OmniRoute lists no models for the active accounts (${[...active].join(", ") || "none"}).` : "OmniRoute lists no models this key can use on connected accounts." };
   if (!active && list.length > UNFILTERED_MODELS) {
     return { ok: false, error: `OmniRoute listed ${list.length} models without narrowing them to connected accounts; this version may not support that for a plain key. Add a read token on the Connection tab, or update OmniRoute.` };
   }
   const comboIds = list.filter((model) => model.provider === "combo").map((model) => model.id);
-  const combos = describeCombos(comboIds, models.body, dashboard.auto, dashboard.custom, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK });
+  const combos = describeCombos(comboIds, models.body, custom?.body ?? null, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK });
   return { ok: true, list, combos };
 }
 
@@ -312,8 +314,9 @@ export async function getSettings(connection: Connection, refresh: boolean): Pro
 async function loadSettings(connection: Connection): Promise<RouterSettings> {
   const canEdit = !!connection.manageKey;
   {
-    const paths = ["/api/settings", "/api/context/combos/default", "/api/analytics/compression", "/api/resilience", "/api/resilience/model-cooldowns", "/api/combos/auto", "/api/monitoring/health"];
-    const [settings, compressionPlan, compressionStats, resilience, cooldowns, autoCombos, health] = await Promise.all(paths.map((path) => read(connection, path)));
+    // Not /api/combos/auto: it scores every candidate pool on each call and can take over a minute.
+    const paths = ["/api/settings", "/api/context/combos/default", "/api/analytics/compression", "/api/resilience", "/api/resilience/model-cooldowns", "/api/monitoring/health"];
+    const [settings, compressionPlan, compressionStats, resilience, cooldowns, health] = await Promise.all(paths.map((path) => read(connection, path)));
     const notes: string[] = [];
     const body = (got: Got, what: string) => (got.ok ? got.body : (notes.push(`${what} unavailable: ${got.error}`), undefined));
     // Compression has its own card on the Settings tab; the rest are listed here.
@@ -323,7 +326,6 @@ async function loadSettings(connection: Connection): Promise<RouterSettings> {
       compressionStats: body(compressionStats, "Compression savings"),
       resilience: body(resilience, "Breaker thresholds"),
       cooldowns: body(cooldowns, "Model cooldowns"),
-      autoCombos: body(autoCombos, "Auto combos"),
       health: body(health, "Breaker state"),
     }).filter((item) => item.id !== "compression");
     const failed = !settings.ok && !compressionPlan.ok && !health.ok;
