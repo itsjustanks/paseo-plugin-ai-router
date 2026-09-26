@@ -5,7 +5,7 @@ import type { Status } from "../shared/contracts";
 import { PASEO_CAFE_URL, RECOMMENDED_PLUGINS, paseoCafeUrl } from "../shared/plugins";
 import { useLinks } from "./dashboard";
 import type { Message } from "./setup";
-import { Card, Chip, Link, Note, Row } from "./ui";
+import { Card, Chip, ItemTitle, Link, Meta, Note, Row, TYPE } from "./ui";
 
 /**
  * Plugins that pair well with AI Router, each with its Paseo Cafe page and
@@ -19,22 +19,22 @@ export function TipsTab({ theme, data, say }: { theme: PluginTheme; data: Status
   const installable = RECOMMENDED_PLUGINS.filter((plugin) => !plugin.blocked);
   const count = installable.filter((plugin) => installed.has(plugin.id)).length;
   return (
-    <Card theme={theme} title="Recommended plugins">
+    <Card theme={theme} title="Recommended plugins" icon="Puzzle">
       <Note theme={theme}>{`${count} of ${installable.length} installed on this daemon. Install one in Paseo's Settings → Plugins by pasting its source (the part after "paseo plugin add"; a --ref pin needs the command), or run the command on the daemon's machine (inside the container for a Docker daemon). Plugins run with the daemon's own access, so add the ones you trust.`}</Note>
       {RECOMMENDED_PLUGINS.map((plugin) => {
         const here = installed.has(plugin.id);
         const blocked = !here && plugin.blocked ? plugin.blocked : null;
         return (
-          <View key={plugin.id} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+          <View key={plugin.id} style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
             <Row>
-              <Text style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: "600" }}>{plugin.name}</Text>
-              <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{`by ${plugin.by}`}</Text>
+              <ItemTitle theme={theme}>{plugin.name}</ItemTitle>
+              <Meta theme={theme}>{`by ${plugin.by}`}</Meta>
               {here ? <Chip theme={theme} label="Installed" tone="success" /> : null}
               {blocked ? <Chip theme={theme} label="Not on Paseo 0.9.1 yet" tone="warning" /> : null}
             </Row>
             <Note theme={theme}>{plugin.what}</Note>
             {blocked ? <Note theme={theme}>{blocked}</Note> : null}
-            {!here && !blocked ? <Text selectable style={{ color: theme.colors.foregroundMuted, fontSize: 12, fontFamily: "monospace" }}>{plugin.install}</Text> : null}
+            {!here && !blocked ? <Text selectable style={{ ...TYPE.mono, color: theme.colors.foregroundMuted }}>{plugin.install}</Text> : null}
             <Row>
               <Link theme={theme} label="View on Paseo Cafe" accessibilityLabel={`View ${plugin.name} on Paseo Cafe`} onPress={() => void links.open(paseoCafeUrl(plugin.id))} />
               {!here && !blocked ? <Link theme={theme} label="Copy install command" accessibilityLabel={`Copy the ${plugin.name} install command`} onPress={() => links.copy(plugin.install, `the ${plugin.name} install command`)} /> : null}

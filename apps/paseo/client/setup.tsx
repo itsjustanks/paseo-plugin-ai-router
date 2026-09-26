@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { connectionTest, type Status } from "../shared/contracts";
 import { ENDPOINT_EXAMPLES, ROUTER_IDS, type RouterId } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
-import { Button, Card, Chip, Field, Note, Row, type Tone } from "./ui";
+import { Button, Card, Chip, Field, Meta, Note, Row, TYPE, type Tone } from "./ui";
 
 type Theme = PluginTheme;
 export type Message = { text: string; tone: Tone } | null;
@@ -16,8 +16,8 @@ export const errorText = (error: unknown) => (error instanceof Error ? error.mes
 
 function Step({ theme, title, why }: { theme: Theme; title: string; why: string }) {
   return (
-    <View style={{ gap: 2, marginTop: 6 }}>
-      <Text style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: "600" }}>{title}</Text>
+    <View style={{ gap: 4, marginTop: 8 }}>
+      <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>{title}</Text>
       <Note theme={theme}>{why}</Note>
     </View>
   );
@@ -68,7 +68,7 @@ export function ConnectionForm({ theme, data, onDone }: { theme: Theme; data: St
       <Note theme={theme}>{info.summary}</Note>
       <Step theme={theme} title="2. Endpoint URL" why="Where this daemon sends agent requests. Use an address this daemon can reach, which may differ from your laptop's." />
       <Field theme={theme} label="Endpoint URL" value={endpoint} onChangeText={setEndpoint} placeholder={ENDPOINT_EXAMPLES[0]} />
-      <Note theme={theme}>{`Local: ${ENDPOINT_EXAMPLES[0]} · Remote: ${ENDPOINT_EXAMPLES[1]}`}</Note>
+      <Meta theme={theme}>{`Local: ${ENDPOINT_EXAMPLES[0]} · Remote: ${ENDPOINT_EXAMPLES[1]}`}</Meta>
       <Step theme={theme} title="3. API key" why={`Proves this daemon may use the router. Make one per daemon (${info.keyWhere}), named after it, so usage shows per daemon.`} />
       <Field theme={theme} label={`API key (${info.keyHint})`} value={apiKey} onChangeText={setApiKey} placeholder={key?.present ? `saved …${key.last4} — leave blank to keep` : info.keyHint} secure />
       <Step theme={theme} title="Optional: public address (custom domain)" why={PUBLIC_ADDRESS_WHY} />
@@ -143,7 +143,7 @@ function Credential({ theme, data, field, title, why, hint, warning, problem, on
 export function KeysCard({ theme, data, tokenProblem, onMessage }: { theme: Theme; data: Status; tokenProblem?: string | null; onMessage: (message: Message) => void }) {
   const info = ROUTERS[data.connection.router];
   return (
-    <Card theme={theme} title="More access (optional)">
+    <Card theme={theme} title="More access (optional)" icon="KeyRound" subtitle="Extra keys that let this computer see and do more">
       <Note theme={theme}>The API key is enough to route agents, list models and see this key's own spend. Router operators can add:</Note>
       <Credential
         theme={theme}

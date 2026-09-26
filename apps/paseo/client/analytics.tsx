@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ANALYTICS_RANGES, usage, type AnalyticsRangeId, type Usage } from "../shared/contracts";
 import { compactNumber as compact, errorWords } from "../shared/routers/omniroute/parsers";
 import { Breakdown, Gate, Notes, money } from "./insights";
-import { Banner, Card, Note } from "./ui";
+import { Banner, Card, HostIcon, Meta, Note, TYPE } from "./ui";
 
 type Theme = PluginTheme;
 const RANGE_WORDS: Record<AnalyticsRangeId, string> = { "1d": "24 hours", "7d": "7 days", "30d": "30 days" };
@@ -73,8 +73,8 @@ function RangePicker({ theme, range, onChange }: { theme: Theme; range: Analytic
       {ANALYTICS_RANGES.map((id) => {
         const selected = id === range;
         return (
-          <Pressable key={id} accessibilityRole="radio" accessibilityLabel={`Last ${RANGE_WORDS[id]}`} accessibilityState={{ selected }} onPress={() => onChange(id)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 7, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
-            <Text style={{ color: selected ? theme.colors.accentForeground : theme.colors.foreground, fontSize: 12, fontWeight: "600" }}>{RANGE_WORDS[id]}</Text>
+          <Pressable key={id} accessibilityRole="radio" accessibilityLabel={`Last ${RANGE_WORDS[id]}`} accessibilityState={{ selected }} onPress={() => onChange(id)} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
+            <Text style={{ ...TYPE.secondary, color: selected ? theme.colors.accentForeground : theme.colors.foreground, fontWeight: "600" }}>{RANGE_WORDS[id]}</Text>
           </Pressable>
         );
       })}
@@ -82,12 +82,15 @@ function RangePicker({ theme, range, onChange }: { theme: Theme; range: Analytic
   );
 }
 
-function Tile({ theme, label, value, sub }: { theme: Theme; label: string; value: string; sub: string | null }) {
+function Tile({ theme, icon, label, value, sub }: { theme: Theme; icon: string; label: string; value: string; sub: string | null }) {
   return (
-    <View style={{ flexGrow: 1, flexBasis: 150, gap: 2, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 }}>
-      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{label}</Text>
-      <Text style={{ color: theme.colors.foreground, fontSize: 22, fontWeight: "700" }}>{value}</Text>
-      {sub ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{sub}</Text> : null}
+    <View style={{ flexGrow: 1, flexBasis: 170, gap: 4, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {HostIcon ? <HostIcon name={icon} size={16} color={theme.colors.accent} /> : null}
+        <Text style={{ ...TYPE.secondary, color: theme.colors.foreground, fontWeight: "500" }}>{label}</Text>
+      </View>
+      <Text style={{ ...TYPE.figure, color: theme.colors.foreground }}>{value}</Text>
+      {sub ? <Meta theme={theme}>{sub}</Meta> : null}
     </View>
   );
 }
@@ -96,10 +99,10 @@ function Tiles({ theme, totals }: { theme: Theme; totals: NonNullable<Usage["tot
   const inOut = totals.promptTokens !== null && totals.completionTokens !== null ? `${compact(totals.promptTokens)} in · ${compact(totals.completionTokens)} out` : null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
-      <Tile theme={theme} label="Requests" value={compact(totals.requests)} sub={totals.successRatePct !== null ? `${totals.successRatePct}% succeeded` : null} />
-      <Tile theme={theme} label="Tokens" value={compact(totals.tokens)} sub={inOut} />
-      <Tile theme={theme} label="Estimated cost" value={money(totals.cost) ?? "$0.00"} sub="as OmniRoute prices it" />
-      <Tile theme={theme} label="Average latency" value={seconds(totals.avgLatencyMs) ?? "—"} sub={totals.fallbackRatePct !== null ? `${totals.fallbackRatePct}% fell back to another model` : null} />
+      <Tile theme={theme} icon="ArrowLeftRight" label="Requests" value={compact(totals.requests)} sub={totals.successRatePct !== null ? `${totals.successRatePct}% succeeded` : null} />
+      <Tile theme={theme} icon="Hash" label="Tokens" value={compact(totals.tokens)} sub={inOut} />
+      <Tile theme={theme} icon="Coins" label="Estimated cost" value={money(totals.cost) ?? "$0.00"} sub="as OmniRoute prices it" />
+      <Tile theme={theme} icon="Timer" label="Average latency" value={seconds(totals.avgLatencyMs) ?? "—"} sub={totals.fallbackRatePct !== null ? `${totals.fallbackRatePct}% fell back to another model` : null} />
     </View>
   );
 }
@@ -137,7 +140,7 @@ function Axis({ theme, dates }: { theme: Theme; dates: string[] }) {
   const picks = [...new Set([0, Math.floor((dates.length - 1) / 2), dates.length - 1])];
   return (
     <View style={{ flexDirection: "row", justifyContent: picks.length > 1 ? "space-between" : "flex-start", marginTop: 10 }}>
-      {picks.map((i) => <Text key={i} style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>{day(dates[i])}</Text>)}
+      {picks.map((i) => <Text key={i} style={{ ...TYPE.small, color: theme.colors.foregroundMuted }}>{day(dates[i])}</Text>)}
     </View>
   );
 }
@@ -153,8 +156,8 @@ function RequestsPerDay({ theme, trend }: { theme: Theme; trend: Usage["trend"] 
   const color = seriesColors(theme, ["series"]).get("series")!;
   const chosen = trend[index];
   return (
-    <Card theme={theme} title="Requests per day">
-      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>{`Busiest day: ${plural(peak, "request")}`}</Text>
+    <Card theme={theme} title="Requests per day" icon="ChartColumn">
+      <Meta theme={theme}>{`Busiest day: ${plural(peak, "request")}`}</Meta>
       <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 2, height: 96, borderBottomWidth: 1, borderColor: theme.colors.border }}>
         {trend.map((d, i) => (
           <Column key={d.date} theme={theme} values={[d.requests]} colors={[color]} peak={peak} height={96} selected={i === index} label={`${day(d.date)}: ${plural(d.requests, "request")}`} onPress={() => setPicked(i)} />
@@ -162,11 +165,11 @@ function RequestsPerDay({ theme, trend }: { theme: Theme; trend: Usage["trend"] 
       </View>
       <Axis theme={theme} dates={trend.map((d) => d.date)} />
       {chosen ? (
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>
+        <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>
           {[`${day(chosen.date)}: ${plural(chosen.requests, "request")}`, chosen.tokens ? `${compact(chosen.tokens)} tokens` : null, money(chosen.cost)].filter(Boolean).join(" · ")}
         </Text>
       ) : null}
-      <Note theme={theme}>Tap a day for its numbers. Days run midnight to midnight UTC, as the router counts them.</Note>
+      <Meta theme={theme}>Tap a day for its numbers. Days run midnight to midnight UTC, as the router counts them.</Meta>
     </Card>
   );
 }
@@ -181,7 +184,7 @@ function TokensByProvider({ theme, trend, colors }: { theme: Theme; trend: Usage
   const palette = trend.providers.map((name) => colors.get(name) ?? theme.colors.foregroundMuted);
   const chosen = trend.days[index];
   return (
-    <Card theme={theme} title="Tokens per day, by provider">
+    <Card theme={theme} title="Tokens per day, by provider" icon="ChartColumnStacked">
       <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 2, height: 110, borderBottomWidth: 1, borderColor: theme.colors.border }}>
         {trend.days.map((d, i) => (
           <Column
@@ -199,7 +202,7 @@ function TokensByProvider({ theme, trend, colors }: { theme: Theme; trend: Usage
       </View>
       <Axis theme={theme} dates={trend.days.map((d) => d.date)} />
       {chosen ? (
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>
+        <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>
           {`${day(chosen.date)}: ${trend.providers.map((name, j) => ((chosen.values[j] ?? 0) > 0 ? `${name} ${compact(chosen.values[j])}` : null)).filter(Boolean).join(" · ") || "no tokens"}`}
         </Text>
       ) : null}
@@ -207,8 +210,8 @@ function TokensByProvider({ theme, trend, colors }: { theme: Theme; trend: Usage
         {trend.providers.map((name, i) => (
           <View key={name} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Swatch color={palette[i]} />
-            <Text style={{ color: theme.colors.foreground, fontSize: 13, flex: 1 }}>{name}</Text>
-            <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{`${compact(totals[i])} tokens · ${Math.round((totals[i] / all) * 100)}%`}</Text>
+            <Text style={{ ...TYPE.body, color: theme.colors.foreground, flex: 1 }}>{name}</Text>
+            <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>{`${compact(totals[i])} tokens · ${Math.round((totals[i] / all) * 100)}%`}</Text>
           </View>
         ))}
       </View>
@@ -220,7 +223,7 @@ function ProviderSplit({ theme, rows, colors }: { theme: Theme; rows: Usage["byP
   if (!rows.length) return null;
   const total = rows.reduce((sum, row) => sum + row.requests, 0) || 1;
   return (
-    <Card theme={theme} title="Provider split">
+    <Card theme={theme} title="Provider split" icon="ChartPie">
       <View accessibilityLabel={rows.map((row) => `${row.label} ${Math.round((row.requests / total) * 100)}%`).join(", ")} style={{ flexDirection: "row", height: 12, gap: 2 }}>
         {rows.filter((row) => row.requests > 0).map((row, i, shown) => (
           <View key={row.label} style={{ flex: row.requests, backgroundColor: colors.get(row.label) ?? theme.colors.foregroundMuted, borderTopLeftRadius: i === 0 ? 4 : 0, borderBottomLeftRadius: i === 0 ? 4 : 0, borderTopRightRadius: i === shown.length - 1 ? 4 : 0, borderBottomRightRadius: i === shown.length - 1 ? 4 : 0 }} />
@@ -229,8 +232,8 @@ function ProviderSplit({ theme, rows, colors }: { theme: Theme; rows: Usage["byP
       {rows.map((row) => (
         <View key={row.label} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
           <Swatch color={colors.get(row.label) ?? theme.colors.foregroundMuted} />
-          <Text style={{ color: theme.colors.foreground, fontSize: 13, flexGrow: 1 }}>{row.label}</Text>
-          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+          <Text style={{ ...TYPE.body, color: theme.colors.foreground, flexGrow: 1 }}>{row.label}</Text>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>
             {[plural(row.requests, "request"), `${Math.round((row.requests / total) * 100)}%`, row.successRatePct !== null && row.successRatePct !== undefined ? `${row.successRatePct}% succeeded` : null, seconds(row.avgLatencyMs ?? null), money(row.cost)].filter(Boolean).join(" · ")}
           </Text>
         </View>
@@ -243,15 +246,15 @@ function TopModels({ theme, rows, colors }: { theme: Theme; rows: Usage["byModel
   if (!rows.length) return null;
   const top = Math.max(1, ...rows.map((row) => row.requests));
   return (
-    <Card theme={theme} title="Top models">
+    <Card theme={theme} title="Top models" icon="Boxes">
       {rows.map((row) => {
         const failed = row.failedPct ?? 0;
         return (
           <View key={`${row.provider}/${row.label}`} style={{ gap: 4 }}>
             <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
               <Swatch color={colors.get(row.provider ?? "") ?? theme.colors.foregroundMuted} />
-              <Text style={{ color: theme.colors.foreground, fontSize: 13, flexGrow: 1 }}>{row.label}</Text>
-              <Text style={{ color: failed >= 5 ? theme.colors.statusDanger : theme.colors.foregroundMuted, fontSize: 12 }}>
+              <Text style={{ ...TYPE.body, color: theme.colors.foreground, flexGrow: 1 }}>{row.label}</Text>
+              <Text style={{ ...TYPE.secondary, color: failed >= 5 ? theme.colors.statusDanger : theme.colors.foregroundMuted }}>
                 {[plural(row.requests, "request"), row.tokens !== null ? `${compact(row.tokens)} tokens` : null, failed > 0 ? `${failed}% failed` : null, seconds(row.avgLatencyMs ?? null)].filter(Boolean).join(" · ")}
               </Text>
             </View>
@@ -261,7 +264,7 @@ function TopModels({ theme, rows, colors }: { theme: Theme; rows: Usage["byModel
           </View>
         );
       })}
-      <Note theme={theme}>The swatch is the model's provider, as in the charts above.</Note>
+      <Meta theme={theme}>The swatch is the model's provider, as in the charts above.</Meta>
     </Card>
   );
 }
@@ -295,7 +298,7 @@ function Activity({ theme, activity, weeks, streak, busiest }: { theme: Theme; a
   );
   const chosen = picked ? { date: picked, value: tokens.get(picked) ?? 0 } : null;
   return (
-    <Card theme={theme} title={`Activity, last ${weeks} weeks`}>
+    <Card theme={theme} title={`Activity, last ${weeks} weeks`} icon="CalendarDays">
       <View style={{ flexDirection: "row", gap: 3 }}>
         {columns.map((column, w) => (
           <View key={w} style={{ gap: 3 }}>
@@ -304,11 +307,11 @@ function Activity({ theme, activity, weeks, streak, busiest }: { theme: Theme; a
         ))}
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginRight: 2 }}>Fewer tokens</Text>
+        <Text style={{ ...TYPE.small, color: theme.colors.foregroundMuted, marginRight: 2 }}>Fewer tokens</Text>
         {[0, 1, 2, 3, 4].map((lvl) => cell(lvl, `legend-${lvl}`))}
-        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginLeft: 2 }}>More</Text>
+        <Text style={{ ...TYPE.small, color: theme.colors.foregroundMuted, marginLeft: 2 }}>More</Text>
       </View>
-      <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>
+      <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>
         {chosen ? `${day(chosen.date)}: ${compact(chosen.value)} tokens` : [streak ? `${plural(streak, "day")} in a row with traffic` : null, busiest ? `busiest weekday: ${busiest}` : null].filter(Boolean).join(" · ") || "Tap a day for its tokens."}
       </Text>
     </Card>
@@ -319,11 +322,11 @@ function Errors({ theme, errors }: { theme: Theme; errors: Usage["errors"] }) {
   if (!errors.length) return null;
   const total = errors.reduce((sum, e) => sum + e.count, 0);
   return (
-    <Card theme={theme} title="Failed requests by kind">
+    <Card theme={theme} title="Failed requests by kind" icon="CircleX" tone="danger">
       {errors.map((e) => (
         <View key={e.type} style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-          <Text style={{ color: theme.colors.foreground, fontSize: 13, flexShrink: 1 }}>{errorWords(e.type)}</Text>
-          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{`${compact(e.count)} · ${Math.round((e.count / total) * 100)}%`}</Text>
+          <Text style={{ ...TYPE.body, color: theme.colors.foreground, flexShrink: 1 }}>{errorWords(e.type)}</Text>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>{`${compact(e.count)} · ${Math.round((e.count / total) * 100)}%`}</Text>
         </View>
       ))}
     </Card>
@@ -364,8 +367,8 @@ export function UsageTab({ theme, compact: narrow, initialRange = "7d" }: { them
           {range !== "1d" ? <TokensByProvider key={`tokens-${range}`} theme={theme} trend={data.providerTrend} colors={colors} /> : null}
           <ProviderSplit theme={theme} rows={data.byProvider} colors={colors} />
           <TopModels theme={theme} rows={data.byModel} colors={colors} />
-          <Breakdown theme={theme} title="By daemon" why={`One API key per daemon, so each row is one Paseo machine. Last ${words}.`} rows={data.byDaemon} />
-          <Breakdown theme={theme} title="By account" why={`Which subscription served the requests. Last ${words}.`} rows={data.byAccount} />
+          <Breakdown theme={theme} icon="Server" title="By daemon" why={`One API key per daemon, so each row is one Paseo machine. Last ${words}.`} rows={data.byDaemon} />
+          <Breakdown theme={theme} icon="Users" title="By account" why={`Which subscription served the requests. Last ${words}.`} rows={data.byAccount} />
           <Errors theme={theme} errors={data.errors} />
         </>
       )}

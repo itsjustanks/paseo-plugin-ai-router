@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.13.0 — 2026-09-26
+
+Written for someone who has never heard of a router or an API key. Every option, button, setting and
+tab is still there and works as before; nothing on the daemon changed.
+
+- **Overview explains itself.** A status card at the top says the state in words ("All set: AI Router
+  is working", "Connected: one step left", "Working, but Claude is paused", or when the router was
+  last seen), with the router, the AI Router provider, built-in Claude, access (now saying what it
+  allows) and the last agent under it, then Open dashboard and Sync models. Below it: **What is AI
+  Router?** (with the kinds of account the router offers now), **How it works** (four steps with icons
+  and arrows, and what happens when an account is busy), **How to use it** (numbered steps; combos
+  such as "Auto · Coding"; thinking level and mode work as normal; or keep built-in Claude and
+  re-route it on Providers) and **Words you'll see** (provider, model, combo, router, account, key and
+  access tier, routing, daemon). The guide also shows on Overview before a router is connected.
+  **Check out MCP** stays at the bottom.
+- **Every tab opens with an introduction.** Its icon, a clearer title ("Providers and re-routing",
+  "Your team's AI accounts", "Usage and cost"), one or two plain sentences on what it is for, and
+  **What you can do here**. On a phone that list folds away behind **Learn more**. This replaces the
+  one-line headings.
+- **Readable type.** One type scale for the whole panel: descriptions 15 px, secondary text 14,
+  nothing below 13 (chips, chart axes), section titles 17, tab titles 20, the page title 22.
+  Descriptions use the full text colour; muted grey is kept for times, ids and hints.
+- **A little colour.** Cards carry an icon in a soft accent circle; banners and the reply to a button
+  get a tinted background and an icon; the main buttons have icons; the header shows a coloured dot
+  for the router's state. Everything comes from Paseo's own theme colours, in light and dark, with no
+  new dependencies.
+
 ## 0.12.0 — 2026-09-24
 
 - **The sync works again on a busy router.** Auto combos (and their `ai-router:auto/…` profiles) now

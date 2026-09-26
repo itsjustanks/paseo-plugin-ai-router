@@ -25,10 +25,10 @@ export function McpCard({ theme, data, say }: { theme: PluginTheme; data: Status
     });
   };
   return (
-    <Card theme={theme} title="Check out MCP">
+    <Card theme={theme} title="Check out MCP" icon="Blocks">
       <Note theme={theme}>Manage MCP servers for Claude Code, Codex and your other agents in one place — sign-ins, tools and per-workspace switches.</Note>
       <Row>
-        <Button theme={theme} label="View plugin" onPress={() => void links.open(MCP_PLUGIN_URL)} />
+        <Button theme={theme} label="View plugin" icon="ExternalLink" onPress={() => void links.open(MCP_PLUGIN_URL)} />
         {data.plugins.installed.includes("paseo-mcp") ? (
           <Chip theme={theme} label="Installed" tone="success" />
         ) : (

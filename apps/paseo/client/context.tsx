@@ -6,9 +6,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { badge, context, type ContextView } from "../shared/contracts";
 import { contextTone, formatTokens, usageOf, type ChatAlert, type ContextUsage } from "../shared/context";
 import { routingSettings } from "../shared/settings";
-import { HostIcon } from "./navigation";
 import { errorText } from "./setup";
-import { Banner, Button, Card, Chip, Link, Note, Row, toneColor, type Tone } from "./ui";
+import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, TYPE, toneColor, type Tone } from "./ui";
 
 type Theme = PluginTheme;
 export const CONTEXT_PANEL_ID = "ai-router-context";
@@ -247,26 +246,26 @@ const hhmm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString([],
 
 function Meter({ theme, share, tone }: { theme: Theme; share: number; tone: Tone }) {
   return (
-    <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surface2, overflow: "hidden" }}>
-      <View style={{ width: `${Math.max(0, Math.min(1, share)) * 100}%`, height: 6, borderRadius: 3, backgroundColor: tone === "neutral" ? theme.colors.accent : toneColor(theme, tone) }} />
+    <View style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surface2, overflow: "hidden" }}>
+      <View style={{ width: `${Math.max(0, Math.min(1, share)) * 100}%`, height: 8, borderRadius: 4, backgroundColor: tone === "neutral" ? theme.colors.accent : toneColor(theme, tone) }} />
     </View>
   );
 }
 
 function Parts({ theme, data }: { theme: Theme; data: ContextView }) {
   return (
-    <Card theme={theme} title="What's using it">
+    <Card theme={theme} title="What's using it" icon="ChartPie">
       <Note theme={theme}>Biggest first. ≈ means estimated from this chat's own history (about 4 characters per token). The line marked "the rest" is the exact total minus everything else listed.</Note>
       {data.parts.map((part) => (
-        <View key={part.id} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 8 }}>
+        <View key={part.id} style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}>
-            <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600", flexShrink: 1 }}>{part.label}</Text>
-            <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{`${part.kind === "measured" ? "" : "≈ "}${formatTokens(part.tokens)} · ${percent(part.share)}${part.kind === "rest" ? " · the rest" : part.kind === "measured" ? " · measured" : ""}`}</Text>
+            <ItemTitle theme={theme}>{part.label}</ItemTitle>
+            <Meta theme={theme}>{`${part.kind === "measured" ? "" : "≈ "}${formatTokens(part.tokens)} · ${percent(part.share)}${part.kind === "rest" ? " · the rest" : part.kind === "measured" ? " · measured" : ""}`}</Meta>
           </View>
           <Meter theme={theme} share={part.share} tone="neutral" />
-          {part.note ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{part.note}</Text> : null}
+          {part.note ? <Text style={{ ...TYPE.secondary, color: theme.colors.foreground }}>{part.note}</Text> : null}
           {part.top.length ? (
-            <Text selectable numberOfLines={2} style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+            <Text selectable numberOfLines={2} style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>
               {part.top.map((item) => `${item.name} ≈ ${formatTokens(item.tokens)}`).join(" · ")}
             </Text>
           ) : null}
@@ -280,7 +279,7 @@ function Parts({ theme, data }: { theme: Theme; data: ContextView }) {
 function RouterCard({ theme, router }: { theme: Theme; router: ContextView["router"] }) {
   if (router.state === "not-routed") return null;
   return (
-    <Card theme={theme} title="Measured by OmniRoute">
+    <Card theme={theme} title="Measured by OmniRoute" icon="Route">
       {router.state !== "ok" ? (
         <Note theme={theme} tone={router.state === "error" ? "warning" : "neutral"}>{router.message ?? "Not available."}</Note>
       ) : router.requests === 0 ? (
@@ -327,11 +326,11 @@ export function ContextBody({ theme, data, onRefresh, refreshing, onHide }: { th
     <>
       <Card theme={theme}>
         <Row>
-          <Text style={{ color: theme.colors.foreground, fontSize: 18, fontWeight: "700" }}>{`${data.usedTokens.toLocaleString()} of ${data.maxTokens.toLocaleString()} tokens`}</Text>
+          <Text style={{ ...TYPE.tabTitle, color: theme.colors.foreground }}>{`${data.usedTokens.toLocaleString()} of ${data.maxTokens.toLocaleString()} tokens`}</Text>
           <Chip theme={theme} label={`${percent(share)} full`} tone={tone} />
         </Row>
         <Meter theme={theme} share={share} tone={tone} />
-        <Note theme={theme}>Exact: as the agent reported it after its last turn.</Note>
+        <Meta theme={theme}>Exact: as the agent reported it after its last turn.</Meta>
         {data.urgent ? <Note theme={theme} tone="danger">{data.urgent}</Note> : null}
       </Card>
       {data.parts.length ? <Parts theme={theme} data={data} /> : null}
@@ -370,8 +369,8 @@ export function makeContextPanel(store: BadgeStore, openSurface: ((id: string) =
     const data = query.data;
     return (
       <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: layout.compact ? 12 : 16, paddingBottom: 32 }}>
-        <View style={{ gap: 2, marginBottom: 12 }}>
-          <Text style={{ color: theme.colors.foreground, fontSize: 18, fontWeight: "700" }}>Context</Text>
+        <View style={{ gap: 4, marginBottom: 14 }}>
+          <Text accessibilityRole="header" style={{ ...TYPE.tabTitle, color: theme.colors.foreground }}>Context</Text>
           <Note theme={theme}>{data?.agent?.title ?? "What this chat is carrying, and what uses the most of it."}</Note>
         </View>
         {alert ? (

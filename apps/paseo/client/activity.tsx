@@ -7,7 +7,7 @@ import { activity, activityDetail, type Activity, type RequestRowView, type Stat
 import { plainReason, paseoProviderName } from "../shared/logic";
 import { compactNumber as compact } from "../shared/routers/omniroute/parsers";
 import { errorText } from "./setup";
-import { Banner, Card, Chip, Link, Note, Row, StaleNote, Toggle, toneColor } from "./ui";
+import { Banner, Card, Chip, Link, Meta, Note, Row, StaleNote, TYPE, ToggleRow, toneColor } from "./ui";
 
 type Theme = PluginTheme;
 /** Paseo's own "go to this agent"; null on hosts that do not offer it. */
@@ -26,8 +26,8 @@ function Segmented<T extends string>({ theme, value, options, onChange }: { them
       {options.map((option) => {
         const selected = option.id === value;
         return (
-          <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} onPress={() => onChange(option.id)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
-            <Text style={{ color: selected ? theme.colors.accentForeground : theme.colors.foreground, fontSize: 12, fontWeight: "600" }}>{option.label}</Text>
+          <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} onPress={() => onChange(option.id)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
+            <Text style={{ ...TYPE.secondary, color: selected ? theme.colors.accentForeground : theme.colors.foreground, fontWeight: "600" }}>{option.label}</Text>
           </Pressable>
         );
       })}
@@ -38,8 +38,8 @@ function Segmented<T extends string>({ theme, value, options, onChange }: { them
 /** A filter chip: tap to pick, tap again to clear. */
 function Pick({ theme, label, selected, onPress }: { theme: Theme; label: string; selected: boolean; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${selected ? "Clear" : "Only"} ${label}`} accessibilityState={{ selected }} onPress={onPress} style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: selected ? theme.colors.accent : theme.colors.border, backgroundColor: selected ? theme.colors.surface2 : "transparent" }}>
-      <Text style={{ color: selected ? theme.colors.accent : theme.colors.foregroundMuted, fontSize: 12, fontWeight: selected ? "700" : "500" }}>{label}</Text>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${selected ? "Clear" : "Only"} ${label}`} accessibilityState={{ selected }} onPress={onPress} style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: selected ? theme.colors.accent : theme.colors.border, backgroundColor: selected ? theme.colors.surface2 : "transparent" }}>
+      <Text style={{ ...TYPE.secondary, color: selected ? theme.colors.accent : theme.colors.foreground, fontWeight: selected ? "700" : "500" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -49,7 +49,7 @@ function OpenLink({ theme, openAgent, agentId, title }: { theme: Theme; openAgen
   if (!openAgent || !title) return null;
   return (
     <Pressable accessibilityRole="link" accessibilityLabel={`Open ${title}`} onPress={() => openAgent(agentId)} hitSlop={6}>
-      <Text style={{ color: theme.colors.accent, fontSize: 12, fontWeight: "600" }}>Open</Text>
+      <Text style={{ ...TYPE.secondary, color: theme.colors.accent, fontWeight: "600" }}>Open</Text>
     </Pressable>
   );
 }
@@ -59,18 +59,18 @@ function Sessions({ theme, sessions, openAgent }: { theme: Theme; sessions: Acti
   const [all, setAll] = useState(false);
   const shown = all ? sessions : sessions.slice(0, 8);
   return (
-    <Card theme={theme} title="Agent sessions on this daemon">
+    <Card theme={theme} title="Agent sessions on this daemon" icon="Bot" subtitle="Every chat that started here, and whether it used the router">
       <Note theme={theme}>Each time an agent starts or resumes here, AI Router decides whether it goes through the router. Kept for the last 200.</Note>
       {!sessions.length ? <Note theme={theme}>No agent has started on this daemon since AI Router was installed.</Note> : null}
       {shown.map((s, i) => (
-        <View key={`${s.at}-${s.agentId}-${i}`} style={{ gap: 2, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 8 }}>
+        <View key={`${s.at}-${s.agentId}-${i}`} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
           <Row>
-            <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, width: 64 }}>{time(s.at)}</Text>
-            <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600", flexShrink: 1 }}>{s.agentTitle ?? `Agent ${shortId(s.agentId)}`}</Text>
+            <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, width: 72 }}>{time(s.at)}</Text>
+            <Text style={{ ...TYPE.item, color: theme.colors.foreground, flexShrink: 1 }}>{s.agentTitle ?? `Agent ${shortId(s.agentId)}`}</Text>
             <Chip theme={theme} label={s.routed ? "routed" : s.kind === "claude" ? "own sign-in" : "not started"} tone={s.routed ? "success" : "warning"} />
             <OpenLink theme={theme} openAgent={openAgent} agentId={s.agentId} title={s.agentTitle} />
           </Row>
-          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>
             {[paseoProviderName(s.provider, null), s.routed ? (s.tagged ? "requests linked in OmniRoute's log" : null) : s.reason ? plainReason(s.reason) : null].filter(Boolean).join(" · ")}
           </Text>
         </View>
@@ -86,21 +86,21 @@ function Detail({ theme, row }: { theme: Theme; row: RequestRowView }) {
   const query = useQuery({ queryKey: ["ai-router", "activity", "detail", row.id], queryFn: () => call({ id: row.id }), staleTime: 60_000 });
   const d = query.data;
   return (
-    <View style={{ gap: 6, marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: theme.colors.surface0, borderWidth: 1, borderColor: theme.colors.border }}>
+    <View style={{ gap: 6, marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface0, borderWidth: 1, borderColor: theme.colors.border }}>
       {row.error ? <Note theme={theme} tone="danger">{`Error: ${row.error}`}</Note> : null}
       {!d ? <Note theme={theme}>{query.error ? errorText(query.error) : "Asking the router why…"}</Note> : null}
       {d && d.state !== "ok" ? <Note theme={theme} tone="warning">{d.message}</Note> : null}
       {d && d.state === "ok" ? (
         <>
-          {d.summary ? <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{d.summary}</Text> : null}
+          {d.summary ? <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>{d.summary}</Text> : null}
           {d.account ? <Note theme={theme}>{`Account: ${d.account}`}</Note> : null}
           {d.factors.map((f) => <Note key={f.name} theme={theme} tone={f.status === "negative" ? "danger" : f.status === "warning" ? "warning" : "neutral"}>{`${f.name}: ${f.details ?? f.value}`}</Note>)}
-          {d.fallbacks.length ? <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600" }}>Tried first</Text> : null}
+          {d.fallbacks.length ? <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>Tried first</Text> : null}
           {d.fallbacks.map((f, i) => <Note key={i} theme={theme} tone="warning">{`${[f.provider, f.model].filter(Boolean).join(" · ")}${f.status ? ` answered ${f.status}` : ""}${f.reason ? `: ${f.reason}` : ""}`}</Note>)}
-          {d.limitations.map((l) => <Text key={l} style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>{l}</Text>)}
+          {d.limitations.map((l) => <Meta key={l} theme={theme}>{l}</Meta>)}
         </>
       ) : null}
-      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>{`Request ${row.id}. Prompts and responses are never shown here.`}</Text>
+      <Meta theme={theme}>{`Request ${row.id}. Prompts and responses are never shown here.`}</Meta>
     </View>
   );
 }
@@ -109,25 +109,25 @@ function RequestLine({ theme, row, open, onToggle, showDaemon, openAgent }: { th
   const changed = !!row.requestedModel && !!row.model && bare(row.requestedModel) !== bare(row.model);
   const tokens = row.tokensIn !== null || row.tokensOut !== null ? `${compact(row.tokensIn ?? 0)} in / ${compact(row.tokensOut ?? 0)} out` : null;
   return (
-    <View style={{ borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 8 }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Request ${row.id}, ${row.ok ? "succeeded" : "failed"}; ${open ? "hide" : "show"} why`} accessibilityState={{ expanded: open }} onPress={onToggle} style={{ gap: 3 }}>
+    <View style={{ borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Request ${row.id}, ${row.ok ? "succeeded" : "failed"}; ${open ? "hide" : "show"} why`} accessibilityState={{ expanded: open }} onPress={onToggle} style={{ gap: 4 }}>
         <Row>
-          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, width: 64 }}>{time(row.at)}</Text>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, width: 72 }}>{time(row.at)}</Text>
           <Chip theme={theme} label={row.status === null ? (row.ok ? "ok" : "error") : String(row.status)} tone={row.ok ? "success" : "danger"} />
-          <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600", flexShrink: 1 }}>{changed ? `${row.requestedModel} → ${row.model}` : row.model ?? row.requestedModel ?? "unknown model"}</Text>
+          <Text style={{ ...TYPE.item, color: theme.colors.foreground, flexShrink: 1 }}>{changed ? `${row.requestedModel} → ${row.model}` : row.model ?? row.requestedModel ?? "unknown model"}</Text>
           {row.combo ? <Chip theme={theme} label={`combo ${row.combo}`} /> : null}
           {row.fallback ? <Chip theme={theme} label="fallback" tone="warning" /> : null}
         </Row>
-        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+        <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>
           {[row.provider, row.account, seconds(row.latencyMs), tokens].filter(Boolean).join(" · ")}
         </Text>
-        {row.error && !open ? <Text numberOfLines={1} style={{ color: toneColor(theme, "danger"), fontSize: 12 }}>{row.error}</Text> : null}
+        {row.error && !open ? <Text numberOfLines={1} style={{ ...TYPE.secondary, color: toneColor(theme, "danger") }}>{row.error}</Text> : null}
         <Row>
-          {showDaemon && row.daemon ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, fontWeight: row.thisDaemon ? "700" : "400" }}>{row.daemon}</Text> : null}
+          {showDaemon && row.daemon ? <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, fontWeight: row.thisDaemon ? "700" : "400" }}>{row.daemon}</Text> : null}
           {showDaemon && row.thisDaemon ? <Chip theme={theme} label="this daemon" tone="success" /> : null}
-          {row.agent ? <Text style={{ color: theme.colors.foreground, fontSize: 12 }}>{`Agent: ${row.agent.title ?? shortId(row.agent.id)}${row.agent.match === "likely" ? " (likely)" : ""}`}</Text> : null}
+          {row.agent ? <Text style={{ ...TYPE.secondary, color: theme.colors.foreground }}>{`Agent: ${row.agent.title ?? shortId(row.agent.id)}${row.agent.match === "likely" ? " (likely)" : ""}`}</Text> : null}
           {row.agent ? <OpenLink theme={theme} openAgent={openAgent} agentId={row.agent.id} title={row.agent.title} /> : null}
-          <Text style={{ color: theme.colors.accent, fontSize: 12, fontWeight: "600", marginLeft: "auto" }}>{open ? "Hide" : "Why?"}</Text>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.accent, fontWeight: "600", marginLeft: "auto" }}>{open ? "Hide" : "Why?"}</Text>
         </Row>
       </Pressable>
       {open ? <Detail theme={theme} row={row} /> : null}
@@ -163,12 +163,11 @@ function Requests({ theme, data, filter, setFilter, loading, openAgent }: { them
   const providers = topValues(data.rows, (row) => (row.providerId ? { value: row.providerId, label: row.provider ?? row.providerId } : null), filter.provider);
   const set = (patch: Partial<Filter>) => setFilter({ ...filter, ...patch, limit: PAGE });
   return (
-    <Card theme={theme} title="Requests through the router">
+    <Card theme={theme} title="Requests through the router" icon="ArrowLeftRight" subtitle="Each request the router served, newest first">
       {data.stale ? <StaleNote theme={theme} checkedAt={data.checkedAt} reason={data.stale.reason} /> : null}
       <Row>
         <Segmented theme={theme} value={filter.scope} options={[{ id: "daemon", label: "This daemon" }, { id: "all", label: "All daemons" }]} onChange={(scope) => set({ scope })} />
-        <Toggle theme={theme} label="Errors only" value={filter.errorsOnly} onChange={(errorsOnly) => set({ errorsOnly })} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 12 }}>Errors only</Text>
+        <ToggleRow theme={theme} label="Errors only" text="Errors only" value={filter.errorsOnly} onChange={(errorsOnly) => set({ errorsOnly })} />
       </Row>
       {models.length > 1 || filter.model ? <Row>{models.map((m) => <Pick key={m.value} theme={theme} label={m.label} selected={filter.model === m.value} onPress={() => set({ model: filter.model === m.value ? null : m.value })} />)}</Row> : null}
       {providers.length > 1 || filter.provider ? <Row>{providers.map((p) => <Pick key={p.value} theme={theme} label={p.label} selected={filter.provider === p.value} onPress={() => set({ provider: filter.provider === p.value ? null : p.value })} />)}</Row> : null}
@@ -177,7 +176,7 @@ function Requests({ theme, data, filter, setFilter, loading, openAgent }: { them
       {data.rows.map((row) => <RequestLine key={row.id} theme={theme} row={row} open={open === row.id} onToggle={() => setOpen(open === row.id ? null : row.id)} showDaemon={filter.scope === "all" || !row.thisDaemon} openAgent={openAgent} />)}
       {data.hasMore && filter.limit < 200 ? <Link theme={theme} label={loading ? "Loading…" : "Show older"} onPress={() => setFilter({ ...filter, limit: Math.min(200, filter.limit + PAGE) })} /> : null}
       {data.notes.map((n) => <Note key={n} theme={theme}>{n}</Note>)}
-      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>Refreshes every 10 seconds while this tab is open. Routing details only: prompts and responses never leave the router.</Text>
+      <Meta theme={theme}>Refreshes every 10 seconds while this tab is open. Routing details only: prompts and responses never leave the router.</Meta>
     </Card>
   );
 }
@@ -195,7 +194,7 @@ export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; d
   const operator = data.tier === "operator" || data.tier === "admin";
   const connected = data.tier !== "none";
   if (!result) {
-    return <Card theme={theme} title="Traffic">{query.error ? <Note theme={theme} tone="danger">{errorText(query.error)}</Note> : <Note theme={theme}>Reading the traffic…</Note>}</Card>;
+    return <Card theme={theme} title="Traffic" icon="ArrowLeftRight">{query.error ? <Note theme={theme} tone="danger">{errorText(query.error)}</Note> : <Note theme={theme}>Reading the traffic…</Note>}</Card>;
   }
   return (
     <>
@@ -203,7 +202,7 @@ export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; d
       {operator ? (
         <Requests theme={theme} data={result.requests} filter={filter} setFilter={setFilter} loading={query.isFetching} openAgent={openAgent} />
       ) : !connected ? (
-        <Card theme={theme} title="Requests through the router">
+        <Card theme={theme} title="Requests through the router" icon="ArrowLeftRight">
           <Note theme={theme}>Once a router is connected with a read token, every request it served shows here.</Note>
         </Card>
       ) : (

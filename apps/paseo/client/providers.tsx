@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +8,7 @@ import { AI_ROUTER_PROVIDER_ID } from "../shared/logic";
 import { routingSettings } from "../shared/settings";
 import { AdvancedBanner } from "./dashboard";
 import { STATUS_KEY, errorText, type Message } from "./setup";
-import { Banner, Button, Card, Chip, Note, Row, Toggle } from "./ui";
+import { Banner, Button, Card, Chip, ItemTitle, Meta, Note, Row, ToggleRow } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -35,11 +35,8 @@ function ClaudeReroute({ theme, say }: { theme: Theme; say: Say }) {
     });
   };
   return (
-    <View style={{ gap: 6, flexShrink: 1 }}>
-      <Row>
-        <Toggle theme={theme} label="Re-route Claude through OmniRoute" value={on} busy={settings.saving} disabled={settings.status !== "ready" || asking !== null} onChange={(next) => setAsking(next)} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{on ? "Through OmniRoute" : "Own sign-in"}</Text>
-      </Row>
+    <View style={{ gap: 10, flexShrink: 1 }}>
+      <ToggleRow theme={theme} label="Re-route Claude through OmniRoute" text={on ? "Through OmniRoute" : "Own sign-in"} value={on} busy={settings.saving} disabled={settings.status !== "ready" || asking !== null} onChange={(next) => setAsking(next)} />
       {on && asking === null ? <Note theme={theme}>Paseo's Fast switch has no effect on these chats: OmniRoute can't pass Fast mode on yet, so it stays off instead of failing.</Note> : null}
       {asking === true ? (
         <>
@@ -78,11 +75,8 @@ function CodexThrough({ theme, data, say }: { theme: Theme; data: Status; say: S
   });
   const present = data.codexRouter.present;
   return (
-    <View style={{ gap: 4, flexShrink: 1 }}>
-      <Row>
-        <Toggle theme={theme} label="Codex via OmniRoute" value={present} busy={toggle.isPending} disabled={data.problem !== null} onChange={(next) => toggle.mutate(next)} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{present ? `Codex via OmniRoute · ${data.codexRouter.modelCount} models` : "Add Codex via OmniRoute"}</Text>
-      </Row>
+    <View style={{ gap: 10, flexShrink: 1 }}>
+      <ToggleRow theme={theme} label="Codex via OmniRoute" text={present ? `Codex via OmniRoute · ${data.codexRouter.modelCount} models` : "Add Codex via OmniRoute"} value={present} busy={toggle.isPending} disabled={data.problem !== null} onChange={(next) => toggle.mutate(next)} />
       {!present ? <Note theme={theme}>A separate provider that runs Codex on your OmniRoute accounts; no Codex login needed here.</Note> : null}
     </View>
   );
@@ -99,16 +93,16 @@ function RerouteCard({ theme, rows, data, say }: { theme: Theme; rows: readonly 
   const codex = rows.find((row) => row.through === "codex-provider");
   const others = rows.filter((row) => row.through === "none").map((row) => row.label);
   const line = (label: string, body: React.ReactNode) => (
-    <View style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
-      <Text style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: "600" }}>{label}</Text>
+    <View style={{ gap: 10, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 14 }}>
+      <ItemTitle theme={theme}>{label}</ItemTitle>
       {body}
     </View>
   );
   return (
-    <Card theme={theme} title="Re-route providers">
+    <Card theme={theme} title="Re-route providers" icon="Route">
       <Note theme={theme}>The AI Router provider is the way to use OmniRoute: pick it in Paseo's menu and every connected model is there. A built-in provider keeps its own sign-in unless you re-route it here.</Note>
       {line(router?.label ?? "AI Router", data.aiProvider.present
-        ? <Row><Chip theme={theme} label="Always through OmniRoute" tone="success" /><Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{`${data.aiProvider.modelCount} models`}</Text></Row>
+        ? <Row><Chip theme={theme} label="Always through OmniRoute" tone="success" /><Meta theme={theme}>{`${data.aiProvider.modelCount} models`}</Meta></Row>
         : <Note theme={theme}>Not in Paseo yet: Models → Sync models to Paseo adds it.</Note>)}
       {claude ? line(claude.label, <ClaudeReroute theme={theme} say={say} />) : null}
       {codex ? line(codex.label, <CodexThrough theme={theme} data={data} say={say} />) : null}
@@ -138,7 +132,7 @@ export function ProvidersTab({ theme, data, say }: { theme: Theme; data: Status;
       {list?.state === "ok" ? <RerouteCard theme={theme} rows={list.rows} data={data} say={say} /> : null}
       <AdvancedBanner theme={theme} data={data} say={say} />
       {!list ? (
-        <Card theme={theme} title="Re-route providers">
+        <Card theme={theme} title="Re-route providers" icon="Route">
           {query.error ? <Note theme={theme} tone="danger">{errorText(query.error)}</Note> : <Note theme={theme}>Asking Paseo…</Note>}
         </Card>
       ) : list.state === "error" ? (
@@ -148,13 +142,13 @@ export function ProvidersTab({ theme, data, say }: { theme: Theme; data: Status;
         </Banner>
       ) : null}
       {list?.state === "ok" ? (
-        <Card theme={theme} title="Tidy up">
+        <Card theme={theme} title="Tidy up" icon="Sparkles" subtitle="Hide providers that can't run on this computer">
           {!candidates.length ? (
             <Note theme={theme}>Nothing to tidy: every enabled provider answers. Claude, Codex, the router's providers and anything you set up yourself are never touched. Turning providers on and off one by one is in Paseo's Settings → Providers.</Note>
           ) : !previewing ? (
             <>
               <Note theme={theme}>{`${candidates.length} enabled provider${candidates.length === 1 ? " is" : "s are"} not usable on this daemon. Turning ${candidates.length === 1 ? "it" : "them"} off tidies Paseo's menu; any can go back on in Paseo's Settings → Providers.`}</Note>
-              <Row><Button theme={theme} label="Tidy up…" onPress={() => setPreviewing(true)} /></Row>
+              <Row><Button theme={theme} label="Tidy up…" icon="Sparkles" onPress={() => setPreviewing(true)} /></Row>
             </>
           ) : (
             <>

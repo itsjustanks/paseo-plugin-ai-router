@@ -141,6 +141,11 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "context chip (router down, no turn yet)": contextChip(0, 0, true),
   "context panel (router down)": contextPanel("ok", { used: 186_204, max: 1_000_000 }, narrow, true),
   "activity (open an agent)": surface("routing on", wide, { tab: "activity" }),
+  // Each tab's intro: "What you can do here" folds away on a phone; the guide's link opens Providers
+  "providers tab (narrow, learn more)": surface("basic", narrow, { tab: "providers" }),
+  "overview (guide opens Providers)": surface("routing on", wide),
+  "overview (not connected)": surface("not connected", wide, { tab: "overview" }),
+  "setup (link opens the guide)": surface("not connected", narrow),
   "context panel (operator)": contextPanel("ok", { used: 186_204, max: 1_000_000 }),
   "context panel (compacted, nearly full, narrow)": contextPanel("full", { used: 172_000, max: 200_000 }, narrow),
   "context panel (basic)": contextPanel("basic", { used: 58_400, max: 200_000 }),
@@ -188,6 +193,9 @@ export const presses: Record<string, string[]> = {
   "context panel (timeline error, refresh)": ["Refresh"],
   "context panel (hide the badge)": ["Hide the Breakdown chip"],
   "activity (open an agent)": ["Open Fix the login bug", "Open Draft release notes"],
+  "providers tab (narrow, learn more)": ["Learn more: what you can do here"],
+  "overview (guide opens Providers)": ["Open the Providers tab"],
+  "setup (link opens the guide)": ["New to AI Router? Overview explains what it is and how it works"],
 };
 
 /** Mounts whose every visible tab is pressed in turn, then the first again. */

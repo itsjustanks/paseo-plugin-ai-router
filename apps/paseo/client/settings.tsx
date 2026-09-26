@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,7 +13,7 @@ import { AdvancedBanner, dashboardTarget, useLinks } from "./dashboard";
 import { RouterSettingsCard } from "./insights";
 import { errorText, type Message } from "./setup";
 import type { TabId } from "./navigation";
-import { Button, Card, Chip, Link, Note, Row, Toggle, type Tone } from "./ui";
+import { Button, Card, Chip, ItemTitle, Link, Meta, Note, Row, ToggleRow, type Tone } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -51,7 +51,7 @@ function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say
   const flagged = copy.engines.filter((engine) => running.includes(engine.id) && (engine.verdict === "risky" || engine.verdict === "avoid"));
   const label = (id: string) => copy.engines.find((engine) => engine.id === id)?.label ?? id;
   return (
-    <Card theme={theme} title="Context compression">
+    <Card theme={theme} title="Context compression" icon="Minimize2" subtitle="How the router shrinks long prompts before sending them on">
       {!now ? (
         <Note theme={theme}>{query.error ? errorText(query.error) : "Asking the router…"}</Note>
       ) : now.state !== "ok" ? (
@@ -66,8 +66,8 @@ function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say
           {flagged.map((engine) => <Note key={engine.id} theme={theme} tone="warning">{`${engine.label} is on: ${engine.agents}`}</Note>)}
         </>
       )}
-      <View style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
-        <Text style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: "600" }}>{copy.recommended.title}</Text>
+      <View style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
+        <ItemTitle theme={theme}>{copy.recommended.title}</ItemTitle>
         {copy.recommended.why.map((line) => <Note key={line} theme={theme}>{`• ${line}`}</Note>)}
       </View>
       {now?.state === "ok" && now.canEdit ? (
@@ -89,14 +89,14 @@ function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say
       <Link theme={theme} label={showEngines ? "Hide what each engine does" : "What each engine does"} onPress={() => setShowEngines(!showEngines)} />
       {showEngines
         ? copy.engines.map((engine) => (
-            <View key={engine.id} style={{ gap: 2 }}>
+            <View key={engine.id} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
               <Row>
-                <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600" }}>{engine.label}</Text>
+                <ItemTitle theme={theme}>{engine.label}</ItemTitle>
                 <Chip theme={theme} label={VERDICT[engine.verdict].label} tone={VERDICT[engine.verdict].tone} />
                 {running.includes(engine.id) ? <Chip theme={theme} label="on" /> : null}
               </Row>
               <Note theme={theme}>{engine.what}</Note>
-              <Note theme={theme}>{`For agents: ${engine.agents}`}</Note>
+              <Meta theme={theme}>{`For agents: ${engine.agents}`}</Meta>
             </View>
           ))
         : null}
@@ -110,14 +110,14 @@ function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }
   const { url } = dashboardTarget(data);
   const copy = ROUTERS[data.connection.router];
   return (
-    <Card theme={theme} title={`More in ${copy.label}`}>
+    <Card theme={theme} title={`More in ${copy.label}`} icon="Compass">
       <Note theme={theme}>These live in the dashboard, which asks for its own login (ask your router admin).</Note>
       {copy.more.map((item) => {
         const link = dashboardLink(url, item.path);
         return (
-          <View key={item.title} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+          <View key={item.title} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
             <View style={{ flex: 1, minWidth: 200, gap: 2 }}>
-              <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600" }}>{item.title}</Text>
+              <ItemTitle theme={theme}>{item.title}</ItemTitle>
               <Note theme={theme}>{item.detail}</Note>
             </View>
             {link ? <Link theme={theme} label="Open" accessibilityLabel={`Open ${item.title}`} onPress={() => void links.open(link)} /> : null}
@@ -142,16 +142,10 @@ function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
   const badge = ready ? settings.values.contextBadge !== false : true;
   const mcp = ready ? settings.values.mcpCard !== false : true;
   return (
-    <Card theme={theme} title="In Paseo">
-      <Row>
-        <Toggle theme={theme} label="Context breakdown chip on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Breakdown chip on." : "Breakdown chip off.")} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>Context breakdown chip on each chat</Text>
-      </Row>
+    <Card theme={theme} title="In Paseo" icon="ToggleRight" subtitle="What AI Router adds to Paseo's own screens, on this computer">
+      <ToggleRow theme={theme} label="Context breakdown chip on each chat" text="Context breakdown chip on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Breakdown chip on." : "Breakdown chip off.")} />
       <Note theme={theme}>A "Breakdown" chip beside Paseo's own context meter: tap it to see what is filling the chat. It turns red with the reason when OmniRoute is down or has paused a routed chat's provider. Needs no read token: the parts are worked out on this daemon.</Note>
-      <Row>
-        <Toggle theme={theme} label="Check out MCP card on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP card back on Overview." : "MCP card hidden.")} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>"Check out MCP" card on Overview</Text>
-      </Row>
+      <ToggleRow theme={theme} label="Check out MCP card on Overview" text={'"Check out MCP" card on Overview'} value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP card back on Overview." : "MCP card hidden.")} />
       {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
       {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
     </Card>
@@ -171,7 +165,7 @@ export function SettingsTab({ theme, data, configured, go, say }: { theme: Theme
           <MoreCard theme={theme} data={data} say={say} />
         </>
       ) : (
-        <Card theme={theme} title="Router settings">
+        <Card theme={theme} title="Router settings" icon="Settings2">
           <Note theme={theme}>{configured ? "A read token shows how the router compresses prompts, and a few of its settings worth knowing." : "Connect a router to see its settings."}</Note>
           <Link theme={theme} label={configured ? "Add a read token on Connection" : "Open Connection"} onPress={() => go("connection")} />
         </Card>

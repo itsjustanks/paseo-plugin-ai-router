@@ -5,7 +5,7 @@ import { tunnelKind } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
 import { copyLink, openInBrowser } from "./links";
 import type { Message } from "./setup";
-import { Banner, Button, Chip, Note, Row } from "./ui";
+import { Banner, Button, Chip, Meta, Note, Row } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -41,7 +41,7 @@ export function OpenDashboardButton({ theme, data, say, primary, label }: { them
   if (!url) return null;
   return (
     <>
-      <Button theme={theme} label={label ?? `Open ${ROUTERS[data.connection.router].label} dashboard`} primary={primary} onPress={() => void links.open(url)} />
+      <Button theme={theme} label={label ?? `Open ${ROUTERS[data.connection.router].label} dashboard`} icon="ExternalLink" primary={primary} onPress={() => void links.open(url)} />
       {via ? <Chip theme={theme} label={via} tone="success" /> : null}
     </>
   );
@@ -52,10 +52,11 @@ export function AdvancedBanner({ theme, data, say }: { theme: Theme; data: Statu
   const name = ROUTERS[data.connection.router].label;
   return (
     <Banner theme={theme} tone="neutral" title={`Advanced routing (combos, fallbacks, per-provider rules) lives in the ${name} dashboard`}>
+      <Note theme={theme}>That is where an admin sets up combos (named groups of models), fallbacks (what to try when a model fails) and rules for each provider.</Note>
       <Row>
         <OpenDashboardButton theme={theme} data={data} say={say} label="Open dashboard" />
       </Row>
-      <Note theme={theme}>Dashboard login: ask your router admin.</Note>
+      <Meta theme={theme}>Dashboard login: ask your router admin.</Meta>
     </Banner>
   );
 }

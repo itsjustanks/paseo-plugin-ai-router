@@ -5,7 +5,7 @@ import type { Status } from "../shared/contracts";
 import { shareSnippets } from "../shared/logic";
 import { useLinks } from "./dashboard";
 import type { Message } from "./setup";
-import { Card, Fact, Link, Note, Row } from "./ui";
+import { Card, Fact, ItemTitle, Link, Note, Row, TYPE } from "./ui";
 
 type Theme = PluginTheme;
 
@@ -18,23 +18,23 @@ export function ShareCard({ theme, data, say }: { theme: Theme; data: Status; sa
   const publicUrl = data.connection.publicUrl;
   if (!publicUrl) {
     return (
-      <Card theme={theme} title="Share this router">
+      <Card theme={theme} title="Share this router" icon="Share2">
         <Note theme={theme}>Set a public address (custom domain) under Edit, and this card shows how others connect to the router from outside your network.</Note>
       </Card>
     );
   }
   const check = data.connection.publicCheck;
   return (
-    <Card theme={theme} title="Share this router">
+    <Card theme={theme} title="Share this router" icon="Share2" subtitle="How other people and apps can use this router">
       <Fact theme={theme} label="Endpoint" value={publicUrl} />
       <Fact theme={theme} label="API key" value="Ask your router admin for your own key, one per person or machine, so usage shows per key." />
       {check && check.state !== "ok" && check.state !== "checking" ? <Note theme={theme} tone="warning">{`The public address is not ready yet: ${check.label}. These work once it is.`}</Note> : null}
       {shareSnippets(publicUrl).map((snippet) => (
         <View key={snippet.id} style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
-          <Text style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: "600" }}>{snippet.title}</Text>
+          <ItemTitle theme={theme}>{snippet.title}</ItemTitle>
           <Note theme={theme}>{snippet.why}</Note>
-          <View style={{ backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 8, padding: 10 }}>
-            <Text selectable style={{ color: theme.colors.foreground, fontSize: 12, fontFamily: "monospace", lineHeight: 18 }}>{snippet.text}</Text>
+          <View style={{ backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 10, padding: 12 }}>
+            <Text selectable style={{ ...TYPE.mono, color: theme.colors.foreground }}>{snippet.text}</Text>
           </View>
           <Row>
             <Link theme={theme} label="Copy" accessibilityLabel={`Copy the ${snippet.title} setup`} onPress={() => links.copy(snippet.text, `the ${snippet.title} setup`)} />
