@@ -57,6 +57,7 @@ import {
 import { handleBadge, handleContext } from "./server/context";
 import { registerRoutingHooks } from "./server/hooks";
 import { noteActivity, startAutoSync } from "./server/provider";
+import { registerUsage } from "./server/usage";
 
 /** Every RPC is also a chance to run the background model sync; it never delays the answer. */
 function active<I, O>(handler: (input: I, context: PluginHandlerContext) => O) {
@@ -96,6 +97,8 @@ export default function contribute(server: PluginServerContext) {
   // The context badge: neither runs the model sync, so a chat's chip never adds work beyond its own read.
   server.handle(badge, handleBadge);
   server.handle(context, handleContext);
+  // Paseo 0.11+: one card per router account on Paseo's own Usage page. Older daemons skip this.
+  registerUsage(server);
   // Also checks the AI Router provider once at load, with no Paseo handle yet (see server/provider.ts).
   return startAutoSync();
 }

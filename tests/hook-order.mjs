@@ -20,7 +20,7 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents, tabBarWidthCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
 const BASIC_TABS = ["Overview", "Traffic", "Models", "Providers", "Settings", "Connection", "Tips"];
@@ -71,6 +71,7 @@ const expected = {
   "providers tab (own sign-in asks first, cancel)": ["Through OmniRoute", "Paseo's Fast switch has no effect on these chats"],
   "providers tab (tidy up preview)": ["These will be turned off:", "• GitHub Copilot — never finished loading", "• OpenCode — not installed on this daemon", "• Pi — never finished loading", "Turn off 3", "Cancel", "Codex via OmniRoute · 3 models"],
   "providers tab (not connected)": ["Re-route providers", "Can't be re-routed: GitHub Copilot"],
+  "accounts tab (Paseo 0.11 daemon)": ["3 accounts · 3 healthy", "These accounts and how much of their limits is left also show on Paseo's Usage page (Settings → Usage), where you can pin a limit to the sidebar."],
   "accounts tab (operator)": [H.Accounts, "3 accounts · 3 healthy", "Add account", "Codex sign-in in the dashboard calls back to port 1455", "healthy · 96% of 128 requests answered in 24 h", "Router health", "version 3.8.50", "running 1d 1h"],
   "accounts tab (admin, attention)": ["2 need attention", "Check all", "Check now", "Refresh token", "Re-login in dashboard", "Sign-in expired (2026-09-20)", "degraded · 40% of 10 requests answered in 24 h · failing: gpt-5.6-sol"],
   "accounts tab (Claude paused)": ["Claude traffic paused by OmniRoute's circuit breaker", "The Settings tab can reset it."],
@@ -140,6 +141,7 @@ const expected = {
 
 /** Text a state must NOT show: a hidden tier feature, or a fact that moved. */
 const absent = {
+  "accounts tab (operator)": ["Paseo's Usage page"],
   "setup (not connected, opens on Connection)": ["Accounts", "Usage"],
   "connection tab (operator, private dashboard)": ["Starting a tunnel makes", "password"],
   "overview (basic)": ["Accounts", "Usage", LEARN_MORE],
@@ -297,6 +299,30 @@ try {
 } catch (error) {
   failed += 1;
   console.error(`FAIL tab bar width: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+try {
+  const seen = nativeRegistrationCheck();
+  // A 0.9 app (the fleet's): exactly what 0.13 registered.
+  assert.deepEqual(seen.old.names, ["addSurface", "addSidebarItem", "addWorkspacePanel"], "0.9 app: the surface and the sidebar item, nothing newer");
+  assert.equal(seen.old.calls.addSurface.id, "ai-router");
+  assert.ok(seen.surfaceIsTheView, "the surface is the AI Router view");
+  assert.deepEqual(seen.old.calls.addSidebarItem, { id: "ai-router", title: "AI Router", icon: "Route", surface: "ai-router" });
+  assert.deepEqual(seen.old.opened, [["openSurface", "ai-router"]], "0.9 app: the command opens the surface");
+  // A 0.11 app: a titled screen and the app's own sidebar row, highlighted while the screen is open.
+  assert.deepEqual(seen.next.names, ["addWorkspacePanel"], "0.11 app: no surface or old sidebar item");
+  assert.deepEqual(seen.next.screen, { id: "ai-router", title: "AI Router", sameView: true });
+  assert.deepEqual(seen.next.item, { id: "ai-router", title: "AI Router" });
+  assert.deepEqual(seen.row, { open: { icon: "Route", active: true, label: undefined }, elsewhere: { active: false }, pressed: [{ screenId: "ai-router" }] });
+  assert.deepEqual(seen.next.opened, [["openScreen", { screenId: "ai-router" }]], "0.11 app: the command uses openScreen");
+  // A 0.11 app without the row component: the screen, and the old sidebar item pointing at it.
+  assert.deepEqual(seen.partial, ["addSidebarItem", "addWorkspacePanel"]);
+  // External links: the app's opener when it has one, else Linking.openURL.
+  assert.deepEqual(seen.links, { noOpener: null, withOpener: true });
+  console.log("ok   main view registers as a screen with the app's sidebar row on 0.11 apps, as before on older ones");
+} catch (error) {
+  failed += 1;
+  console.error(`FAIL native registration: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 if (failed) {

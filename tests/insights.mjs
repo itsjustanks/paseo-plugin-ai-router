@@ -77,6 +77,12 @@ try {
     assert.equal(I.accountsHeadline([claude], hhmm).text, "1 needs attention: Claude #1 error: invalid_grant: refresh token revoked");
   });
 
+  check("quota names in plain words, and the short label Paseo's Usage page uses where space is tight", () => {
+    const names = ["session (5h)", "weekly (7d)", "session", "weekly", "5h", "7d", "spark 5h", "monthly"];
+    assert.deepEqual(names.map(I.quotaName), ["5-hour limit", "Weekly limit", "5-hour limit", "Weekly limit", "5-hour limit", "Weekly limit", "Spark · 5-hour limit", "monthly"]);
+    assert.deepEqual(names.map(I.quotaShortLabel), ["5h", "wk", "5h", "wk", "5h", "wk", null, null]);
+  });
+
   check("quota bars from provider-limits, Codex pool windows as fallback", () => {
     const limits = {
       caches: {

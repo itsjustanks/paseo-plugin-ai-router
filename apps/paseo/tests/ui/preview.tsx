@@ -25,6 +25,7 @@ export const STATES: Record<string, { status: string; tab?: TabId; accounts?: st
   "accounts-operator": { status: "routing on", tab: "accounts", accounts: "healthy" },
   "accounts-admin": { status: "manage key", tab: "accounts", accounts: "ok" },
   "accounts-claude-paused": { status: "claude paused", tab: "accounts", accounts: "paused" },
+  "accounts-native-usage": { status: "native usage", tab: "accounts", accounts: "healthy" },
   "usage-populated": { status: "routing on", tab: "usage", usage: "ok" },
   "usage-30-days": { status: "routing on", tab: "usage", usage: "ok", range: "30d" },
   "usage-24-hours": { status: "routing on", tab: "usage", usage: "ok", range: "1d" },

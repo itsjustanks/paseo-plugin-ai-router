@@ -4,13 +4,13 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { accountAction, accounts, accountsCheckAll, routerSettings, settingApply, type Accounts, type Status, type Usage } from "../shared/contracts";
-import { accountsHeadline, compactNumber as compact, healthLine, providerLabel } from "../shared/routers/omniroute/parsers";
+import { accountsHeadline, compactNumber as compact, healthLine, providerLabel, quotaName } from "../shared/routers/omniroute/parsers";
 import { CODEX_LOGIN_PORT, dashboardLink, formatUptime, providerDashboardPage } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
 import { dashboardTarget, useLinks } from "./dashboard";
 import { openInBrowser } from "./links";
 import type { Message } from "./setup";
-import { Banner, Button, Card, Chip, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone } from "./ui";
+import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone } from "./ui";
 
 type Theme = PluginTheme;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -54,16 +54,6 @@ export function Notes({ theme, notes }: { theme: Theme; notes: string[] }) {
   return notes.length ? <View style={{ gap: 4, marginTop: 4 }}>{notes.map((note) => <Note key={note} theme={theme}>{note}</Note>)}</View> : null;
 }
 
-/** "session (5h)" → "5-hour limit", "spark 5h" → "Spark · 5-hour limit". */
-function quotaName(name: string): string {
-  const lower = name.toLowerCase();
-  const window = /5h|session/.test(lower) ? "5-hour limit" : /7d|weekly/.test(lower) ? "weekly limit" : null;
-  if (!window) return name;
-  const extra = lower.replace(/session|weekly|\(?5h\)?|\(?7d\)?/g, "").trim();
-  const text = extra ? `${extra} · ${window}` : window;
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
 /** Version and uptime from the status poll, the rest from `/api/monitoring/health` and `/api/provider-stats`. */
@@ -86,6 +76,18 @@ function RouterHealth({ theme, router, version, uptime }: { theme: Theme; router
         <Note key={`${m.provider}/${m.model}`} theme={theme} tone="danger">{`${m.model} (${providerLabel(m.provider)}): ${m.failed} of ${m.requests} requests failed`}</Note>
       ))}
     </Card>
+  );
+}
+
+/** Paseo 0.11+ daemons put each account on Paseo's own Usage page too; say where. */
+function NativeUsageNote({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+      {HostIcon ? <View style={{ paddingTop: 3 }}><HostIcon name="Gauge" size={16} color={theme.colors.accent} /></View> : null}
+      <View style={{ flex: 1 }}>
+        <Note theme={theme}>These accounts and how much of their limits is left also show on Paseo's Usage page (Settings → Usage), where you can pin a limit to the sidebar.</Note>
+      </View>
+    </View>
   );
 }
 
@@ -133,6 +135,7 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
       {data && head && !paused.length ? <Banner theme={theme} tone={head.tone === "success" ? "success" : head.tone === "neutral" ? "neutral" : "warning"} title={head.text} /> : null}
       {data && head ? (
         <Card theme={theme} title="Accounts" icon="Users" subtitle="Each AI subscription signed in on the router">
+          {status.nativeUsage ? <NativeUsageNote theme={theme} /> : null}
           <Row>
             {data.canAct ? <Button theme={theme} label="Check all" icon="RefreshCw" busy={all.isPending} onPress={() => all.mutate()} /> : null}
             {addPage ? <Link theme={theme} label="Add account" onPress={() => void links.open(addPage)} /> : null}

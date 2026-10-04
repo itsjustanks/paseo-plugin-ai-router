@@ -127,6 +127,28 @@ function codexPoolQuotas(pool: unknown): Quota[] {
   return quotas;
 }
 
+/** A quota's window, from OmniRoute's names: "session (5h)", "weekly (7d)", Codex's "5h" and "spark 5h". */
+function quotaWindow(name: string): { window: "5-hour limit" | "weekly limit" | null; extra: string } {
+  const lower = name.toLowerCase();
+  const window = /5h|session/.test(lower) ? "5-hour limit" : /7d|weekly/.test(lower) ? "weekly limit" : null;
+  return { window, extra: window ? lower.replace(/session|weekly|\(?5h\)?|\(?7d\)?/g, "").trim() : "" };
+}
+
+/** "session (5h)" → "5-hour limit", "spark 5h" → "Spark · 5-hour limit". Anything else is returned as is. */
+export function quotaName(name: string): string {
+  const { window, extra } = quotaWindow(name);
+  if (!window) return name;
+  const text = extra ? `${extra} · ${window}` : window;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "5h" or "wk" where space is tight; null for any other quota, which then shows its full name. */
+export function quotaShortLabel(name: string): string | null {
+  const { window, extra } = quotaWindow(name);
+  if (!window || extra) return null;
+  return window === "5-hour limit" ? "5h" : "wk";
+}
+
 function problemFor(connection: Rec): string | null {
   const status = str(connection.testStatus)?.toLowerCase() ?? null;
   const detail = str(connection.lastError);

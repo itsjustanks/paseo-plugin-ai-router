@@ -48,7 +48,7 @@ routers and API keys.
 | **Traffic** | What went through the router (not the Activity plugin, which is this daemon's own usage analytics; Traffic points there when it is installed). **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it (**Open** jumps to that agent, as it does on each session); filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
 | **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
 | **Providers** | **Re-route providers**: the AI Router provider (always through OmniRoute), built-in Claude's switch between its own sign-in and OmniRoute (off unless turned on; either way it asks first and says what changes), **Codex via OmniRoute**, and which providers can't be re-routed. **Tidy up** turns off, in one go, enabled providers that cannot run here. Each provider's own on/off switch is Paseo's (Settings → Providers). **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
-| **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. |
+| **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**. **Re-login** and **Add account** open the dashboard. On a Paseo 0.11 daemon, one line says the accounts are also on Paseo's Usage page. |
 | **Usage** | **Usage & analytics** for 24 hours, 7 days or 30 days: requests, tokens, estimated cost and latency; requests per day; tokens per day stacked by provider; the provider split; top models; by daemon and by account; failed requests by kind; a year of activity. |
 | **Settings** | Every tier: **In Paseo**, the Breakdown chip and MCP card switches. With a read token: context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
 | **Connection** | Router, endpoint, **public address** and whether it answers, key, where they come from; **Share this router** (how others connect through the public address, never with a key); the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
@@ -56,6 +56,31 @@ routers and API keys.
 
 The plugin never stores, shows or asks for OmniRoute's admin password. The panel says "Dashboard
 login: ask your router admin" where it matters.
+
+## On Paseo 0.11 and later
+
+Where the Paseo app or daemon has its own way to show something, AI Router uses it. Each feature is
+looked for when the plugin loads; an older Paseo (the fleet's 0.9.1, or 0.10) gets exactly what it
+got before.
+
+- **Paseo's Usage page** (daemon 0.11+, Settings → Usage): one **AI Router** card per router account
+  ("Claude #1", "Codex #2"), with each limit's used and left and its reset time, the account's masked
+  name, its status (paused, cooling down, sign-in expiring) and the last 24 hours. An account that can't
+  be used says why (turned off, sign-in expired, banned, no limits reported yet). A key-only connection
+  shows one card saying a read token is needed; a daemon that isn't connected shows none. The cards
+  share the Accounts tab's read: Paseo asks when the page opens and keeps each card five minutes, and
+  after a failed read AI Router waits 30 seconds, then longer, up to 15 minutes. Card keys are a hash of
+  the router's account id, never an email or a key. The usage helpers are copied from the 0.11 SDK, not
+  imported, because Paseo 0.9.1 and 0.10 refuse to build a plugin that names
+  `@getpaseo/plugin/server/usage`.
+- **A screen and the app's own sidebar row** (app 0.11+): the panel opens as a screen titled "AI Router"
+  (an older app titled it by its id when opened from the command menu), and the sidebar entry is
+  Paseo's row, highlighted while the screen is open.
+- **External links** go through the app's `openExternalUrl` (apps since 0.9), with `Linking.openURL`
+  only for older apps.
+
+Not used: provider status (Paseo's `ProviderStatus` is for providers a plugin runs itself; the AI Router
+provider is a settings entry built on Claude), header buttons and popovers (nothing they would add).
 
 ## Access tiers
 
@@ -397,8 +422,10 @@ endpoint and keys, Test & save and Disconnect all work without the router.
 ```
 apps/paseo/
   index.client.tsx, index.server.ts   entry points
+  assets/ai-router.svg                the AI Router card icon on Paseo's Usage page
   client/                             the panel (tabs, cards)
   server/                             hooks, the provider sync, Paseo's config, the Providers tab
+  server/usage.ts                     the Usage page cards (Paseo 0.11+)
   server/routers/index.ts             the router registry and the adapter interface
   server/routers/omniroute/           OmniRoute: adapter and HTTP reads
   shared/                             contracts and pure logic, the only code the client imports
@@ -417,7 +444,7 @@ Adding a router means one more folder under `server/routers/` (and `shared/route
 with the Lucide icons the Paseo app draws. States: `setup`, `overview`, `overview-basic`,
 `overview-admin`, `overview-router-down`, `overview-claude-paused`, `activity`, `activity-basic`,
 `activity-router-down`, `models`, `models-basic`,
-`providers`, `providers-admin`, `accounts-operator`, `accounts-admin`, `accounts-claude-paused`,
+`providers`, `providers-admin`, `accounts-operator`, `accounts-admin`, `accounts-claude-paused`, `accounts-native-usage`,
 `models-profiles-off`, `usage-populated`, `usage-30-days`, `usage-24-hours`, `usage-empty`, `usage-router-down`, `settings-operator`, `settings-manage-key`, `settings-recommended`,
 `connection`, `connection-basic`, `connection-admin`, `connection-router-down`,
 `connection-misconfigured`, `connection-public`, `connection-public-pending`, `settings-basic`, `tips`,

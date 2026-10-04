@@ -3,7 +3,8 @@
 // with PASEO_HOME in a temp dir. The fake answers with the real 3.8.50 fixtures.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1127,6 +1128,210 @@ try {
     t.mod.StatusSchema.parse(status);
     assert.deepEqual([status.connection.publicUrl, status.connection.publicCheck.state, status.connection.publicCheck.label], [DEAD, "unreachable", "Unreachable"]);
     assert.equal(status.connection.dashboardUrl, `${LIVE}/dashboard`);
+    passed += 1;
+  }
+
+  // ------------------------------------------------- Paseo 0.11's Usage page
+  //
+  // A 0.11 daemon offers registerUsageSource; 0.9.1 (the fleet) and 0.10 do
+  // not. The schemas are the daemon's own checks, copied from Paseo
+  // 0.11.0-beta.3: @getpaseo/protocol's UsageReportSchema (strict here, to
+  // catch a misspelt field) and the usage registry's discover check.
+  {
+    for (const name of ["AI_ROUTER_URL", "AI_ROUTER_KEY", "AI_ROUTER_TOKEN", "AI_ROUTER_CONSOLE_URL"]) delete process.env[name];
+    const { z } = await import(pathToFileURL(join(plugin, "node_modules", "zod", "index.js")).href);
+    const Tone = z.enum(["default", "ok", "warning", "danger"]);
+    const Window = z.object({ id: z.string(), label: z.string(), shortLabel: z.string().optional(), summary: z.boolean().optional(), usedPct: z.number().nullable().optional(), remainingPct: z.number().nullable().optional(), resetsAt: z.string().nullable().optional(), runsOutAt: z.string().nullable().optional(), shortfallPct: z.number().nullable().optional(), tone: Tone.optional() }).strict();
+    const Detail = z.object({ id: z.string(), label: z.string(), value: z.string(), tone: Tone.optional() }).strict();
+    const Problem = z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("expired"), expiresAt: z.iso.datetime(), refreshedBy: z.string().optional() }).strict(),
+      z.object({ kind: z.literal("rejected"), status: z.number().int(), refreshedBy: z.string().optional() }).strict(),
+      z.object({ kind: z.literal("no_quota"), detail: z.string() }).strict(),
+    ]);
+    const Report = z.discriminatedUnion("status", [
+      z.object({ status: z.literal("available"), planLabel: z.string().optional(), windows: z.array(Window), details: z.array(Detail).optional() }).strict(),
+      z.object({ status: z.literal("unavailable"), problem: Problem }).strict(),
+      z.object({ status: z.literal("error"), error: z.string() }).strict(),
+    ]);
+    const Discovered = z.array(z.object({ key: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/), label: z.string().optional(), input: z.json() }));
+    /** The daemon parses each card's input with the source's own schema before fetch. */
+    const fetchCard = async (source, card) => Report.parse(await source.fetch(await source.input.parseAsync(card.input)));
+    const fakeHost = (extra = {}) => {
+      const calls = { handled: 0 };
+      const host = { registerSettings: () => ({ read: async () => ({ status: "ready", revision: "r", values: {} }), subscribe: () => () => {} }), handle: () => { calls.handled += 1; }, before() {}, on() {}, ...extra };
+      return { calls, host };
+    };
+    /** Runs the plugin's real server entry against a fake daemon and stops it again. */
+    const contribute = (t, host) => {
+      const stop = t.mod.contributeServer(host);
+      assert.equal(typeof stop, "function");
+      stop();
+    };
+
+    // Plugin code names only SDK entries Paseo 0.9.1 knows: it refuses to build a plugin that names any other, even in a type import.
+    const OLD_HOST_SDK = new Set(["@getpaseo/plugin", "@getpaseo/plugin/server", "@getpaseo/plugin/server/provider", "@getpaseo/plugin/server/acp", "@getpaseo/plugin/client", "@getpaseo/plugin/client/ui", "@getpaseo/plugin/client/react-native"]);
+    const sources = [];
+    const walk = (dir) => readdirSync(dir, { withFileTypes: true }).forEach((entry) => (entry.isDirectory() ? walk(join(dir, entry.name)) : /\.tsx?$/.test(entry.name) && sources.push(join(dir, entry.name))));
+    for (const dir of ["client", "server", "shared"]) walk(join(plugin, dir));
+    sources.push(join(plugin, "index.client.tsx"), join(plugin, "index.server.ts"));
+    for (const file of sources) {
+      for (const [, specifier] of readFileSync(file, "utf8").matchAll(/(?:from|import\()\s*"(@getpaseo\/[^"]+)"/g)) {
+        assert.ok(OLD_HOST_SDK.has(specifier), `${file.slice(plugin.length + 1)} names ${specifier}, which Paseo 0.9.1 cannot build`);
+      }
+    }
+    passed += 1;
+
+    // A 0.9.1 daemon: no registerUsageSource. Everything else registers as before, and the panel is told.
+    const old = await fresh("usage-old-host", full);
+    const host09 = fakeHost();
+    contribute(old, host09.host);
+    const status09 = await old.mod.handleStatus({}, { paseo: old.api });
+    old.restore();
+    assert.equal(old.mod.usageSourceRegistered(), false);
+    assert.ok(host09.calls.handled >= 25, `every RPC still registered (${host09.calls.handled})`);
+    assert.equal(status09.nativeUsage, false, "the Accounts tab says nothing about a Usage page");
+    passed += 1;
+
+    // A 0.11 daemon: one source, which passes the daemon's own registration and icon checks.
+    const t = await fresh("usage-new-host", full);
+    const registered = [];
+    contribute(t, fakeHost({ registerUsageSource(source) { registered.push(source); } }).host);
+    const status11 = await t.mod.handleStatus({}, { paseo: t.api });
+    assert.equal(registered.length, 1);
+    const [source] = registered;
+    assert.deepEqual([source.id, source.label, source.icon], ["ai-router", "AI Router", "assets/ai-router.svg"]);
+    assert.match(source.id, /^[a-z][a-z0-9._-]*$/);
+    assert.equal(typeof source.input.parseAsync, "function");
+    const svg = readFileSync(join(plugin, source.icon), "utf8");
+    assert.ok(statSync(join(plugin, source.icon)).size <= 64 * 1024 && /^\s*<svg(?:\s|>)/i.test(svg), "a small SVG document");
+    assert.ok(!/<script(?:\s|>)|<foreignObject(?:\s|>)|<style(?:\s|>)|\son[a-z0-9_-]*\s*=|javascript\s*:|\s(?:href|xlink:href)\s*=/i.test(svg), "nothing the daemon's icon check refuses");
+    assert.equal(status11.nativeUsage, true, "the Accounts tab points to Paseo's Usage page");
+    assert.equal(t.mod.usageSourceRegistered(), true);
+
+    // Operator tier: a card per account, with quota windows from provider-limits, never a raw email or a key.
+    const claudeId = fixtures["/api/providers"].body.connections.find((c) => c.provider === "claude").id;
+    const withEmail = structuredClone(fixtures["/api/providers"].body);
+    for (const connection of withEmail.connections) if (connection.provider === "claude") connection.name = connection.displayName = connection.email = "someone@example.com";
+    managed["/api/providers"] = withEmail;
+    managed["/api/usage/provider-limits"] = { caches: { [claudeId]: { quotas: { session: { displayName: "session (5h)", remainingPercentage: 64, resetAt: "2026-10-04T15:00:00Z" }, weekly: { displayName: "weekly (7d)", remainingPercentage: 8, resetAt: "2026-10-09T00:00:00Z" } } } } };
+    const before = requested.length;
+    const cards = Discovered.parse(await source.discover());
+    const reports = await Promise.all(cards.map((card) => fetchCard(source, card)));
+    t.restore();
+    delete managed["/api/usage/provider-limits"];
+    managed["/api/providers"] = fixtures["/api/providers"].body;
+    assert.deepEqual(cards.map((card) => card.label), ["Claude #1", "Codex #1", "Codex #2"]);
+    assert.equal(cards[0].key, createHash("sha256").update(`omniroute:${claudeId}`).digest("hex"), "the router's account id, hashed: the same card across restarts and key changes");
+    assert.equal(requested.slice(before).filter((path) => path === "/api/providers").length, 1, "discover and every card share one accounts read");
+    const [claude, codex] = reports;
+    assert.deepEqual(claude, {
+      status: "available",
+      planLabel: "Subscription",
+      windows: [
+        { id: "session-5h", label: "5-hour limit", shortLabel: "5h", usedPct: 36, remainingPct: 64, resetsAt: "2026-10-04T15:00:00.000Z", tone: "ok" },
+        { id: "weekly-7d", label: "Weekly limit", shortLabel: "wk", usedPct: 92, remainingPct: 8, resetsAt: "2026-10-09T00:00:00.000Z", tone: "danger" },
+      ],
+      details: [{ id: "account", label: "Account", value: "so…@example.com" }],
+    });
+    assert.deepEqual(codex, { status: "unavailable", problem: { kind: "no_quota", detail: "OmniRoute has not reported this account's limits yet." } });
+    for (const secret of ["someone@example.com", KEY, TOKEN]) assert.equal(JSON.stringify([cards, reports]).includes(secret), false, "no raw email or key reaches the Usage page");
+    assert.deepEqual(await source.fetch({ account: "gone" }), { status: "error", error: "This account is no longer on OmniRoute." });
+
+    // One account, mapped: problems, details, plan, Codex pool windows.
+    const R = t.mod.accountReport;
+    const acct = { id: "x", provider: "claude", shortName: "Claude #1", label: null, state: "healthy", problem: null, coolingUntil: null, quotas: [{ name: "session (5h)", remainingPct: 50, resetAt: null }], authType: "apikey", health: null, expiry: null };
+    const ctx = { router: "OmniRoute", paused: false, stale: null };
+    const problem = (over, context = ctx) => Report.parse(R({ ...acct, ...over }, context)).problem;
+    assert.deepEqual(problem({ state: "disabled" }), { kind: "no_quota", detail: "Turned off in OmniRoute, so the router does not use it." });
+    assert.deepEqual(problem({ state: "attention", problem: "re-login required", expiry: { status: "expired", expiresAt: "2026-10-01T10:00:00Z", note: null } }), { kind: "expired", expiresAt: "2026-10-01T10:00:00.000Z" });
+    assert.deepEqual(problem({ state: "attention", problem: "re-login required" }), { kind: "no_quota", detail: "Its sign-in has expired. Sign in to it again on OmniRoute's dashboard." });
+    assert.deepEqual(problem({ state: "attention", problem: "banned by the provider: abuse" }), { kind: "no_quota", detail: "Banned by the provider: abuse." });
+    assert.deepEqual(problem({ state: "attention", problem: "out of credits", quotas: [] }), { kind: "no_quota", detail: "Out of credits." });
+    assert.deepEqual(problem({ quotas: [] }, { ...ctx, paused: true }), { kind: "no_quota", detail: "Paused for a moment by OmniRoute after errors; it tries again by itself." });
+    const busy = Report.parse(R({ ...acct, coolingUntil: Date.parse("2026-10-04T14:02:00Z"), expiry: { status: "expiring_soon", expiresAt: "2026-10-06T00:00:00Z", note: null } }, { ...ctx, paused: true, stale: { reason: "connection refused", checkedAt: "2026-10-04T13:58:00.000Z" } }));
+    assert.equal(busy.planLabel, "API key");
+    assert.deepEqual(busy.details, [
+      { id: "status", label: "Status", value: "Paused for a moment by OmniRoute after errors; it tries again by itself", tone: "danger" },
+      { id: "sign-in", label: "Sign-in", value: "Expires 2026-10-06", tone: "warning" },
+      { id: "stale", label: "Last read", value: "13:58 UTC: OmniRoute is not answering now (connection refused)", tone: "warning" },
+    ]);
+    const health = { state: "degraded", successRatePct: 80, requests: 10, issueCount: 1, lastErrorAt: null, failingModels: ["claude-opus-5-5"] };
+    assert.deepEqual(Report.parse(R({ ...acct, coolingUntil: Date.parse("2026-10-04T14:02:00Z"), authType: null, health }, ctx)), {
+      status: "available",
+      windows: [{ id: "session-5h", label: "5-hour limit", shortLabel: "5h", usedPct: 50, remainingPct: 50, resetsAt: null, tone: "ok" }],
+      details: [
+        { id: "status", label: "Status", value: "Cooling down until 14:02 UTC", tone: "warning" },
+        { id: "health", label: "Last 24 hours", value: "degraded · 80% of 10 requests answered in 24 h · failing: claude-opus-5-5", tone: "warning" },
+      ],
+    });
+    const pool = Report.parse(R({ ...acct, provider: "codex", authType: "oauth", quotas: [{ name: "5h", remainingPct: 25, resetAt: "not a date" }, { name: "7d", remainingPct: 100, resetAt: null }, { name: "spark 5h", remainingPct: 0, resetAt: null }, { name: "5H", remainingPct: 40, resetAt: null }] }, ctx));
+    assert.deepEqual(pool.windows.map((w) => [w.id, w.label, w.shortLabel, w.usedPct, w.remainingPct, w.resetsAt, w.tone]), [
+      ["5h", "5-hour limit", "5h", 75, 25, null, "warning"],
+      ["7d", "Weekly limit", "wk", 0, 100, null, "ok"],
+      ["spark-5h", "Spark · 5-hour limit", undefined, 100, 0, null, "danger"],
+      ["5h-2", "5-hour limit", "5h", 60, 40, null, "ok"],
+    ], "unique window ids; an unreadable reset time is left out");
+
+    // The SDK's helpers, copied: the same answers as @getpaseo/plugin 0.11.0-beta.3's server/usage.js.
+    assert.deepEqual([undefined, null, 0, 69.9, 70, 90, 90.1].map((pct) => t.mod.toneFromUsedPct(pct)), ["default", "default", "ok", "ok", "warning", "warning", "danger"]);
+    assert.deepEqual(t.mod.windowFromUsedPct({ id: "a", label: "A", utilizationPct: 120 }), { id: "a", label: "A", usedPct: 120, remainingPct: 0, resetsAt: null });
+    assert.deepEqual(t.mod.windowFromUsedPct({ id: "a", label: "A", utilizationPct: undefined, summary: true, shortLabel: "", tone: "ok", resetsAt: "r" }), { id: "a", label: "A", usedPct: null, remainingPct: null, resetsAt: "r", shortLabel: "", summary: true, tone: "ok" });
+    assert.equal(t.mod.hashAccountKey("account"), createHash("sha256").update("account").digest("hex"));
+    assert.deepEqual(t.mod.unavailable({ kind: "no_quota", detail: "d" }), { status: "unavailable", problem: { kind: "no_quota", detail: "d" } });
+    passed += 1;
+
+    // Key only: one card that says how to see the accounts. Not connected: no card at all.
+    const basic = await fresh("usage-basic", { router: "omniroute", endpoint: LIVE, apiKey: KEY });
+    const b = [];
+    contribute(basic, fakeHost({ registerUsageSource: (s) => b.push(s) }).host);
+    const basicCards = Discovered.parse(await b[0].discover());
+    const basicReport = await fetchCard(b[0], basicCards[0]);
+    basic.restore();
+    assert.deepEqual(basicCards, [{ key: "router", input: { account: null } }]);
+    assert.deepEqual(basicReport, { status: "unavailable", problem: { kind: "no_quota", detail: basic.mod.READ_TOKEN_NEEDED } });
+    assert.match(basic.mod.READ_TOKEN_NEEDED, /read-only access token in AI Router → Connection/);
+    const none = await fresh("usage-none", {});
+    rmSync(join(none.dir, "plugin-settings", "ai-router", "connection.json"));
+    const n = [];
+    contribute(none, fakeHost({ registerUsageSource: (s) => n.push(s) }).host);
+    const noneCards = await n[0].discover();
+    const noneReport = await n[0].fetch({ account: null });
+    none.restore();
+    assert.deepEqual(noneCards, [], "not connected: nothing on the Usage page");
+    assert.deepEqual(noneReport, { status: "error", error: "AI Router is not connected to a router: no endpoint URL set." });
+    passed += 1;
+
+    // Router down with nothing read yet: one card with the reason; then a back-off, answered from memory.
+    const down = await fresh("usage-down", full);
+    const d = [];
+    contribute(down, fakeHost({ registerUsageSource: (s) => d.push(s) }).host);
+    routerDown = true;
+    const downCards = Discovered.parse(await d[0].discover());
+    const downReport = await fetchCard(d[0], downCards[0]);
+    routerDown = false;
+    const asked = requested.length;
+    const again = await d[0].discover();
+    down.restore();
+    assert.deepEqual(downCards, [{ key: "router", input: { account: null } }]);
+    assert.equal(downReport.status, "error");
+    assert.match(downReport.error, /^Accounts: /);
+    assert.deepEqual(again, downCards, "backing off: the last answer again");
+    assert.equal(requested.length, asked, "without asking the router");
+    passed += 1;
+
+    // The daemon refuses the source (a duplicate id, say): the rest of the plugin carries on, and says why in its log.
+    const refused = await fresh("usage-refused", full);
+    const warnings = [];
+    const warn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(" "));
+    try {
+      contribute(refused, fakeHost({ registerUsageSource() { throw new Error("Duplicate usage source: ai-router"); } }).host);
+    } finally {
+      console.warn = warn;
+      refused.restore();
+    }
+    assert.equal(refused.mod.usageSourceRegistered(), false);
+    assert.match(warnings.join("\n"), /Usage page refused the AI Router source: Duplicate usage source: ai-router/);
     passed += 1;
   }
 

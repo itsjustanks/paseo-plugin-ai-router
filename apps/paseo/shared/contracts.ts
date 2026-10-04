@@ -78,6 +78,8 @@ export const StatusSchema = z.object({
   settingsDir: z.string(),
   /** Which recommended plugins (shared/plugins.ts) this daemon's plugin sources list: Tips and the MCP card say "Installed". */
   plugins: z.object({ installed: z.array(z.string()) }),
+  /** Paseo 0.11+ daemons: the router's accounts are also cards on Paseo's own Usage page. */
+  nativeUsage: z.boolean().optional(),
 });
 export type Status = z.infer<typeof StatusSchema>;
 

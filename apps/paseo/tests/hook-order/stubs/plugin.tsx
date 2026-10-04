@@ -14,7 +14,13 @@ const PUBLIC = "https://ai-router.example.com";
 
 export function defineRpc<T>(contract: T) { return contract; }
 export function defineSettings<T>(definition: T) { return definition; }
-export async function openExternalUrl(_url: string) {}
+/** What newer apps hand plugins beyond the 0.8 SDK; a test switches them to stand in for each Paseo version. */
+export let openExternalUrl: ((url: string) => Promise<void>) | undefined = async (_url: string) => {};
+export let SidebarRow: ((props: Record<string, unknown>) => React.ReactElement) | undefined = undefined;
+export function setHostExports(next: { openExternalUrl?: typeof openExternalUrl; SidebarRow?: typeof SidebarRow }) {
+  if ("openExternalUrl" in next) openExternalUrl = next.openExternalUrl;
+  if ("SidebarRow" in next) SidebarRow = next.SidebarRow;
+}
 
 let ready = false;
 const listeners = new Set<() => void>();
@@ -251,6 +257,8 @@ Object.assign(accountFixtures, {
 });
 // Fill in what every status carries, the way the server computes it.
 const tierOf = (c: any) => (!c.endpoint || !c.apiKey.present ? "none" : c.manageKey.present ? "admin" : c.token.present ? "operator" : "basic");
+/** A Paseo 0.11 daemon: the router's accounts are also cards on Paseo's Usage page. */
+fixtures["native usage"] = { ...(fixtures["routing on"] as object), nativeUsage: true };
 for (const value of Object.values(fixtures)) {
   const f = value as Record<string, any>;
   f.connection = { tunnel: null, publicUrl: null, publicCheck: null, ...f.connection };

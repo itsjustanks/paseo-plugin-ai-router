@@ -8,6 +8,7 @@ import { getLastSession } from "./hooks";
 import { checkAutoSync, listOwnProfiles, noteActivity, providerState, setCodexRouter, syncAiProvider, testProviderModel } from "./provider";
 import { listProviders, setProviderEnabled, tidyProviders } from "./providers";
 import { adapterFor } from "./routers";
+import { usageSourceRegistered } from "./usage";
 import { clearConnection, installedPluginIds, readConnection, readProviderEntries, readRoutingSettings, readSessionLog, settingsDir, writeConnection } from "./store";
 
 /** The panel polls every 20s; a check younger than this is served from cache. */
@@ -69,6 +70,7 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
     codexRouter: { present: entries?.codexRouter.present ?? false, modelCount: entries?.codexRouter.modelCount ?? 0 },
     settingsDir: settingsDir(),
     plugins: { installed: RECOMMENDED_PLUGINS.map((plugin) => plugin.id).filter((id) => installed.has(id)) },
+    nativeUsage: usageSourceRegistered(),
   };
 }
 

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.14.0 — 2026-10-04
+
+Uses Paseo's own screens where the Paseo app or daemon has them, instead of AI Router drawing its
+own. Each one is looked for when the plugin loads. On an older Paseo, including the fleet's 0.9.1 and
+0.10, everything works exactly as in 0.13.0. Nothing about routing, settings or the AI Router provider
+changed.
+
+- **Your router's accounts on Paseo's Usage page** (Paseo 0.11 daemons, Settings → Usage). Each
+  OmniRoute account gets its own **AI Router** card, such as "Claude #1" or "Codex #2". The card shows
+  how much of each limit is used and left, when it resets, the account's masked name, any problem
+  (paused, cooling down, sign-in expiring) and its last 24 hours. An account that can't be used says
+  why: turned off, sign-in expired, banned, or no limits reported yet. Paseo lets you pin a limit to its
+  sidebar.
+  - A key-only connection shows one card explaining that a read token is needed.
+  - A daemon that isn't connected shows no AI Router card.
+  - The cards use the same read as the Accounts tab. Paseo asks only while the Usage page is open, so
+    there is no new polling. After a failed read, AI Router waits before trying again, from 30 seconds
+    up to 15 minutes.
+  - Each card is identified by a hash of the router's account id, never by an email or a key.
+- **The Accounts tab says so.** On a 0.11 daemon, one line at the top of the Accounts card points to
+  Paseo's Usage page.
+- **A proper screen and sidebar row** (Paseo 0.11 apps). The panel opens as a screen titled "AI
+  Router"; before, opening it from the command menu titled it "ai-router". The sidebar entry is now
+  Paseo's own row, highlighted while the screen is open. Older apps keep the previous sidebar item.
+- **Links** still open in the system browser through Paseo's own opener, which apps have had since 0.9.
+  The check for it is now stricter.
+- **Left out on purpose.** Router health on the AI Router provider: Paseo's provider status only works
+  for providers a plugin runs itself, and AI Router's provider is a settings entry built on Claude.
+  Header buttons and popovers: nothing they would add.
+- **For maintainers.** `requirements.paseo` stays `>=0.8.0`. The Usage-page types and helpers are
+  copied from the 0.11 SDK rather than imported, because Paseo 0.9.1 and 0.10 refuse to build a plugin
+  that names `@getpaseo/plugin/server/usage`, even in a type import. A test checks that plugin code only
+  names SDK entries 0.9.1 knows. The card icon (`apps/paseo/assets/ai-router.svg`) is Lucide's `route`
+  (ISC, in THIRD-PARTY-NOTICES.md).
+
 ## 0.13.0 — 2026-09-26
 
 Written for someone who has never heard of a router or an API key. Every option, button, setting and

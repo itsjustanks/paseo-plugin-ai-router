@@ -15,7 +15,9 @@ import { UsageTab } from "../../client/analytics";
 import { TabBar, type TabId } from "../../client/navigation";
 import { createBadgeStore, makeContextChip, makeContextPanel, recheckBadges, registerContextBadges } from "../../client/context";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
-import { releaseRpc, setAccessFixture, setActivityFixture, setCompressionFixture, setContextFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import contributeClient from "../../index.client";
+import { hostOpener } from "../../client/links";
+import { releaseRpc, setHostExports, setAccessFixture, setActivityFixture, setCompressionFixture, setContextFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -109,6 +111,7 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "providers tab (own sign-in asks first, cancel)": surface("routing on", narrow, { tab: "providers" }),
   // Accounts and Usage
   "accounts tab (operator)": surface("routing on", narrow, { tab: "accounts", accounts: "healthy" }),
+  "accounts tab (Paseo 0.11 daemon)": surface("native usage", wide, { tab: "accounts", accounts: "healthy" }),
   "accounts tab (admin, attention)": surface("manage key", wide, { tab: "accounts", accounts: "ok" }),
   "accounts tab (Claude paused)": surface("claude paused", wide, { tab: "accounts", accounts: "paused" }),
   "accounts tab (token rejected)": surface("routing on", wide, { tab: "accounts", accounts: "error" }),
@@ -341,4 +344,73 @@ export async function tabBarWidthCheck(): Promise<{ wide: string; tight: string;
   const tightIcons = renderer.root.findAll((node) => node.type === "Icon").length;
   await act(async () => { renderer.unmount(); });
   return { wide, tight, tightIcons };
+}
+
+/**
+ * The client entry against a fake Paseo app of each age: a 0.9 app (surface
+ * and sidebar item, as 0.13 registered them), a 0.11 app (screen and the
+ * app's own sidebar row), and a 0.11 app without the row component.
+ */
+export function nativeRegistrationCheck() {
+  const fakeApp = (extra: Record<string, unknown>) => {
+    const calls: Array<[string, any]> = [];
+    const commands: any[] = [];
+    const client: any = {
+      addSurface: (id: string, Component: unknown) => { calls.push(["addSurface", { id, Component }]); return () => {}; },
+      addSidebarItem: (item: unknown) => { calls.push(["addSidebarItem", item]); return () => {}; },
+      addCommandCenterItem: (item: any) => { commands.push(item); return () => {}; },
+      addWorkspacePanel: (panel: any) => { calls.push(["addWorkspacePanel", panel.id]); return () => {}; },
+      addComposerPill: () => () => {},
+      openPanel() {},
+      openSurface: (id: string) => calls.push(["openSurface", id]),
+      rpc: async () => ({ ok: true, enabled: true, alerts: [] }),
+      paseo: { agents: { subscribe: () => () => {} } },
+      ...extra,
+    };
+    const stop = contributeClient(client);
+    stop();
+    const opened: unknown[] = [];
+    const open = commands.find((command) => command.id === "open-ai-router");
+    open.onSelect({ context: "global", openSurface: (id: string) => opened.push(["openSurface", id]), ...(extra.openScreen ? { openScreen: (input: unknown) => opened.push(["openScreen", input]) } : {}) });
+    return { names: calls.map(([name]) => name), calls: Object.fromEntries(calls), opened };
+  };
+
+  setHostExports({ SidebarRow: undefined });
+  const old = fakeApp({});
+
+  const Row = (props: Record<string, unknown>) => React.createElement("SidebarRow", props);
+  setHostExports({ SidebarRow: Row });
+  const screens: any[] = [];
+  const items: any[] = [];
+  const next = fakeApp({ addScreen: (c: any) => { screens.push(c); return () => {}; }, addSidebarHeaderItem: (c: any) => { items.push(c); return () => {}; }, openScreen() {} });
+  const pressed: unknown[] = [];
+  const rowFor = (currentScreen: unknown) => {
+    let renderer: ReturnType<typeof create> | undefined;
+    act(() => { renderer = create(React.createElement(items[0].Component, { ...base, layout: wide, currentScreen, openScreen: (input: unknown) => pressed.push(input), openPopover() {} })); });
+    const row = renderer!.root.findAll((node) => node.type === Row)[0].props;
+    act(() => renderer!.unmount());
+    return row;
+  };
+  const open = rowFor({ screenId: "ai-router", params: {} });
+  const elsewhere = rowFor(null);
+  open.onPress();
+
+  setHostExports({ SidebarRow: undefined });
+  const partial = fakeApp({ addScreen: () => () => {}, addSidebarHeaderItem: () => () => {}, openScreen() {} });
+  setHostExports({ SidebarRow: undefined });
+
+  setHostExports({ openExternalUrl: undefined });
+  const noOpener = hostOpener();
+  const opener = async (_url: string) => {};
+  setHostExports({ openExternalUrl: opener });
+  const withOpener = hostOpener() === opener;
+
+  return {
+    old,
+    next: { names: next.names, screen: { id: screens[0]?.id, title: screens[0]?.title, sameView: screens[0]?.Component === AiRouterSurface }, item: { id: items[0]?.id, title: items[0]?.title }, opened: next.opened },
+    row: { open: { icon: open.icon, active: open.active, label: open.label }, elsewhere: { active: elsewhere.active }, pressed },
+    partial: partial.names,
+    surfaceIsTheView: old.calls.addSurface?.Component === AiRouterSurface,
+    links: { noOpener, withOpener },
+  };
 }
