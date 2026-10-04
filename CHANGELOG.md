@@ -45,6 +45,8 @@ is still there. `requirements.paseo` stays `>=0.8.0`; everything newer is looked
   combo profiles at once, through `registerSettings(...).subscribe()`.
 - **Advanced routing** (combos, fallbacks, per-provider rules) is now one line at the bottom of
   Providers and Settings, instead of a banner at the top.
+- **Tips recommends fewer plugins.** Shared Browser and Advanced Markdown are no longer listed; Tips now
+  suggests Paseo MCP, Activity, Remote Editor and Tell Agent.
 
 ## 0.14.0 — 2026-10-04
 

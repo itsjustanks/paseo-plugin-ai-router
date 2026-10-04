@@ -1212,9 +1212,9 @@ try {
     t.restore();
     assert.deepEqual((await t.mod.handleStatus({}, { paseo: t.api })).plugins, { installed: [] }, "no sources file: nothing installed");
     mkdirSync(join(t.dir, "plugins"), { recursive: true });
-    writeFileSync(join(t.dir, "plugins", "sources.json"), JSON.stringify({ "paseo-mcp": { source: "git:x" }, "shared-browser": { source: "npm:y" }, "ai-router": { source: "git:z" } }));
+    writeFileSync(join(t.dir, "plugins", "sources.json"), JSON.stringify({ "paseo-mcp": { source: "git:x" }, "shared-browser": { source: "npm:y" }, activity: { source: "npm:w" }, "ai-router": { source: "git:z" } }));
     const status = t.mod.StatusSchema.parse(await t.mod.handleStatus({}, { paseo: t.api }));
-    assert.deepEqual(status.plugins, { installed: ["paseo-mcp", "shared-browser"] }, "only recommended ids, in the Tips order");
+    assert.deepEqual(status.plugins, { installed: ["paseo-mcp", "activity"] }, "only recommended ids, in the Tips order (shared-browser is no longer one)");
     passed += 1;
   }
 

@@ -746,7 +746,7 @@ try {
 
   check("recommended plugins: Paseo Cafe ids, one install command each", () => {
     const ids = P.RECOMMENDED_PLUGINS.map((p) => p.id);
-    assert.deepEqual(ids, ["paseo-mcp", "shared-browser", "activity", "advanced-markdown", "remote-editor", "tell-agent"]);
+    assert.deepEqual(ids, ["paseo-mcp", "activity", "remote-editor", "tell-agent"], "Shared Browser and Advanced Markdown are no longer recommended");
     assert.equal(new Set(ids).size, ids.length);
     for (const plugin of P.RECOMMENDED_PLUGINS) assert.match(plugin.install, /^paseo plugin add \S+/, plugin.id);
     assert.equal(P.paseoCafeUrl("tell-agent"), "https://paseo.cafe/plugins/tell-agent/");

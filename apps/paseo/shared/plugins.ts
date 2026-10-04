@@ -17,25 +17,11 @@ export const RECOMMENDED_PLUGINS: readonly RecommendedPlugin[] = [
     install: "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git",
   },
   {
-    id: "shared-browser",
-    name: "Shared Browser",
-    by: "Omer Cohen",
-    what: "One real Chromium session per workspace, shared live across every connected client.",
-    install: "paseo plugin add npm:@omercnet/paseo-shared-browser@0.4.2",
-  },
-  {
     id: "activity",
     name: "Activity",
     by: "koinzhang",
     what: "Local usage analytics and agent ops: tools, agents, messages, models, a fleet list and terminals.",
     install: "paseo plugin add npm:@koinzhang/paseo-plugin-activity@0.6.0",
-  },
-  {
-    id: "advanced-markdown",
-    name: "Advanced Markdown",
-    by: "custyhs",
-    what: "Math formulas and Mermaid diagrams in assistant messages.",
-    install: "paseo plugin add npm:paseo-advanced-markdown@0.2.2",
   },
   {
     id: "remote-editor",

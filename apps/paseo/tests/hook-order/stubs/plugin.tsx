@@ -240,7 +240,7 @@ Object.assign(fixtures, {
     lastSession: { at: now, agentId: "agent-7", kind: "claude", routed: true, message: "", reason: null },
     aiProvider: { ...connected.aiProvider, legacyCodex: false, tests: [] },
     codexRouter: { present: true, modelCount: 3 },
-    plugins: { installed: ["paseo-mcp", "shared-browser"] },
+    plugins: { installed: ["paseo-mcp", "remote-editor"] },
   },
   "manage key": { ...connected, connection: { ...connected.connection, manageKey: { present: true, last4: "89ab" } }, aiProvider: { ...connected.aiProvider, legacyCodex: false, tests: [] } },
 });
