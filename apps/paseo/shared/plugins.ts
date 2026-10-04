@@ -21,7 +21,7 @@ export const RECOMMENDED_PLUGINS: readonly RecommendedPlugin[] = [
     name: "Activity",
     by: "koinzhang",
     what: "Local usage analytics and agent ops: tools, agents, messages, models, a fleet list and terminals.",
-    install: "paseo plugin add npm:@koinzhang/paseo-plugin-activity@0.6.0",
+    install: "paseo plugin add npm:@koinzhang/paseo-plugin-activity@0.7.0",
   },
   {
     id: "remote-editor",

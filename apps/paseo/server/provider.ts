@@ -257,6 +257,8 @@ export async function setCodexReroute(paseo: Paseo, connection: Connection, enab
   if (!enabled) {
     if (state === "off") return { ok: true, message: "Built-in Codex already uses its own sign-in." };
     const { command: _ours, ...rest } = entry ?? {};
+    // Paseo masks secret env values when they're read, so an entry with env can't be written back safely.
+    if (rest.env && typeof rest.env === "object" && Object.keys(rest.env).length) return { ok: false, message: "Codex's entry in Paseo's config has its own environment settings, so AI Router won't rewrite it. Remove \"command\" from agents.providers.codex in Paseo's config.json by hand." };
     const metadata = view.metadataGeneration?.providers;
     // Paseo can't drop one field, so the entry goes and comes back without it; removing it also drops Codex from metadataGeneration, so that is put back too.
     await paseo.config.patch({ removeProviders: ["codex"] });

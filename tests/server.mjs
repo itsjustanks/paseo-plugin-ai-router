@@ -735,6 +735,11 @@ try {
     assert.deepEqual(t.box.providers.codex, { enabled: true, order: 2 });
     const untouched = await hook({ request }, { paseo: t.api, signal: new AbortController().signal });
     assert.deepEqual(untouched.env, { KEEP: "1" }, "built-in Codex is left alone when not re-routed");
+    // An entry with its own env: Paseo masks secrets on read, so switching off refuses rather than rewrite it.
+    t.box.providers.codex = { enabled: true, env: { OPENAI_API_KEY: "secret" }, command };
+    const before = t.box.patches.length;
+    assert.match((await t.mod.handleCodexReroute({ enabled: false }, { paseo: t.api })).message, /won't rewrite it/);
+    assert.equal(t.box.patches.length, before, "nothing written for an entry with env");
     // A person's own launch command: never touched either way.
     t.box.providers.codex = { command: ["/opt/bin/codex", "--profile", "work"] };
     const patches = t.box.patches.length;

@@ -47,6 +47,10 @@ is still there. `requirements.paseo` stays `>=0.8.0`; everything newer is looked
   Providers and Settings, instead of a banner at the top.
 - **Tips recommends fewer plugins.** Shared Browser and Advanced Markdown are no longer listed; Tips now
   suggests Paseo MCP, Activity, Remote Editor and Tell Agent.
+- **Activity is offered at 0.7.0**, the version Paseo Cafe now publishes.
+- **Switching built-in Codex back is careful with secrets.** If Codex's entry in Paseo's config has its own
+  environment settings, AI Router won't rewrite it (Paseo masks secret values when plugins read them) and
+  says how to remove the launch command by hand.
 - **Tell Agent can be installed again.** Its 1.2.0 builds and loads on Paseo 0.11 (checked on the Mac), so
   Tips offers Paseo Cafe's command for it instead of "Not on Paseo 0.9.1 yet".
 - **Usage page cards name their account** (Paseo 0.11). Paseo's card header shows the source's name and
