@@ -7,6 +7,8 @@ import {
   CODEX_PROVIDER_ID,
   CODEX_ROUTER_PROVIDER_ID,
   aiRouterProviderEntry,
+  codexBaseUrl,
+  codexRerouteCommand,
   codexRouterProviderEntry,
   comboProfile,
   connectionProblem,
@@ -70,6 +72,28 @@ function catalogueFor(connection: Connection, fresh = false) {
 }
 
 const codexModels = (list: CatalogModel[]) => list.filter((model) => model.provider === "codex");
+
+/**
+ * The last comparison with OmniRoute, for the Models tab: when, OmniRoute's
+ * raw count, and the ids the filter keeps (what the AI Router provider should
+ * list). Kept in memory; the next check after a restart fills it again.
+ */
+export type CatalogueCheck = { at: string; ok: boolean; message: string | null; upstream: number | null; wanted: string[] };
+let lastCatalogue: CatalogueCheck | null = null;
+export const catalogueCheck = () => lastCatalogue;
+function noteCheck(result: Awaited<ReturnType<typeof fetchCatalogue>>): void {
+  const at = new Date().toISOString();
+  lastCatalogue = result.ok
+    ? { at, ok: true, message: null, upstream: result.upstream ?? null, wanted: result.list.map((model) => model.id) }
+    : { at, ok: false, message: result.error, upstream: lastCatalogue?.upstream ?? null, wanted: lastCatalogue?.wanted ?? [] };
+}
+
+/** Built-in Codex re-routed at an old address: the command for the current one, as a config patch. Only through Paseo's API. */
+function codexCommandChange(connection: Connection, entries: ProviderEntries): Record<string, unknown> {
+  if (entries.builtinCodex.state !== "on" || !connection.endpoint || entries.builtinCodex.baseUrl === codexBaseUrl(connection.endpoint)) return {};
+  const command = codexRerouteCommand(connection.endpoint);
+  return command ? { codex: { command } } : {};
+}
 
 // Paseo's own thinking levels per model (its claude and codex model lists): the
 // fallback for models OmniRoute lists no effort tiers for. Read through the
@@ -186,6 +210,7 @@ export async function syncAiProvider(paseo: Paseo, connection: Connection, enabl
     return { ok: true, message: "AI Router provider removed from Paseo.", log: "removed the AI Router provider" };
   }
   const result = await catalogueFor(connection, true);
+  noteCheck(result);
   if (!result.ok) {
     writeSyncState({ at, ok: false, message: result.error, endpoint: connection.endpoint });
     return { ok: false, message: result.error, log: `model sync failed: ${result.error}` };
@@ -193,7 +218,7 @@ export async function syncAiProvider(paseo: Paseo, connection: Connection, enabl
   const desired = desiredEntries(connection, result.list, entries, await nativeThinking(paseo));
   const settings = await readRoutingSettings();
   const merged = mergeAgentProfiles(entries.profiles, desiredProfiles(result.combos, settings.comboProfiles));
-  await applyThroughApi(paseo, desired, merged.changed ? merged.next : null);
+  await applyThroughApi(paseo, { ...desired, ...codexCommandChange(connection, entries) }, merged.changed ? merged.next : null);
   const counts = countsOf(result.list);
   const message = `Synced ${result.list.length} models to Paseo (${counts}).${entries.codex.present ? " Removed the old AI Router Codex provider." : ""}`;
   writeSyncState({ at, ok: true, message, endpoint: connection.endpoint, via: "api" });
@@ -214,6 +239,42 @@ export async function setCodexRouter(paseo: Paseo, connection: Connection, enabl
   if (!codex.length) return { ok: false, message: "OmniRoute has no active Codex account, so there is nothing for Codex to use." };
   await applyThroughApi(paseo, { [CODEX_ROUTER_PROVIDER_ID]: codexRouterProviderEntry(connection.endpoint!, codex) });
   return { ok: true, message: `Added "Codex via OmniRoute" with ${codex.length} model${codex.length === 1 ? "" : "s"}. Pick it when you start a Codex agent; this daemon needs no Codex login for it.` };
+}
+
+/**
+ * Re-route built-in Codex, or put it back. On: Paseo's launch command for
+ * Codex carries OmniRoute as its model provider (the key comes from the
+ * session_open hook). Off: the command goes, and the rest of the entry
+ * (enabled, order, models) is put back as it was. Someone else's command is
+ * never touched.
+ */
+export async function setCodexReroute(paseo: Paseo, connection: Connection, enabled: boolean): Promise<{ ok: boolean; message: string }> {
+  const { config } = await paseo.config.get();
+  const view = config as { providers?: Record<string, Record<string, unknown> | undefined>; metadataGeneration?: { providers?: Array<{ provider?: unknown }> } };
+  const entry = view.providers?.codex;
+  const state = describeProviderEntries(view.providers ?? {}).builtinCodex.state;
+  if (state === "foreign") return { ok: false, message: "Codex has its own launch command in Paseo's config (agents.providers.codex.command), so AI Router leaves it alone." };
+  if (!enabled) {
+    if (state === "off") return { ok: true, message: "Built-in Codex already uses its own sign-in." };
+    const { command: _ours, ...rest } = entry ?? {};
+    const metadata = view.metadataGeneration?.providers;
+    // Paseo can't drop one field, so the entry goes and comes back without it; removing it also drops Codex from metadataGeneration, so that is put back too.
+    await paseo.config.patch({ removeProviders: ["codex"] });
+    const restore = { ...(Object.keys(rest).length ? { providers: { codex: rest } } : {}), ...(metadata?.some((item) => item?.provider === "codex") ? { metadataGeneration: { providers: metadata } } : {}) };
+    if (Object.keys(restore).length) await paseo.config.patch(restore as Parameters<Paseo["config"]["patch"]>[0]);
+    await refreshProviders(paseo, ["codex"]);
+    return { ok: true, message: "Built-in Codex back on its own sign-in for new chats. Open chats switch when they restart." };
+  }
+  const problem = connectionProblem({ connection, blocked: null });
+  if (problem) return { ok: false, message: `Connect the router first: ${problem}.` };
+  const command = codexRerouteCommand(connection.endpoint!);
+  if (!command) return { ok: false, message: `${connection.endpoint} can't be used as Codex's address.` };
+  const result = await catalogueFor(connection, true);
+  if (!result.ok) return { ok: false, message: result.error };
+  if (!codexModels(result.list).length) return { ok: false, message: "OmniRoute has no active Codex account, so there is nothing for Codex to use." };
+  await paseo.config.patch({ providers: { codex: { command } } } as Parameters<Paseo["config"]["patch"]>[0]);
+  await refreshProviders(paseo, ["codex"]);
+  return { ok: true, message: "Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart." };
 }
 
 // ---------------------------------------------------------------- auto-sync
@@ -280,8 +341,9 @@ export function checkAutoSync(paseo: Paseo | null): Promise<void> {
       }
       const entries = daemon;
       const result = await catalogueFor(connection);
+      noteCheck(result);
       if (!result.ok) return say(`model sync skipped: ${result.error}`, true);
-      const changed = changedEntries(desiredEntries(connection, result.list, entries, await nativeThinking(paseo)), entries);
+      const changed = { ...changedEntries(desiredEntries(connection, result.list, entries, await nativeThinking(paseo)), entries), ...(paseo ? codexCommandChange(connection, entries) : {}) };
       const wantedProfiles = desiredProfiles(result.combos, settings.comboProfiles);
       const profiles = mergeAgentProfiles(entries.profiles, wantedProfiles);
       const reason = syncReason({ removed: false, present: entries.aiRouter.present, changed: [...Object.keys(changed), ...(profiles.changed ? ["combo profiles"] : [])] });
@@ -308,6 +370,11 @@ export function checkAutoSync(paseo: Paseo | null): Promise<void> {
     }
   })();
   return running;
+}
+
+/** A routing switch changed (Paseo 0.10+ tells us through the settings' subscribe): check now, so combo profiles follow at once. */
+export function recheckSoon(): void {
+  void checkAutoSync(paseoHandle);
 }
 
 /** Called at the top of every RPC and hook. Cheap: a stat and a clock check, at most every 5 s. */

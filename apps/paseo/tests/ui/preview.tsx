@@ -7,7 +7,7 @@ import type { TabId } from "../../client/navigation";
 import { setPreview } from "./plugin";
 
 /** Every state the screenshots cover: `?state=<name>&theme=light|dark`. Tiers: basic = key only, operator = read token, admin = manage key. */
-export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: "1d" | "7d" | "30d"; context?: string; usage_?: { used: number; max: number }; alert?: boolean }> = {
+export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: "1d" | "7d" | "30d"; context?: string; apps?: string; usage_?: { used: number; max: number }; alert?: boolean }> = {
   setup: { status: "not connected" },
   overview: { status: "routing on", settings: "calm" },
   "overview-basic": { status: "basic" },
@@ -20,8 +20,11 @@ export const STATES: Record<string, { status: string; tab?: TabId; accounts?: st
   models: { status: "routing on", tab: "models" },
   "models-basic": { status: "basic", tab: "models" },
   "models-profiles-off": { status: "routing on", tab: "models", profiles: "off" },
+  "models-drift": { status: "drift", tab: "models" },
+  "overview-drift": { status: "drift" },
   providers: { status: "basic", tab: "providers" },
-  "providers-admin": { status: "admin", tab: "providers" },
+  "providers-admin": { status: "admin", tab: "providers", apps: "fleet" },
+  "providers-updating": { status: "routing on", tab: "providers", apps: "updating" },
   "accounts-operator": { status: "routing on", tab: "accounts", accounts: "healthy" },
   "accounts-admin": { status: "manage key", tab: "accounts", accounts: "ok" },
   "accounts-claude-paused": { status: "claude paused", tab: "accounts", accounts: "paused" },

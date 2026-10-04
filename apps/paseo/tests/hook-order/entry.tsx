@@ -17,7 +17,8 @@ import { createBadgeStore, makeContextChip, makeContextPanel, recheckBadges, reg
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
 import contributeClient from "../../index.client";
 import { hostOpener } from "../../client/links";
-import { releaseRpc, setHostExports, setAccessFixture, setActivityFixture, setCompressionFixture, setContextFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import { makeQuickActions, makeStatusTrailing } from "../../client/quick";
+import { releaseRpc, setHostExports, setAccessFixture, setActivityFixture, setClisFixture, setCompressionFixture, setContextFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -30,7 +31,7 @@ const ROUTER_DOWN = { agentId: "agent-7", text: "Router down", detail: "OmniRout
 
 const wide = { compact: false, platform: "web" } as const;
 const narrow = { compact: true, platform: "ios" } as const;
-type Pick = { tab?: TabId; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string; profiles?: string; activity?: string };
+type Pick = { tab?: TabId; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string; profiles?: string; activity?: string; apps?: string };
 const surface = (status: string, layout: { compact: boolean; platform: "web" | "ios" }, pick: Pick = {}) => () => {
   setStatusFixture(status, pick.accounts);
   setUsageFixture(pick.usage ?? "ok");
@@ -39,6 +40,7 @@ const surface = (status: string, layout: { compact: boolean; platform: "web" | "
   if (pick.compression) setCompressionFixture(pick.compression);
   if (pick.profiles) setProfilesFixture(pick.profiles);
   if (pick.activity) setActivityFixture(pick.activity);
+  if (pick.apps) setClisFixture(pick.apps);
   return <AiRouterSurface {...base} layout={layout} initialTab={pick.tab} />;
 };
 
@@ -96,6 +98,16 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "overview (last agent skipped)": surface("connected", wide),
   "overview (router down)": surface("router down", wide),
   "overview (Claude paused)": surface("claude paused", wide),
+  "overview (guide opened)": surface("routing on", wide),
+  "overview (drift)": surface("drift", wide),
+  "overview (Codex re-routed)": surface("admin", wide),
+  "models tab (drift)": surface("drift", wide, { tab: "models" }),
+  "providers tab (re-route Codex asks first)": surface("routing on", wide, { tab: "providers" }),
+  "providers tab (re-route Codex confirmed)": surface("routing on", narrow, { tab: "providers" }),
+  "providers tab (Codex back on own sign-in asks first)": surface("admin", wide, { tab: "providers" }),
+  "providers tab (agent apps, Mac)": surface("routing on", wide, { tab: "providers" }),
+  "providers tab (agent apps asks first)": surface("routing on", narrow, { tab: "providers" }),
+  "providers tab (agent apps updating)": surface("routing on", wide, { tab: "providers", apps: "updating" }),
   // Models
   "models tab": surface("connected", wide, { tab: "models" }),
   "models tab (basic, key hides its spend)": surface("basic", narrow, { tab: "models", access: "hidden" }),
@@ -190,14 +202,19 @@ export const presses: Record<string, string[]> = {
   "activity (why this route)": ["Request r-300, succeeded; show why"],
   "activity (show older)": ["Show older"],
   "overview (last agent links to Activity)": ["See every agent session in Traffic"],
-  "overview (hide the MCP card)": ["Hide the MCP card"],
+  "overview (hide the MCP card)": ["Hide the MCP line"],
+  "overview (guide opened)": ["New to AI Router? How it works"],
+  "providers tab (re-route Codex asks first)": ["Re-route Codex through OmniRoute"],
+  "providers tab (re-route Codex confirmed)": ["Re-route Codex through OmniRoute", "Re-route Codex"],
+  "providers tab (Codex back on own sign-in asks first)": ["Re-route Codex through OmniRoute"],
+  "providers tab (agent apps asks first)": ["Update to 0.160.0"],
   "tips tab (admin, two installed, copy one)": ["Copy the Activity install command"],
   "settings tab (badge off)": ["Context breakdown chip on each chat"],
   "context panel (timeline error, refresh)": ["Refresh"],
   "context panel (hide the badge)": ["Hide the Breakdown chip"],
   "activity (open an agent)": ["Open Fix the login bug", "Open Draft release notes"],
-  "providers tab (narrow, learn more)": ["Learn more: what you can do here"],
-  "overview (guide opens Providers)": ["Open the Providers tab"],
+  "providers tab (narrow, learn more)": ["What you can do here"],
+  "overview (guide opens Providers)": ["New to AI Router? How it works", "Open the Providers tab"],
   "setup (link opens the guide)": ["New to AI Router? Overview explains what it is and how it works"],
 };
 
@@ -408,9 +425,42 @@ export function nativeRegistrationCheck() {
   return {
     old,
     next: { names: next.names, screen: { id: screens[0]?.id, title: screens[0]?.title, sameView: screens[0]?.Component === AiRouterSurface }, item: { id: items[0]?.id, title: items[0]?.title }, opened: next.opened },
-    row: { open: { icon: open.icon, active: open.active, label: open.label }, elsewhere: { active: elsewhere.active }, pressed },
+    row: { open: { icon: open.icon, active: open.active, label: open.label }, elsewhere: { active: elsewhere.active }, pressed, trailing: React.isValidElement(open.trailing) },
     partial: partial.names,
     surfaceIsTheView: old.calls.addSurface?.Component === AiRouterSurface,
     links: { noOpener, withOpener },
   };
+}
+
+/** Paseo 0.11's sidebar row: the status dot opens the quick actions popover; without popovers it is only a dot. */
+export async function quickActionsCheck() {
+  setStatusFixture("routing on");
+  setHostDataReady(true);
+  const Quick = makeQuickActions("ai-router");
+  const Dot = makeStatusTrailing(Quick);
+  const popovers: unknown[] = [];
+  const screens: unknown[] = [];
+  let closed = 0;
+  const textOf = (renderer: ReturnType<typeof create>) => renderer.root.findAll((node) => (node.type as unknown) === "Text").map((node) => [node.props.children].flat().filter((part: unknown) => typeof part === "string").join("")).join(" | ");
+  let dot!: ReturnType<typeof create>;
+  await act(async () => { dot = create(<Dot theme={base.theme} openPopover={(Content) => popovers.push(Content)} />); await flush(); });
+  const button = dot.root.findAll((node) => node.type === "Pressable" && String(node.props.accessibilityLabel).startsWith("AI Router:"))[0];
+  const label = button?.props.accessibilityLabel ?? null;
+  await act(async () => { button?.props.onPress(); });
+  let plain!: ReturnType<typeof create>;
+  await act(async () => { plain = create(<Dot theme={base.theme} />); await flush(); });
+  const plainPressables = plain.root.findAll((node) => node.type === "Pressable").length;
+  let popover!: ReturnType<typeof create>;
+  await act(async () => { popover = create(<Quick theme={base.theme} close={() => { closed += 1; }} openScreen={(input) => screens.push(input)} />); await flush(); });
+  const press = async (name: string) => {
+    const target = popover.root.findAll((node) => node.type === "Pressable" && node.props.accessibilityLabel === name)[0];
+    await act(async () => { target?.props.onPress(); await flush(); await flush(); });
+    return !!target;
+  };
+  const synced = await press("Sync models");
+  const text = textOf(popover);
+  const opened = await press("Open AI Router");
+  // Their minute-by-minute status reads stop with them.
+  act(() => { dot.unmount(); plain.unmount(); popover.unmount(); });
+  return { label, popped: popovers[0] === Quick, plainPressables, text, synced, opened, screens, closed };
 }

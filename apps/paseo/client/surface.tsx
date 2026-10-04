@@ -20,7 +20,7 @@ import { ConnectionForm, KeysCard, PUBLIC_ADDRESS_WHY, STATUS_KEY, errorText, ty
 import { McpCard } from "./mcp";
 import { ShareCard } from "./share";
 import { TipsTab } from "./tips";
-import { Banner, Button, Card, Chip, Divider, Fact, Field, HeroCard, HostIcon, IconBadge, ItemTitle, Link, MessageBar, Meta, Note, Row, StatusLine, TYPE, ToggleRow, toneColor, type Tone } from "./ui";
+import { Banner, Button, Card, Chip, Divider, Fact, Field, HeroCard, HostIcon, IconBadge, ItemTitle, Link, MessageBar, Meta, Note, Row, StatusLine, TYPE, ToggleRow, toneColor, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 type Go = (tab: TabId) => void;
@@ -72,28 +72,6 @@ function useCheck(say: Say, name: string) {
   });
 }
 
-/** One small line: what a read token or manage key would add. Nothing at the top tier. */
-function MoreAccessLine({ theme, data, go }: { theme: Theme; data: Status; go: Go }) {
-  const text =
-    data.tier === "basic" ? "More with a read token (every account's health, usage, router settings) or a manage key (account checks, tunnels, settings changes)." :
-    data.tier === "operator" ? "More with a manage key: account checks, tunnels and settings changes." : null;
-  if (!text) return null;
-  return (
-    <Pressable accessibilityRole="link" accessibilityLabel={text} onPress={() => go("connection")} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 4, marginBottom: 16 }}>
-      {HostIcon ? <View style={{ paddingTop: 2 }}><HostIcon name="KeyRound" size={16} color={theme.colors.foregroundMuted} /></View> : null}
-      <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flex: 1 }}>{text} <Text style={{ color: theme.colors.accent, fontWeight: "600" }}>Connection →</Text></Text>
-    </Pressable>
-  );
-}
-
-/** What this daemon's key may see and do, in a few plain words. */
-const ACCESS_HINT: Record<AccessTier, string> = {
-  none: "not connected yet",
-  basic: "enough to chat through the router",
-  operator: "can also see accounts and usage",
-  admin: "can also change the router's settings",
-};
-
 /** The kinds of account the router offers, from the model list's groups ("Claude · Opus 5.5" is Claude); combos aside. */
 function accountKinds(models: Status["aiProvider"]["models"]): string[] {
   return groupModels(models).map(([group]) => group).filter((group) => group !== "Combo" && group !== "Other");
@@ -102,27 +80,29 @@ function accountKinds(models: Status["aiProvider"]["models"]): string[] {
 // ------------------------------------------------------------------ Overview
 
 /**
- * The hero says the state in words (working, a step left, paused, down) with
- * the details under it: router, the AI Router provider (the way to use
- * OmniRoute), built-in Claude's own sign-in or re-route, access, the last
- * agent, and the actions. Then the guide: what AI Router is, how it works,
- * how to use it, and the words. Re-routing Claude lives on Providers, where
- * it asks first.
+ * Overview is live status and actions only: the hero says the state in words
+ * (working, a step left, paused, down), then three rows (router, models in
+ * Paseo, re-routed providers), the last agent and the two main buttons. The
+ * teaching lives in one "How it works" disclosure under it, open until setup
+ * is done. Re-routing lives on Providers, where it asks first.
  */
 function OverviewTab({ theme, data, compact, go, say }: { theme: Theme; data: Status; compact: boolean; go: Go; say: Say }) {
   const settings = useSettings(routingSettings);
   const sync = useSync(say);
   const name = ROUTERS[data.connection.router].label;
   const check = useCheck(say, name);
-  const on = settings.status === "ready" ? settings.values.routeAgents : data.routeAgents;
+  const claude = settings.status === "ready" ? settings.values.routeAgents : data.routeAgents;
+  const codex = data.codexReroute?.state === "on";
   const health = healthLine(data);
   const down = data.health?.up === false;
   const { present, modelCount } = data.aiProvider;
+  const drift = driftOf(data);
   // A breaker the router holds open matters more than "up": that provider's requests are failing.
   const paused = data.health?.up ? data.health.paused.map(providerLabel) : [];
   const router = paused.length
     ? { value: `${health.label.split(" · ")[0]} · ${paused.join(", ")} paused`, tone: "danger" as const, hint: `${paused.join(" and ")} requests fail until ${name} retries`, action: data.tier === "operator" || data.tier === "admin" ? { label: "Accounts", onPress: () => go("accounts") } : null }
     : { value: health.label, tone: health.tone, hint: null, action: null };
+  const rerouted = [claude ? "Claude" : null, codex ? "Codex" : null].filter((entry): entry is string => entry !== null);
   // One primary button: the next thing to do, else the dashboard. While the router is down, the hero's Open Connection is it.
   const next = down ? null : !present ? "sync" : "dashboard";
   const last = data.lastSession;
@@ -134,14 +114,14 @@ function OverviewTab({ theme, data, compact, go, say }: { theme: Theme; data: St
         ? { tone: "neutral", icon: "Loader", title: data.checking ? "Checking the router…" : "The router hasn't been checked yet", lead: `Asking ${name} whether it is answering. This takes a moment.` }
         : !present
           ? { tone: "neutral", icon: "RefreshCw", title: "Connected: one step left", lead: `${name} is answering. Sync the models, and AI Router appears in Paseo's provider menu.` }
-          : { tone: "success", icon: "CircleCheck", title: "All set: AI Router is working", lead: `${name} is answering, and your chats can use ${modelCount} models from your team's AI accounts.` };
+          : { tone: "success", icon: "CircleCheck", title: "All set: AI Router is working", lead: `${name} is answering. Pick AI Router when you start a chat.` };
   return (
     <>
       <HeroCard theme={theme} tone={hero.tone} icon={hero.icon} title={hero.title} lead={hero.lead ?? undefined}>
         {down ? (
           <>
             <Note theme={theme}>{data.health?.error ?? "No answer."}</Note>
-            <Note theme={theme}>{`Until it answers, AI Router agents will not start${on ? ", and re-routed Claude agents keep their own sign-in" : ""}.`}</Note>
+            <Note theme={theme}>{`Until it answers, AI Router agents will not start${claude ? ", and re-routed Claude agents keep their own sign-in" : ""}${codex ? ", and re-routed Codex agents can't answer" : ""}.`}</Note>
             <Row>
               <Button theme={theme} label="Open Connection" icon="Link" primary onPress={() => go("connection")} />
               <Button theme={theme} label="Check again" icon="RefreshCw" busy={check.isPending} onPress={() => check.mutate()} />
@@ -149,35 +129,35 @@ function OverviewTab({ theme, data, compact, go, say }: { theme: Theme; data: St
             <Divider theme={theme} />
           </>
         ) : null}
-        <View style={{ gap: 6 }}>
+        <View style={{ gap: SPACE.xs }}>
           {!down ? <StatusLine theme={theme} label="Router" value={router.value} tone={router.tone} hint={router.hint} action={router.action} /> : null}
-          <StatusLine theme={theme} label="AI Router provider" value={present ? `${modelCount} models` : "Not synced"} tone={present ? "success" : "neutral"} hint={present ? "pick it in Paseo to use OmniRoute" : "not in Paseo's menu yet"} action={{ label: "Models", onPress: () => go("models") }} />
-          <StatusLine theme={theme} label="Built-in Claude" value={on ? "Re-routed" : "Own sign-in"} tone={on ? "success" : "neutral"} hint={on ? "its chats go through OmniRoute" : "its chats skip the router"} action={{ label: "Re-route providers", onPress: () => go("providers") }} />
-          <StatusLine theme={theme} label="Access" value={TIER_LABELS[data.tier]} tone="neutral" hint={ACCESS_HINT[data.tier]} action={{ label: "Connection", onPress: () => go("connection") }} />
+          <StatusLine theme={theme} label="Models in Paseo" value={present ? `${modelCount} models` : "Not synced"} tone={!present ? "neutral" : drift ? "warning" : "success"} hint={drift ? `${drift} out of step with ${name}` : null} action={{ label: "Models", onPress: () => go("models") }} />
+          <StatusLine theme={theme} label="Re-routed" value={rerouted.length ? rerouted.join(" and ") : "None"} tone={rerouted.length ? "success" : "neutral"} hint={rerouted.length ? null : "built-in providers use their own sign-in"} action={{ label: "Providers", onPress: () => go("providers") }} />
         </View>
         {last ? (
-          <Pressable accessibilityRole="link" accessibilityLabel="See every agent session in Traffic" onPress={() => go("activity")} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-            {HostIcon ? <View style={{ paddingTop: 3 }}><HostIcon name="Bot" size={16} color={toneColor(theme, last.routed ? "success" : "warning")} /></View> : null}
-            <View style={{ flex: 1 }}>
-              <Note theme={theme} tone={last.routed ? "success" : "warning"}>
-                {`${lastAgentLine(last, name, hhmm(last.at))}  `}
-                <Text style={{ color: theme.colors.accent, fontWeight: "600" }}>Traffic →</Text>
-              </Note>
-            </View>
+          <Pressable accessibilityRole="link" accessibilityLabel="See every agent session in Traffic" onPress={() => go("activity")} style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.sm }}>
+            {HostIcon ? <View style={{ paddingTop: SPACE.hair }}><HostIcon name="Bot" size={16} color={toneColor(theme, last.routed ? "success" : "warning")} /></View> : null}
+            <Text style={{ ...TYPE.secondary, color: last.routed ? theme.colors.foregroundMuted : toneColor(theme, "warning"), flex: 1 }}>
+              {`${lastAgentLine(last, name, hhmm(last.at))}  `}
+              <Text style={{ color: theme.colors.accent, fontWeight: "600" }}>Traffic →</Text>
+            </Text>
           </Pressable>
         ) : null}
-        <Divider theme={theme} />
         <Row>
           <OpenDashboardButton theme={theme} data={data} say={say} primary={next === "dashboard"} />
-          <Button theme={theme} label={present ? "Sync models again" : "Sync models to Paseo"} icon="RefreshCw" primary={next === "sync"} busy={sync.isPending} disabled={down} onPress={() => sync.mutate(true)} />
+          <Button theme={theme} label={present ? "Sync models" : "Sync models to Paseo"} icon="RefreshCw" primary={next === "sync"} busy={sync.isPending} disabled={down} onPress={() => sync.mutate(true)} />
         </Row>
-        <Meta theme={theme}>Pick "AI Router" in Paseo's provider menu to use OmniRoute's models. Built-in Claude keeps its own sign-in unless you re-route it on Providers. ~/.claude is never changed.</Meta>
       </HeroCard>
-      <MoreAccessLine theme={theme} data={data} go={go} />
-      <OverviewGuide theme={theme} compact={compact} go={go} router={name} accounts={accountKinds(data.aiProvider.models)} synced={present} />
+      <OverviewGuide theme={theme} compact={compact} go={go} router={name} accounts={accountKinds(data.aiProvider.models)} synced={present} open={!present} />
       <McpCard theme={theme} data={data} say={say} />
     </>
   );
+}
+
+/** How many models are out of step between OmniRoute's kept list and Paseo, or 0. */
+function driftOf(data: Status): number {
+  const check = data.aiProvider.check;
+  return check?.ok ? check.missing.length + check.extra.length : 0;
 }
 
 // -------------------------------------------------------------------- Models
@@ -260,11 +240,11 @@ function ComboProfiles({ theme, say }: { theme: Theme; say: Say }) {
   return (
     <Card theme={theme} title="Combos as agent profiles" icon="Layers">
       <ToggleRow theme={theme} label="Show combos as agent profiles" text="Show combos as agent profiles" value={on} busy={apply.isPending} disabled={settings.status !== "ready"} onChange={(next) => apply.mutate(next)} />
-      <Note theme={theme}>Each OmniRoute combo becomes a profile in Paseo's agent picker, on the AI Router provider, with OmniRoute's description as its notes (orchestrating agents read them). Kept in step with the model list; your own profiles are never touched.</Note>
+      <Meta theme={theme}>Each OmniRoute combo becomes a profile in Paseo's agent picker, with OmniRoute's description as its notes (orchestrating agents read them). Your own profiles are never touched.</Meta>
       {query.data?.message ? <Note theme={theme} tone="warning">{query.data.message}</Note> : null}
       {on && !list.length ? <Note theme={theme}>{query.isLoading ? "Reading Paseo's profiles…" : "No combo profiles yet: they appear with the next sync once OmniRoute lists a combo."}</Note> : null}
       {shown.map((profile) => (
-        <View key={profile.id} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+        <View key={profile.id} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
           <Row>
             <ItemTitle theme={theme}>{profile.name}</ItemTitle>
             {profile.model ? <Meta theme={theme} selectable>{profile.model}</Meta> : null}
@@ -277,9 +257,49 @@ function ComboProfiles({ theme, say }: { theme: Theme; say: Say }) {
   );
 }
 
+/** Up to four ids, then "and N more". */
+const someIds = (ids: readonly string[]) => (ids.length > 4 ? `${ids.slice(0, 4).join(", ")} and ${ids.length - 4} more` : ids.join(", "));
+
+/**
+ * The sync, said plainly: how many models Paseo has, when it last compared
+ * them with OmniRoute (every 5 minutes and when the app connects), why
+ * OmniRoute lists more than Paseo shows, and any real drift, with Sync.
+ */
+function SyncCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
+  const sync = useSync(say);
+  const { present, modelCount, legacyCodex, lastSync, summary, via, check } = data.aiProvider;
+  const name = ROUTERS[data.connection.router].label;
+  const drift = driftOf(data);
+  const gap = check?.ok && check.upstream !== null && check.upstream > check.kept
+    ? `${check.kept} of the ${check.upstream} models ${name} lists${data.tier === "basic" ? " for this key" : ""}, on purpose: one entry per model. Effort levels (Paseo's thinking control sets those), duplicates${data.tier === "basic" ? "" : ", providers with no connected account"} and unproven variants are left out.`
+    : null;
+  const times = [check ? `compared ${when(check.at)}` : null, lastSync?.ok ? `changed ${when(lastSync.at)}${via === "config-file" ? " (at plugin load)" : ""}` : null].filter(Boolean).join(" · ");
+  return (
+    <Card theme={theme} title="Sync models to Paseo" icon="RefreshCw">
+      <StatusLine
+        theme={theme}
+        label="In Paseo"
+        value={present ? `${modelCount} models` : "Not synced"}
+        tone={!present ? "neutral" : drift ? "warning" : check?.ok ? "success" : "neutral"}
+        hint={!present ? `Paseo has no AI Router provider yet` : drift ? `out of step with ${name}` : check?.ok ? `in step with ${name}` : summary}
+      />
+      {check?.ok && check.missing.length ? <Note theme={theme} tone="warning">{`${name} offers ${check.missing.length === 1 ? "a model" : `${check.missing.length} models`} Paseo doesn't list yet: ${someIds(check.missing)}.`}</Note> : null}
+      {check?.ok && check.extra.length ? <Note theme={theme} tone="warning">{`Paseo lists ${check.extra.length === 1 ? "a model" : `${check.extra.length} models`} ${name} no longer offers: ${someIds(check.extra)}.`}</Note> : null}
+      {check && !check.ok ? <Note theme={theme} tone="danger">{`Couldn't compare with ${name} at ${hhmm(check.at)}: ${check.message}`}</Note> : null}
+      {lastSync && !lastSync.ok && (!check || check.ok) ? <Note theme={theme} tone="danger">{`Sync failed at ${hhmm(lastSync.at)}: ${lastSync.message}`}</Note> : null}
+      {gap ? <Meta theme={theme}>{gap}</Meta> : null}
+      <Row>
+        <Button theme={theme} label={drift ? "Sync now" : "Sync models to Paseo"} icon="RefreshCw" primary={!present || drift > 0} busy={sync.isPending} onPress={() => sync.mutate(true)} />
+        {present ? <Button theme={theme} label="Remove from Paseo" busy={sync.isPending} onPress={() => sync.mutate(false)} /> : null}
+      </Row>
+      <Meta theme={theme}>{`${times ? `${times[0].toUpperCase()}${times.slice(1)} · ` : ""}runs by itself every 5 minutes and when the app connects`}</Meta>
+      {legacyCodex ? <Note theme={theme} tone="warning">The old "AI Router Codex" provider is still in Paseo. Syncing removes it.</Note> : null}
+    </Card>
+  );
+}
+
 function ModelsTab({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
   const queryClient = useQueryClient();
-  const sync = useSync(say);
   const callTest = useRpc(modelTest);
   const [model, setModel] = useState("");
   const test = useMutation({
@@ -290,35 +310,23 @@ function ModelsTab({ theme, data, say }: { theme: Theme; data: Status; say: Say 
     },
     onError: (error) => say({ text: errorText(error), tone: "danger" }),
   });
-  const { present, modelCount, legacyCodex, lastSync, tests, summary, models, via } = data.aiProvider;
+  const { tests, models } = data.aiProvider;
   const results = new Map(tests.map((entry) => [entry.model, entry]));
   const testing = test.isPending ? test.variables : null;
   return (
     <>
-      <YourAccess theme={theme} data={data} />
-      <Card theme={theme} title="Sync models to Paseo" icon="RefreshCw">
-        <Note theme={theme}>Adds "AI Router" to Paseo's provider menu with every model of your connected accounts, so one chat can switch between Claude and GPT. It stays current by itself: checked when the plugin loads, when the app connects, and every 5 minutes.</Note>
-        <Row>
-          <Button theme={theme} label="Sync models to Paseo" icon="RefreshCw" primary busy={sync.isPending} onPress={() => sync.mutate(true)} />
-          {present ? <Button theme={theme} label="Remove from Paseo" busy={sync.isPending} onPress={() => sync.mutate(false)} /> : null}
-        </Row>
-        {present && lastSync?.ok ? <Meta theme={theme}>{`Last changed ${when(lastSync.at)} · ${modelCount} models${summary ? ` (${summary})` : ""}${via === "config-file" ? " · written at plugin load" : ""}`}</Meta> : null}
-        {present && !lastSync && summary ? <Meta theme={theme}>{`${modelCount} models (${summary})`}</Meta> : null}
-        {!present && !lastSync ? <Note theme={theme}>Not synced yet: Paseo has no AI Router provider.</Note> : null}
-        {lastSync && !lastSync.ok ? <Note theme={theme} tone="danger">{`Sync failed at ${hhmm(lastSync.at)}: ${lastSync.message}`}</Note> : null}
-        {legacyCodex ? <Note theme={theme} tone="warning">The old "AI Router Codex" provider is still in Paseo. Syncing removes it.</Note> : null}
-      </Card>
+      <SyncCard theme={theme} data={data} say={say} />
       <ComboProfiles theme={theme} say={say} />
       {models.length ? (
         <Card theme={theme} title="In Paseo's model picker" icon="Boxes">
           <Note theme={theme}>Test sends one tiny request through the router and shows its answer.</Note>
           {groupModels(models).map(([group, rows]) => (
-            <View key={group} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+            <View key={group} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
               <Text style={{ ...TYPE.item, fontWeight: "700", color: theme.colors.foreground }}>{`${group} · ${rows.length}`}</Text>
               {rows.map((row) => {
                 const result = results.get(row.id);
                 return (
-                  <View key={row.id} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 2 }}>
+                  <View key={row.id} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: SPACE.sm, rowGap: SPACE.hair }}>
                     <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>{row.name}</Text>
                     {row.id !== row.name ? <Meta theme={theme} selectable>{row.id}</Meta> : null}
                     {result ? <Chip theme={theme} label={result.ok ? "answered" : "failed"} tone={result.ok ? "success" : "danger"} /> : null}
@@ -335,6 +343,7 @@ function ModelsTab({ theme, data, say }: { theme: Theme; data: Status; say: Say 
         <Row><Button theme={theme} label="Test model" busy={test.isPending && testing === model.trim()} disabled={!model.trim() || test.isPending} onPress={() => test.mutate(model.trim())} /></Row>
         {tests.map((entry) => <Note key={entry.model} theme={theme} tone={entry.ok ? "success" : "danger"}>{entry.message}</Note>)}
       </Card>
+      <YourAccess theme={theme} data={data} />
     </>
   );
 }
@@ -362,13 +371,13 @@ function TunnelsSection({ theme, data, say }: { theme: Theme; data: Status; say:
   });
   const list = query.data;
   return (
-    <View style={{ gap: 8, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
+    <View style={{ gap: SPACE.sm, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>
       <ItemTitle theme={theme}>OmniRoute's tunnels</ItemTitle>
       <Note theme={theme} tone="warning">Starting a tunnel makes the dashboard reachable from the internet. Its login is still required.</Note>
       {!list ? <Note theme={theme}>{query.error ? errorText(query.error) : "Asking the router…"}</Note> : null}
       {list && list.state !== "ok" ? <Note theme={theme} tone="warning">{list.message}</Note> : null}
       {list?.tunnels.map((tunnel) => (
-        <View key={tunnel.id} style={{ gap: 4 }}>
+        <View key={tunnel.id} style={{ gap: SPACE.xs }}>
           <Row>
             <ItemTitle theme={theme}>{tunnel.label}</ItemTitle>
             <Chip theme={theme} label={!tunnel.installed ? "not installed" : tunnel.running ? (tunnel.url ? "running" : "starting") : tunnel.phase === "error" ? "error" : "stopped"} tone={tunnel.url ? "success" : tunnel.phase === "error" ? "danger" : "neutral"} />
@@ -440,7 +449,7 @@ function ConnectionTab({ theme, data, configured, go, say }: { theme: Theme; dat
         <Fact theme={theme} label="Endpoint" value={connection.endpoint ?? "none"} />
         <Fact theme={theme} label="Public address" value={connection.publicUrl ?? "not set"} />
         {connection.publicCheck ? (
-          <View style={{ gap: 4 }}>
+          <View style={{ gap: SPACE.xs }}>
             <Row>
               <Chip theme={theme} label={connection.publicCheck.label} tone={connection.publicCheck.state === "ok" ? "success" : connection.publicCheck.state === "checking" ? "neutral" : "warning"} />
             </Row>
@@ -476,7 +485,7 @@ function ConnectionTab({ theme, data, configured, go, say }: { theme: Theme; dat
               <Note theme={theme} tone="warning">
                 {`The dashboard is on a private network (${privateAccess.hostPort}), so it only opens from a device on that network. Otherwise forward it first: Daemon Link → Connect → Saved SSH forward to the router host, remote port ${privateAccess.hostPort.split(":").pop()}. For Codex sign-in, also forward port ${CODEX_LOGIN_PORT}. Or run:`}
               </Note>
-              <View style={{ backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 10, padding: 12 }}>
+              <View style={{ backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 10, padding: SPACE.row }}>
                 <Text selectable style={{ ...TYPE.mono, color: theme.colors.foreground }}>{privateAccess.command}</Text>
               </View>
               <Row>
@@ -499,13 +508,13 @@ function ConnectionTab({ theme, data, configured, go, say }: { theme: Theme; dat
 function PageHeader({ theme, data, configured }: { theme: Theme; data: Status; configured: boolean }) {
   const dot = !configured ? theme.colors.foregroundMuted : data.health?.up === false ? theme.colors.statusDanger : data.health?.up ? theme.colors.statusSuccess : theme.colors.foregroundMuted;
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.row }}>
       <IconBadge theme={theme} name="Route" size={46} />
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ flex: 1, gap: SPACE.hair }}>
         <Text accessibilityRole="header" style={{ ...TYPE.page, color: theme.colors.foreground }}>AI Router</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.sm }}>
           {configured ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
-          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flexShrink: 1 }}>{configured ? `Connected to ${ROUTERS[data.connection.router].label}` : "Not connected yet. Routing stays off until setup is done and you turn it on."}</Text>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flexShrink: 1 }}>{configured ? `Connected to ${ROUTERS[data.connection.router].label} · ${TIER_LABELS[data.tier]}` : "Not connected yet. Routing stays off until setup is done and you turn it on."}</Text>
         </View>
       </View>
     </View>
@@ -520,10 +529,10 @@ export function AiRouterSurface({ theme, layout, navigation, initialTab, initial
   const query = useQuery({ queryKey: STATUS_KEY, queryFn: () => callStatus({}), refetchInterval: 20_000 });
   const data = query.data;
   const configured = data?.problem === null;
-  const pad = layout.compact ? 16 : 24;
+  const pad = layout.compact ? SPACE.md : SPACE.section;
   if (!data) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.colors.surface0, alignItems: "center", justifyContent: "center", padding: pad, gap: 12 }}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.surface0, alignItems: "center", justifyContent: "center", padding: pad, gap: SPACE.row }}>
         {query.error ? (
           <>
             <Note theme={theme} tone="danger">{errorText(query.error)}</Note>
@@ -545,10 +554,10 @@ export function AiRouterSurface({ theme, layout, navigation, initialTab, initial
   };
   const { connection } = data;
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: pad, paddingBottom: 48, maxWidth: 980, width: "100%", alignSelf: "center" }}>
+    <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: pad, paddingBottom: SPACE.section * 2, maxWidth: 980, width: "100%", alignSelf: "center" }}>
       <PageHeader theme={theme} data={data} configured={configured} />
       <TabBar theme={theme} compact={layout.compact} tabs={tabs} active={tab} onSelect={go} />
-      <TabIntro theme={theme} tab={tab} compact={layout.compact} />
+      {tab !== "overview" ? <TabIntro theme={theme} tab={tab} compact={layout.compact} /> : null}
       {message ? <MessageBar theme={theme} tone={message.tone} text={message.text} /> : null}
       {tab === "connection" ? <ConnectionTab theme={theme} data={data} configured={configured} go={go} say={setMessage} /> : null}
       {tab === "providers" ? <ProvidersTab theme={theme} data={data} say={setMessage} /> : null}
@@ -561,7 +570,7 @@ export function AiRouterSurface({ theme, layout, navigation, initialTab, initial
           <Row><Button theme={theme} label="Open Connection" icon="Link" primary onPress={() => go("connection")} /></Row>
         </Banner>
       ) : null}
-      {!configured && tab === "overview" ? <OverviewGuide theme={theme} compact={layout.compact} go={go} router={ROUTERS[connection.router].label} accounts={[]} synced={false} /> : null}
+      {!configured && tab === "overview" ? <OverviewGuide theme={theme} compact={layout.compact} go={go} router={ROUTERS[connection.router].label} accounts={[]} synced={false} open /> : null}
       {configured && tab === "overview" ? <OverviewTab theme={theme} data={data} compact={layout.compact} go={go} say={setMessage} /> : null}
       {configured && tab === "models" ? <ModelsTab theme={theme} data={data} say={setMessage} /> : null}
       {configured && tab === "accounts" ? <AccountsTab theme={theme} data={data} say={setMessage} /> : null}

@@ -13,7 +13,7 @@ import { AdvancedBanner, dashboardTarget, useLinks } from "./dashboard";
 import { RouterSettingsCard } from "./insights";
 import { errorText, type Message } from "./setup";
 import type { TabId } from "./navigation";
-import { Button, Card, Chip, ItemTitle, Link, Meta, Note, Row, ToggleRow, type Tone } from "./ui";
+import { Button, Card, Chip, ItemTitle, Link, Meta, Note, Row, ToggleRow, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -66,7 +66,7 @@ function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say
           {flagged.map((engine) => <Note key={engine.id} theme={theme} tone="warning">{`${engine.label} is on: ${engine.agents}`}</Note>)}
         </>
       )}
-      <View style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
+      <View style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>
         <ItemTitle theme={theme}>{copy.recommended.title}</ItemTitle>
         {copy.recommended.why.map((line) => <Note key={line} theme={theme}>{`• ${line}`}</Note>)}
       </View>
@@ -89,7 +89,7 @@ function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say
       <Link theme={theme} label={showEngines ? "Hide what each engine does" : "What each engine does"} onPress={() => setShowEngines(!showEngines)} />
       {showEngines
         ? copy.engines.map((engine) => (
-            <View key={engine.id} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+            <View key={engine.id} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
               <Row>
                 <ItemTitle theme={theme}>{engine.label}</ItemTitle>
                 <Chip theme={theme} label={VERDICT[engine.verdict].label} tone={VERDICT[engine.verdict].tone} />
@@ -115,8 +115,8 @@ function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }
       {copy.more.map((item) => {
         const link = dashboardLink(url, item.path);
         return (
-          <View key={item.title} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
-            <View style={{ flex: 1, minWidth: 200, gap: 2 }}>
+          <View key={item.title} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: SPACE.sm, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
+            <View style={{ flex: 1, minWidth: 200, gap: SPACE.hair }}>
               <ItemTitle theme={theme}>{item.title}</ItemTitle>
               <Note theme={theme}>{item.detail}</Note>
             </View>
@@ -145,7 +145,7 @@ function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
     <Card theme={theme} title="In Paseo" icon="ToggleRight" subtitle="What AI Router adds to Paseo's own screens, on this computer">
       <ToggleRow theme={theme} label="Context breakdown chip on each chat" text="Context breakdown chip on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Breakdown chip on." : "Breakdown chip off.")} />
       <Note theme={theme}>A "Breakdown" chip beside Paseo's own context meter: tap it to see what is filling the chat. It turns red with the reason when OmniRoute is down or has paused a routed chat's provider. Needs no read token: the parts are worked out on this daemon.</Note>
-      <ToggleRow theme={theme} label="Check out MCP card on Overview" text={'"Check out MCP" card on Overview'} value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP card back on Overview." : "MCP card hidden.")} />
+      <ToggleRow theme={theme} label="MCP plugin line on Overview" text="MCP plugin line on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP line back on Overview." : "MCP line hidden.")} />
       {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
       {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
     </Card>
@@ -159,10 +159,10 @@ export function SettingsTab({ theme, data, configured, go, say }: { theme: Theme
       <InPaseoCard theme={theme} say={say} />
       {configured && reads ? (
         <>
-          <AdvancedBanner theme={theme} data={data} say={say} />
           <CompressionCard theme={theme} data={data} say={say} />
           <RouterSettingsCard theme={theme} dashboardUrl={dashboardTarget(data).url} onMessage={say} />
           <MoreCard theme={theme} data={data} say={say} />
+          <AdvancedBanner theme={theme} data={data} say={say} />
         </>
       ) : (
         <Card theme={theme} title="Router settings" icon="Settings2">

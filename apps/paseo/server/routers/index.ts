@@ -33,7 +33,7 @@ export interface RouterAdapter {
   /** The public address's health route, from this daemon, within the panel's wait budget. */
   publicForPanel(publicUrl: string | null, refresh: boolean): Promise<{ state: "ok" | "dns" | "tls" | "http" | "unreachable" | "checking"; label: string; detail: string | null; checkedAt: string | null } | null>;
   /** Models for the AI Router provider, limited to connected accounts (with a plain key when the router can). */
-  models(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[] } | { ok: false; error: string }>;
+  models(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[]; upstream?: number | null } | { ok: false; error: string }>;
   testModel(connection: Connection, model: string): Promise<Result>;
   /** What this key itself may see about itself: name, spend and limit, account quotas. */
   access(connection: Connection, refresh: boolean): Promise<Access>;

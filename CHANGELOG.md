@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.15.0 — 2026-10-04
+
+A calmer panel, Codex that really can go through the router, update buttons for Claude Code and Codex,
+and a Models tab that says when it last compared with OmniRoute. Every option and feature from 0.14.0
+is still there. `requirements.paseo` stays `>=0.8.0`; everything newer is looked for at runtime.
+
+- **A calm Overview.** It now leads with the state and the actions only: the status card (router,
+  models in Paseo, re-routed providers, the last agent, Open dashboard and Sync models). What AI Router
+  is, how it works, how to use it and the words you'll see now sit in one **"New to AI Router? How it
+  works"** section. It is open until setup is done and folded away once everything works. The MCP
+  card is now one quiet line, and the footer that repeated "how to use" is gone. Your access level
+  moved into the page header ("Connected to OmniRoute · Read token").
+- **"What you can do here" folds away on every tab** behind a small link, instead of a boxed list.
+- **One spacing scale** (`SPACE` in `client/ui.tsx`: 2, 4, 8, 12, 16, 20, 24) used everywhere. Cards
+  have 20 inside and 24 between them; no screen uses raw numbers any more. The type scale is unchanged.
+- **Codex can be re-routed, and the panel now says so truthfully.** Before, "Can't be re-routed: …"
+  sat right under the Codex row and read as if it meant Codex. Built-in Codex now has the same kind of
+  ask-first switch as Claude. Codex ignores `OPENAI_BASE_URL` and `OPENAI_API_KEY` (checked with Codex
+  0.160.0), so AI Router sets Paseo's own launch command for Codex instead: `codex -c
+  model_provider=ai-router -c model_providers.ai-router={…}`. The key is added when each chat starts,
+  under `AI_ROUTER_API_KEY`, and is never written anywhere. `~/.codex` is not changed. Switching off
+  removes the command and puts the rest of Codex's entry back as it was. A launch command someone set
+  themselves is never touched. Unlike Claude, a re-routed Codex chat can't fall back to its own sign-in
+  while OmniRoute is down, and the switch says so before you confirm. The separate "Codex via
+  OmniRoute" provider is still offered, folded under the switch. Other providers are listed as "not
+  switched here", not "can't be re-routed".
+- **Agent apps** (Providers tab). Shows the Claude Code and Codex this daemon runs, their version
+  against npm's latest (checked hourly; offline it stays quiet), and how each was installed. **Update**
+  asks first, runs as the daemon's own user, shows the output while it runs and reads the version
+  again. Running chats keep the old version until they restart. The button appears only when AI Router
+  knows the install method and can write there: npm global (the fleet's `/opt/npm-global`, a Mac's
+  `~/.npm-global`) or Claude Code's own installer (`claude update`). For Homebrew, Codex's own installer
+  or an unknown copy, it shows the exact command or says why there is none.
+- **Model sync, said plainly** (Models tab). It shows when Paseo was last compared with OmniRoute and
+  when the list last changed, and why OmniRoute lists more models than Paseo shows: for example "85 of
+  the 734": one entry per model, with effort levels, duplicates, providers with no account and
+  unproven variants left out on purpose. Drift is flagged only when it is real (a model the filter
+  keeps that Paseo lacks, or the reverse), with **Sync now**. Overview shows the same drift on its
+  Models row. The automatic sync is unchanged: at load, when the app connects, and every 5 minutes.
+- **Paseo 0.11 extras, when the app has them.** The sidebar row gets a status dot. Pressing the dot
+  opens a popover with the state and **Open AI Router**, **Open dashboard** and **Sync models**. On
+  0.10+ daemons, a routing switch flipped anywhere (Paseo's Settings or another client) re-checks the
+  combo profiles at once, through `registerSettings(...).subscribe()`.
+- **Advanced routing** (combos, fallbacks, per-provider rules) is now one line at the bottom of
+  Providers and Settings, instead of a banner at the top.
+
 ## 0.14.0 — 2026-10-04
 
 Uses Paseo's own screens where the Paseo app or daemon has them, instead of AI Router drawing its

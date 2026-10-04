@@ -5,7 +5,7 @@ import type { Status } from "../shared/contracts";
 import { shareSnippets } from "../shared/logic";
 import { useLinks } from "./dashboard";
 import type { Message } from "./setup";
-import { Card, Fact, ItemTitle, Link, Note, Row, TYPE } from "./ui";
+import { Card, Fact, ItemTitle, Link, Note, Row, TYPE, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 
@@ -30,10 +30,10 @@ export function ShareCard({ theme, data, say }: { theme: Theme; data: Status; sa
       <Fact theme={theme} label="API key" value="Ask your router admin for your own key, one per person or machine, so usage shows per key." />
       {check && check.state !== "ok" && check.state !== "checking" ? <Note theme={theme} tone="warning">{`The public address is not ready yet: ${check.label}. These work once it is.`}</Note> : null}
       {shareSnippets(publicUrl).map((snippet) => (
-        <View key={snippet.id} style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
+        <View key={snippet.id} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>
           <ItemTitle theme={theme}>{snippet.title}</ItemTitle>
           <Note theme={theme}>{snippet.why}</Note>
-          <View style={{ backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 10, padding: 12 }}>
+          <View style={{ backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 10, padding: SPACE.row }}>
             <Text selectable style={{ ...TYPE.mono, color: theme.colors.foreground }}>{snippet.text}</Text>
           </View>
           <Row>

@@ -8,11 +8,13 @@ import {
   AI_ROUTER_PROVIDER_ID,
   CODEX_PROVIDER_ID,
   CODEX_ROUTER_PROVIDER_ID,
+  codexRerouteState,
   parseRoutingEnvelope,
   parseSessionLog,
   pushSession,
   type SessionEntry,
   resolveConnection,
+  type CodexReroute,
   type Connection,
   type NativeThinking,
   type ResolvedConnection,
@@ -230,6 +232,8 @@ export type ProviderEntries = {
   aiRouter: { present: boolean; models: string[]; listed: Array<{ id: string; label: string }>; summary: string | null; baseUrl: string | null; entry: unknown };
   codex: { present: boolean; baseUrl: string | null };
   codexRouter: { present: boolean; baseUrl: string | null; modelCount: number; entry: unknown };
+  /** Built-in Codex: re-routed through its launch command, or not (`codex` above is the 0.1.0 provider). */
+  builtinCodex: CodexReroute & { entry: unknown };
   /** Every provider entry, as Paseo holds it. */
   all: Record<string, unknown>;
   /** Every agent profile, as Paseo holds it (ours start with "ai-router:"). */
@@ -290,6 +294,7 @@ export function describeProviderEntries(providers: Record<string, Entry | unknow
       modelCount: Array.isArray(codexRouter?.models) ? codexRouter.models.length : 0,
       entry: codexRouter,
     },
+    builtinCodex: { ...codexRerouteState(providers.codex), entry: providers.codex },
     all: providers as Record<string, unknown>,
     profiles,
   };

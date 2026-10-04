@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Pressable, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { AccessTier } from "../shared/logic";
-import { Bullets, Disclosure, HostIcon, IconBadge, TYPE } from "./ui";
+import { Bullets, Disclosure, HostIcon, IconBadge, TYPE, SPACE } from "./ui";
 
 export { HostIcon } from "./ui";
 
@@ -20,7 +20,7 @@ export const TABS = [
   {
     id: "overview", label: "Overview", icon: "LayoutDashboard", minTier: "none",
     title: "Overview",
-    summary: "Whether AI Router is working right now, what to do next, and a short guide to how it all fits together.",
+    summary: "Whether AI Router is working right now and what to do next, with a short guide to how it all fits together.",
     canDo: ["See at a glance whether the shared router is answering", "Open the router's dashboard, or refresh the list of models", "Learn what AI Router is and how to use it in a chat"],
   },
   {
@@ -33,13 +33,13 @@ export const TABS = [
     id: "models", label: "Models", icon: "Boxes", minTier: "none",
     title: "Models you can use",
     summary: "The AI models your chats can use through the router. Syncing puts them in Paseo's model picker, and a test checks that one answers.",
-    canDo: ["Add every model from your team's accounts to Paseo in one step", "Turn the router's combos into ready-made agent profiles", "Send a tiny test message to check a model works", "See how much of this key's spending limit is used"],
+    canDo: ["Add every model from your team's accounts to Paseo in one step", "See when the list was last compared with the router, and why it shows fewer models", "Turn the router's combos into ready-made agent profiles", "Send a tiny test message to check a model works", "See how much of this key's spending limit is used"],
   },
   {
     id: "providers", label: "Providers", icon: "Plug", minTier: "none",
     title: "Providers and re-routing",
     summary: "A provider is what you choose when you start a chat, such as Claude, Codex or AI Router. Here you choose which ones go through the router; each one's own on/off switch stays in Paseo's Settings → Providers.",
-    canDo: ["See which providers always use the router, and which can be switched", "Send the built-in Claude provider through the router instead of its own sign-in (it asks first)", "Add a Codex provider that runs on the router's accounts", "Turn off, in one go, the providers that can't work on this computer"],
+    canDo: ["See which providers always use the router, and which can be switched", "Send built-in Claude or Codex through the router instead of their own sign-in (each asks first)", "Update Claude Code and Codex on this daemon", "Turn off, in one go, the providers that can't work on this computer"],
   },
   {
     id: "accounts", label: "Accounts", icon: "Users", minTier: "operator",
@@ -57,7 +57,7 @@ export const TABS = [
     id: "settings", label: "Settings", icon: "SlidersHorizontal", minTier: "none",
     title: "Settings",
     summary: "Switches for what AI Router adds to Paseo and, with a read token, the router settings that matter most for coding agents.",
-    canDo: ["Show or hide the Breakdown chip on each chat, and the MCP card", "See how the router shrinks long prompts, and the setting we recommend", "Check a few router settings, and change them with a manage key"],
+    canDo: ["Show or hide the Breakdown chip on each chat, and the MCP line on Overview", "See how the router shrinks long prompts, and the setting we recommend", "Check a few router settings, and change them with a manage key"],
   },
   {
     id: "connection", label: "Connection", icon: "Link", minTier: "none",
@@ -109,9 +109,9 @@ export function TabBar({ theme, compact, tabs, active, onSelect }: { theme: Them
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
-          gap: 6,
-          paddingHorizontal: compact ? 8 : 11,
-          paddingVertical: 11,
+          gap: SPACE.xs,
+          paddingHorizontal: compact ? SPACE.sm : SPACE.row,
+          paddingVertical: SPACE.row,
           marginBottom: -1,
           borderBottomWidth: 2,
           borderColor: selected ? theme.colors.accent : "transparent",
@@ -123,7 +123,7 @@ export function TabBar({ theme, compact, tabs, active, onSelect }: { theme: Them
       </Pressable>
     );
   });
-  const bar = { flexDirection: "row" as const, borderBottomWidth: 1, borderColor: theme.colors.border, marginTop: 14, marginBottom: 20 };
+  const bar = { flexDirection: "row" as const, borderBottomWidth: 1, borderColor: theme.colors.border, marginTop: SPACE.row, marginBottom: SPACE.section };
   if (tight && !HostIcon) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist" onLayout={onLayout} style={{ ...bar, flexGrow: 0 }}>
@@ -134,35 +134,30 @@ export function TabBar({ theme, compact, tabs, active, onSelect }: { theme: Them
   return <View accessibilityRole="tablist" onLayout={onLayout} style={bar}>{items}</View>;
 }
 
+const INTRO_ICON = 40;
+
 /**
- * The top of each tab: its icon, a clear title, one or two plain sentences on
- * what it is for, and "What you can do here". On a phone that list folds away
- * behind a "Learn more" toggle, so the tab's own content stays near the top.
+ * The top of each tab: its icon, a clear title and one or two plain sentences
+ * on what it is for. "What you can do here" waits behind a small link, so the
+ * tab's own content stays near the top. Overview has none: its status card is
+ * its introduction.
  */
 export function TabIntro({ theme, tab, compact }: { theme: Theme; tab: TabId; compact: boolean }) {
   const item = TABS.find((entry) => entry.id === tab)!;
-  const list = (
-    <View style={{ gap: 10, padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface1, borderWidth: 1, borderColor: theme.colors.border }}>
-      {!compact ? <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, fontWeight: "600" }}>What you can do here</Text> : null}
-      <Bullets theme={theme} items={item.canDo} columns={!compact} />
-    </View>
-  );
   return (
-    <View style={{ gap: 14, marginBottom: 20 }}>
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 14 }}>
-        <IconBadge theme={theme} name={item.icon} size={compact ? 40 : 46} />
-        <View style={{ flex: 1, gap: 4 }}>
+    <View style={{ gap: SPACE.sm, marginBottom: SPACE.section }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.row }}>
+        <IconBadge theme={theme} name={item.icon} size={INTRO_ICON} />
+        <View style={{ flex: 1, gap: SPACE.xs }}>
           <Text accessibilityRole="header" style={{ ...TYPE.tabTitle, color: theme.colors.foreground }}>{item.title}</Text>
           <Text style={{ ...TYPE.lead, color: theme.colors.foreground }}>{item.summary}</Text>
         </View>
       </View>
-      {compact ? (
-        <Disclosure key={tab} theme={theme} label="Learn more: what you can do here" openLabel="Hide what you can do here">
-          {list}
+      <View style={{ paddingLeft: compact ? 0 : INTRO_ICON + SPACE.row }}>
+        <Disclosure key={tab} theme={theme} quiet label="What you can do here" openLabel="Hide what you can do here">
+          <Bullets theme={theme} items={item.canDo} columns={!compact} />
         </Disclosure>
-      ) : (
-        list
-      )}
+      </View>
     </View>
   );
 }

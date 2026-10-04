@@ -5,7 +5,7 @@ import type { Status } from "../shared/contracts";
 import { PASEO_CAFE_URL, RECOMMENDED_PLUGINS, paseoCafeUrl } from "../shared/plugins";
 import { useLinks } from "./dashboard";
 import type { Message } from "./setup";
-import { Card, Chip, ItemTitle, Link, Meta, Note, Row, TYPE } from "./ui";
+import { Card, Chip, ItemTitle, Link, Meta, Note, Row, TYPE, SPACE } from "./ui";
 
 /**
  * Plugins that pair well with AI Router, each with its Paseo Cafe page and
@@ -25,7 +25,7 @@ export function TipsTab({ theme, data, say }: { theme: PluginTheme; data: Status
         const here = installed.has(plugin.id);
         const blocked = !here && plugin.blocked ? plugin.blocked : null;
         return (
-          <View key={plugin.id} style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
+          <View key={plugin.id} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>
             <Row>
               <ItemTitle theme={theme}>{plugin.name}</ItemTitle>
               <Meta theme={theme}>{`by ${plugin.by}`}</Meta>

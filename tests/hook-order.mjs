@@ -20,13 +20,13 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck, quickActionsCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
 const BASIC_TABS = ["Overview", "Traffic", "Models", "Providers", "Settings", "Connection", "Tips"];
 const ALL_TABS = ["Overview", "Traffic", "Models", "Providers", "Accounts", "Usage", "Settings", "Connection", "Tips"];
 const H = {
-  Overview: "Whether AI Router is working right now, what to do next, and a short guide to how it all fits together.",
+  Overview: "How it works",
   Activity: "A log of the chats and requests that went through the router",
   Models: "The AI models your chats can use through the router.",
   Providers: "A provider is what you choose when you start a chat, such as Claude, Codex or AI Router. Here you choose which ones go through the router; each one's own on/off switch stays in Paseo's Settings → Providers.",
@@ -37,12 +37,12 @@ const H = {
   Tips: "Other Paseo plugins that work well alongside AI Router, picked from Paseo Cafe, Paseo's plugin directory.",
 };
 /** Overview's guide: what AI Router is, how it works, how to use it, and the words. */
-const GUIDE = ["What is AI Router?", "one shared router called OmniRoute", "You sign in to your AI accounts once, on the router", "How it works", "1. You pick a model", "2. AI Router sends it", "3. OmniRoute picks an account", "4. The answer comes back", "If an account is busy", "the router tries another one by itself", "How to use it", "Start a new chat in Paseo.", "“Auto · Coding”", "Set the thinking level and mode as you normally would.", "Rather keep the built-in Claude provider?", "Switch on re-routing in the Providers tab", "Open Providers", "Words you'll see", "Provider", "Model", "Combo", "Router (OmniRoute)", "Account", "Key and access tier", "Routing", "Daemon"];
+const GUIDE = ["What is AI Router?", "one shared router called OmniRoute", "You sign in to your AI accounts once, on the router", "How it works", "1. You pick a model", "2. AI Router sends it", "3. OmniRoute picks an account", "4. The answer comes back", "If an account is busy", "the router tries another one by itself", "How to use it", "Start a new chat in Paseo.", "“Auto · Coding”", "Set the thinking level and mode as you normally would.", "Rather keep the built-in Claude or Codex provider?", "Re-route it in the Providers tab", "Open Providers", "Words you'll see", "Provider", "Model", "Combo", "Router (OmniRoute)", "Account", "Key and access tier", "Routing", "Daemon"];
 /** A wide tab lists what can be done there; a narrow one folds it behind a toggle. */
-const LEARN_MORE = "Learn more: what you can do here";
-const IN_PASEO = ["In Paseo", "Context breakdown chip on each chat", "A \"Breakdown\" chip beside Paseo's own context meter", "Needs no read token", "\"Check out MCP\" card on Overview"];
-const MCP = ["Check out MCP", "Manage MCP servers for Claude Code, Codex and your other agents in one place — sign-ins, tools and per-workspace switches.", "View plugin"];
-const ADVANCED = "Advanced routing (combos, fallbacks, per-provider rules) lives in the OmniRoute dashboard";
+const LEARN_MORE = "What you can do here";
+const IN_PASEO = ["In Paseo", "Context breakdown chip on each chat", "A \"Breakdown\" chip beside Paseo's own context meter", "Needs no read token", "MCP plugin line on Overview"];
+const MCP = ["Also try MCP: manage MCP servers for Claude Code, Codex and your other agents in one place.", "View plugin"];
+const ADVANCED = "Combos (named groups of models), fallbacks and per-provider rules are set in the OmniRoute dashboard";
 const expected = {
   "setup (not connected, opens on Connection)": [H.Connection, "Not connected yet. Routing stays off", "Set up", "Four steps, about two minutes", "pick the AI Router provider to use OmniRoute", "1. Choose your router", "OmniRoute", "2. Endpoint URL", "http://10.0.0.5:20128", "3. API key", "named after it, so usage shows per daemon", "4. Test connection & save", "Nothing is saved until it does", "New to AI Router? Overview explains what it is and how it works"],
   "setup (env, no key, narrow)": ["Not connected yet: no API key set for http://127.0.0.1:20128", "connection refused at", "Pre-filled from the AI_ROUTER_*", "AI_ROUTER_TOKEN set without AI_ROUTER_URL"],
@@ -53,24 +53,34 @@ const expected = {
   "connection tab (basic, narrow)": ["Read token (optional)", "Not set", "Add"],
   "connection tab (editing)": ["Edit connection", "1. Choose your router", "Test connection & save", "Cancel"],
   "connection tab (router down)": ["connection refused at http://10.0.0.5:20128/api/health/ping", "Check now", "Edit", "Disconnect"],
-  "overview (routing on, narrow)": [H.Overview, LEARN_MORE, "All set: AI Router is working", "OmniRoute is answering, and your chats can use 12 models from your team's AI accounts.", "can also see accounts and usage", "On your router now:", ...GUIDE, "Up · 12 ms", "AI Router provider", "12 models", "pick it in Paseo to use OmniRoute", "Models →", "Built-in Claude", "Re-routed", "its chats go through OmniRoute", "Re-route providers →", "Access", "Read token", "Connection →", "Last Claude agent (", "routed through OmniRoute", "Traffic →", "Open OmniRoute dashboard", "Sync models again", "Pick \"AI Router\" in Paseo's provider menu", "More with a manage key"],
-  "overview (basic)": ["Key only", "enough to chat through the router", "More with a read token", "Last AI Router agent (", "routed through OmniRoute", "What you can do here", "See at a glance whether the shared router is answering", "Learn what AI Router is and how to use it in a chat"],
+  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "OmniRoute is answering. Pick AI Router when you start a chat.", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Re-routed", "Claude", "Providers →", "Last Claude agent (", "routed through OmniRoute", "Traffic →", "Open OmniRoute dashboard", "Sync models"],
+  "overview (guide opened)": ["Hide how AI Router works", "On your router now:", ...GUIDE],
+  "overview (drift)": ["Models in Paseo", "2 out of step with OmniRoute"],
+  "overview (Codex re-routed)": ["Re-routed", "Claude and Codex"],
+  "overview (basic)": ["Key only", "Last AI Router agent (", "routed through OmniRoute", "New to AI Router? How it works"],
   "overview (admin, tunnel)": ["Manage key", "Open OmniRoute dashboard", "via Cloudflare tunnel"],
-  "overview (routing off)": ["Connected: one step left", "Sync the models, and AI Router appears in Paseo's provider menu.", "Own sign-in", "its chats skip the router", "Not synced", "Sync models to Paseo", "Built-in Claude keeps its own sign-in unless you re-route it on Providers.", "Not in the menu yet? Sync models on the Models tab"],
+  "overview (routing off)": ["Connected: one step left", "Sync the models, and AI Router appears in Paseo's provider menu.", "None", "built-in providers use their own sign-in", "Not synced", "Sync models to Paseo", "Hide how AI Router works", "What is AI Router?", "Not in the menu yet? Sync models on the Models tab"],
   "overview (last agent skipped)": ["used its own sign-in — the router did not answer (connection refused)"],
   "overview (router down)": ["OmniRoute unreachable — last seen", "connection refused at http://10.0.0.5:20128/api/health/ping", "Until it answers, AI Router agents will not start, and re-routed Claude agents keep their own sign-in.", "Open Connection", "Check again"],
   "overview (Claude paused)": ["Working, but Claude is paused", "OmniRoute has stopped sending requests to Claude for a moment after errors", "Up · Claude paused", "Claude requests fail until OmniRoute retries", "Accounts →", "Last AI Router agent (", "did not start — no API key set"],
-  "models tab": [H.Models, "Combo · 5", "team-review", "Your access", "This key", "daemon-a", "12 models on connected accounts", "Spend (monthly)", "$3.42 of $50.00", "resets 2026-10-01", "Tokens", "Claude quota", "5h: 64% left", "Sync models to Paseo", "It stays current by itself", "Remove from Paseo", "Combo 5 · Claude 4 · Codex 3", "old \"AI Router Codex\" provider", "In Paseo's model picker", "Claude · 4", "Opus 5.5", "cc/claude-opus-5-5", "failed", "Codex · 3", "GPT-5.6 Sol", "Test", "Test another model", "Claude Code version 2.1.280 or newer is required"],
+  "models tab": [H.Models, "Combo · 5", "team-review", "Your access", "This key", "daemon-a", "12 models on connected accounts", "Spend (monthly)", "$3.42 of $50.00", "resets 2026-10-01", "Tokens", "Claude quota", "5h: 64% left", "Sync models to Paseo", "In Paseo", "in step with OmniRoute", "12 of the 734 models OmniRoute lists, on purpose: one entry per model.", "Effort levels (Paseo's thinking control sets those), duplicates, providers with no connected account and unproven variants are left out.", "runs by itself every 5 minutes and when the app connects", "Remove from Paseo", "old \"AI Router Codex\" provider", "In Paseo's model picker", "Claude · 4", "Opus 5.5", "cc/claude-opus-5-5", "failed", "Codex · 3", "GPT-5.6 Sol", "Test", "Test another model", "Claude Code version 2.1.280 or newer is required"],
   "models tab (basic, key hides its spend)": ["Your access", "12 models on connected accounts", "lacks the self:usage scope"],
   "models tab (testing one)": ["cc/claude-opus-5-5 answered in 640 ms"],
-  "models tab (not synced)": ["Not synced yet: Paseo has no AI Router provider.", "Test a model"],
-  "providers tab (basic, narrow)": [H.Providers, LEARN_MORE, "Re-route providers", "The AI Router provider is the way to use OmniRoute", "A built-in provider keeps its own sign-in unless you re-route it here.", "Always through OmniRoute", "12 models", "Through OmniRoute", "Add Codex via OmniRoute", "no Codex login needed here", "Can't be re-routed: GitHub Copilot, Gemini, OpenCode, Pi.", ADVANCED, "Open dashboard", "Dashboard login: ask your router admin.", "Tidy up", "3 enabled providers are not usable on this daemon", "any can go back on in Paseo's Settings → Providers", "Tidy up…"],
+  "models tab (not synced)": ["Not synced", "Paseo has no AI Router provider yet", "Test a model"],
+  "models tab (drift)": ["out of step with OmniRoute", "OmniRoute offers 2 models Paseo doesn't list yet: cx/gpt-6-luna, cc/claude-sonnet-5-5.", "Sync now", "14 of the 736 models OmniRoute lists"],
+  "providers tab (basic, narrow)": [H.Providers, LEARN_MORE, "Re-route providers", "Pick AI Router in Paseo's menu to use OmniRoute.", "Or keep a built-in provider and re-route it here; each switch asks first.", "Always through OmniRoute · 12 models", "Through OmniRoute", "Codex", "Own sign-in", "Or add Codex via OmniRoute as its own provider", "Other providers", "GitHub Copilot, Gemini, OpenCode, Pi: not switched here, so they keep their own sign-in.", ADVANCED, "Open dashboard", "its login comes from your router admin", "Agent apps", "Tidy up", "3 enabled providers are not usable on this daemon", "any can go back on in Paseo's Settings → Providers", "Tidy up…"],
   "providers tab (re-route Claude asks first)": ["New Claude chats on this daemon will use OmniRoute's accounts instead of this daemon's own Claude sign-in.", "Open chats switch when they reopen.", "Fast mode stays off for them: OmniRoute can't pass it on yet.", "if OmniRoute is down a chat keeps its own sign-in", "Re-route Claude", "Cancel"],
   "providers tab (re-route Claude confirmed)": ["Claude re-routed: new Claude chats use OmniRoute."],
   "providers tab (own sign-in asks first)": ["New Claude chats will use this daemon's own Claude sign-in. If this daemon has none, they won't answer: pick the AI Router provider for Claude through OmniRoute instead.", "Use own sign-in", "Cancel"],
   "providers tab (own sign-in asks first, cancel)": ["Through OmniRoute", "Paseo's Fast switch has no effect on these chats"],
-  "providers tab (tidy up preview)": ["These will be turned off:", "• GitHub Copilot — never finished loading", "• OpenCode — not installed on this daemon", "• Pi — never finished loading", "Turn off 3", "Cancel", "Codex via OmniRoute · 3 models"],
-  "providers tab (not connected)": ["Re-route providers", "Can't be re-routed: GitHub Copilot"],
+  "providers tab (tidy up preview)": ["These will be turned off:", "• GitHub Copilot — never finished loading", "• OpenCode — not installed on this daemon", "• Pi — never finished loading", "Turn off 3", "Cancel", "Also: \"Codex via OmniRoute\" provider · 3 models"],
+  "providers tab (not connected)": ["Re-route providers", "GitHub Copilot, Gemini, OpenCode, Pi: not switched here"],
+  "providers tab (re-route Codex asks first)": ["New Codex chats on this daemon will use OmniRoute's accounts instead of this daemon's own Codex sign-in.", "the key is added when each chat starts and is never saved", "~/.codex is not changed", "Unlike Claude, a re-routed Codex chat can't fall back to its own sign-in", "Re-route Codex", "Cancel"],
+  "providers tab (re-route Codex confirmed)": ["Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart."],
+  "providers tab (Codex back on own sign-in asks first)": ["New Codex chats will use this daemon's own Codex sign-in.", "Use own sign-in"],
+  "providers tab (agent apps, Mac)": ["Agent apps", "The Claude Code and Codex this daemon runs", "Claude Code", "2.1.289", "Up to date", "Installed with Claude Code's own installer", "Codex", "0.156.1", "0.160.0 available", "Installed with npm, in /Users/me/.npm-global", "Update to 0.160.0", "Latest versions come from npm, checked every hour.", "Check now"],
+  "providers tab (agent apps asks first)": ["Runs \"npm install -g @openai/codex@latest --prefix /Users/me/.npm-global\" on this daemon, as the daemon's own user.", "running chats keep the old one until they restart", "Update Codex", "Cancel"],
+  "providers tab (agent apps updating)": ["Updating…", "Running \"npm install -g @openai/codex@latest --prefix /Users/me/.npm-global\"…", "Hide output", "changed 1 package in 6s"],
   "accounts tab (Paseo 0.11 daemon)": ["3 accounts · 3 healthy", "These accounts and how much of their limits is left also show on Paseo's Usage page (Settings → Usage), where you can pin a limit to the sidebar."],
   "accounts tab (operator)": [H.Accounts, "3 accounts · 3 healthy", "Add account", "Codex sign-in in the dashboard calls back to port 1455", "healthy · 96% of 128 requests answered in 24 h", "Router health", "version 3.8.50", "running 1d 1h"],
   "accounts tab (admin, attention)": ["2 need attention", "Check all", "Check now", "Refresh token", "Re-login in dashboard", "Sign-in expired (2026-09-20)", "degraded · 40% of 10 requests answered in 24 h · failing: gpt-5.6-sol"],
@@ -113,8 +123,8 @@ const expected = {
   "usage tab": ["Requests per day", "Top models", "By daemon", "this daemon", "daemon-a"],
   "usage tab (no token)": ["Usage: read token needed", "Add a read-only access token"],
   "overview (MCP card)": [...MCP, "Copy install source", "Hide"],
-  "overview (MCP installed, narrow)": [...MCP, "Installed"],
-  "overview (hide the MCP card)": ["MCP card hidden. Settings → In Paseo brings it back."],
+  "overview (MCP installed, narrow)": ["MCP plugin installed: manage MCP servers for all your agents in one place.", "View plugin"],
+  "overview (hide the MCP card)": ["MCP line hidden. Settings → In Paseo brings it back."],
   "tips tab (operator)": [H.Tips, "Recommended plugins", "0 of 5 installed on this daemon", "Install one in Paseo's Settings → Plugins by pasting its source", "Not on Paseo 0.9.1 yet", "Doesn't install on Paseo 0.9.1 yet: its build fails there.", "Plugins run with the daemon's own access", "Paseo MCP", "by itsjustanks", "Shared Browser", "Activity", "Advanced Markdown", "Mermaid", "Remote Editor", "--ref 56bc4056630ebd766395ba3e71c6d92268e95f59", "Tell Agent", "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git", "View on Paseo Cafe", "Copy install command", "Browse every plugin on Paseo Cafe"],
   "tips tab (admin, two installed, copy one)": ["2 of 5 installed on this daemon", "Installed", "Copied the Activity install command"],
   "tips tab (not connected)": [H.Tips, "0 of 5 installed"],
@@ -133,10 +143,10 @@ const expected = {
   "context chip (router down, no turn yet)": ["Router down"],
   "context panel (router down)": ["Router down", "OmniRoute isn't answering (connection refused). This chat's requests go through it", "Open AI Router", "186,204 of 1,000,000 tokens"],
   "activity (open an agent)": [H.Activity, "Open", "Agent: Draft release notes"],
-  "providers tab (narrow, learn more)": [H.Providers, "Hide what you can do here", "Add a Codex provider that runs on the router's accounts", "Turn off, in one go, the providers that can't work on this computer"],
+  "providers tab (narrow, learn more)": [H.Providers, "Hide what you can do here", "Send built-in Claude or Codex through the router instead of their own sign-in (each asks first)", "Update Claude Code and Codex on this daemon", "Turn off, in one go, the providers that can't work on this computer"],
   "overview (guide opens Providers)": [H.Providers, "Re-route providers"],
-  "overview (not connected)": [H.Overview, "Connect a router first", ...GUIDE],
-  "setup (link opens the guide)": [H.Overview, "Connect a router first", "What is AI Router?", "How it works"],
+  "overview (not connected)": ["Hide how AI Router works", "Connect a router first", ...GUIDE],
+  "setup (link opens the guide)": ["Connect a router first", "What is AI Router?", "How it works"],
 };
 
 /** Text a state must NOT show: a hidden tier feature, or a fact that moved. */
@@ -144,19 +154,21 @@ const absent = {
   "accounts tab (operator)": ["Paseo's Usage page"],
   "setup (not connected, opens on Connection)": ["Accounts", "Usage"],
   "connection tab (operator, private dashboard)": ["Starting a tunnel makes", "password"],
-  "overview (basic)": ["Accounts", "Usage", LEARN_MORE],
+  "overview (basic)": ["Accounts", "Usage", LEARN_MORE, "What is AI Router?"],
   "context chip": ["186k", "1M"],
   "context chip (nearly full)": ["190k", "200k"],
   "context chip (router down)": ["186k"],
   "overview (routing off)": ["Route Claude agents through AI Router", "Turn Claude routing off", "All set", "On your router now:"],
-  "providers tab (basic, narrow)": ["Agent providers on this daemon", "Enabled", "Disabled", "Not supported", "AI Router Codex", "Add a Codex provider that runs on the router's accounts"],
-  "overview (routing on, narrow)": ["See at a glance whether the shared router is answering"],
+  "providers tab (basic, narrow)": ["Agent providers on this daemon", "Enabled", "Disabled", "Not supported", "AI Router Codex", "Add a Codex provider that runs on the router's accounts", "Can't be re-routed", "Send the built-in Claude provider through the router"],
+  "overview (routing on, narrow)": ["See at a glance whether the shared router is answering", "What is AI Router?", "More with a manage key", LEARN_MORE, "Pick \"AI Router\" in Paseo's provider menu"],
+  "providers tab (agent apps, Mac)": ["Update Claude Code"],
+  "models tab": ["out of step"],
   "providers tab (own sign-in asks first, cancel)": ["If this daemon has none, they won't answer", "Use own sign-in", "Claude back on its own sign-in"],
   "providers tab (re-route Claude asks first)": ["Claude re-routed"],
   "providers tab (re-route Claude confirmed)": ["New Claude chats on this daemon will use OmniRoute's accounts"],
   "overview (MCP installed, narrow)": ["Copy install source"],
   "tips tab (operator)": ["paseo plugin add npm:@omercnet/paseo-tell-agent", "Smart Session", "smart-session"],
-  "overview (hide the MCP card)": ["Check out MCP"],
+  "overview (hide the MCP card)": ["Also try MCP"],
   "tips tab (admin, two installed, copy one)": ["npm:@omercnet/paseo-shared-browser"],
   "settings tab (basic)": ["Context compression", "More in OmniRoute"],
   "settings tab (not connected)": ["Connect a router first"],
@@ -313,7 +325,7 @@ try {
   assert.deepEqual(seen.next.names, ["addWorkspacePanel"], "0.11 app: no surface or old sidebar item");
   assert.deepEqual(seen.next.screen, { id: "ai-router", title: "AI Router", sameView: true });
   assert.deepEqual(seen.next.item, { id: "ai-router", title: "AI Router" });
-  assert.deepEqual(seen.row, { open: { icon: "Route", active: true, label: undefined }, elsewhere: { active: false }, pressed: [{ screenId: "ai-router" }] });
+  assert.deepEqual(seen.row, { open: { icon: "Route", active: true, label: undefined }, elsewhere: { active: false }, pressed: [{ screenId: "ai-router" }], trailing: true });
   assert.deepEqual(seen.next.opened, [["openScreen", { screenId: "ai-router" }]], "0.11 app: the command uses openScreen");
   // A 0.11 app without the row component: the screen, and the old sidebar item pointing at it.
   assert.deepEqual(seen.partial, ["addSidebarItem", "addWorkspacePanel"]);
@@ -323,6 +335,22 @@ try {
 } catch (error) {
   failed += 1;
   console.error(`FAIL native registration: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+try {
+  const quick = await quickActionsCheck();
+  assert.equal(quick.label, "AI Router: Working · 12 models. Quick actions", "the dot says the state");
+  assert.ok(quick.popped, "pressing the dot opens the quick actions popover");
+  assert.equal(quick.plainPressables, 0, "without popovers (older 0.11 builds) it is only a dot");
+  for (const words of ["AI Router · Working · 12 models", "Open AI Router", "Open dashboard", "Sync models"]) assert.ok(quick.text.includes(words), `popover shows "${words}": ${quick.text}`);
+  assert.ok(quick.synced && quick.text.includes("ok"), "Sync models runs the sync and shows its answer");
+  assert.ok(quick.opened, "Open AI Router is there to press");
+  assert.deepEqual(quick.screens, [{ screenId: "ai-router" }], "Open AI Router opens the screen");
+  assert.equal(quick.closed, 1, "and closes the popover");
+  console.log("ok   sidebar status dot opens quick actions on 0.11 apps");
+} catch (error) {
+  failed += 1;
+  console.error(`FAIL quick actions: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 if (failed) {

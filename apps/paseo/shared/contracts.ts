@@ -72,9 +72,20 @@ export const StatusSchema = z.object({
     models: z.array(z.object({ id: z.string(), label: z.string() })),
     /** How the list got there last: through Paseo's API, or written to config.json at plugin load. */
     via: z.enum(["api", "config-file"]).nullable(),
+    /**
+     * The last time the sync compared Paseo with OmniRoute (it writes only when they differ):
+     * OmniRoute's raw /v1/models count, how many of those the filter keeps, and any
+     * drift between what it keeps and what Paseo lists. Null until the first check.
+     */
+    check: z
+      .object({ at: z.string(), ok: z.boolean(), message: z.string().nullable(), upstream: z.number().nullable(), kept: z.number(), missing: z.array(z.string()), extra: z.array(z.string()) })
+      .nullable()
+      .optional(),
   }),
   /** "Codex via OmniRoute", the Codex-derived provider. */
   codexRouter: z.object({ present: z.boolean(), modelCount: z.number() }),
+  /** Built-in Codex's launch command: ours (re-routed, and where to), someone else's, or none. */
+  codexReroute: z.object({ state: z.enum(["off", "on", "foreign"]), baseUrl: z.string().nullable(), current: z.boolean() }).optional(),
   settingsDir: z.string(),
   /** Which recommended plugins (shared/plugins.ts) this daemon's plugin sources list: Tips and the MCP card say "Installed". */
   plugins: z.object({ installed: z.array(z.string()) }),
@@ -269,7 +280,7 @@ const ProviderRowSchema = z.object({
   error: z.string().nullable(),
   enabled: z.boolean(),
   owner: z.enum(["paseo", "ai-router", "user"]),
-  through: z.enum(["claude-toggle", "codex-provider", "is-router", "none"]),
+  through: z.enum(["claude-toggle", "codex-toggle", "is-router", "none"]),
   /** Why Tidy up would switch it off; null leaves it alone. */
   tidy: z.string().nullable(),
 });
@@ -288,6 +299,45 @@ export const providerEnable = defineRpc({ name: "ai-router.providers.enable", in
 export const providersTidy = defineRpc({ name: "ai-router.providers.tidy", input: z.object({ ids: z.array(z.string()).min(1) }), output: Result });
 /** Add or remove "Codex via OmniRoute". */
 export const codexRouter = defineRpc({ name: "ai-router.codex-router", input: z.object({ enabled: z.boolean() }), output: Result });
+/** Re-route built-in Codex through the router (its launch command carries the config), or put it back. */
+export const codexReroute = defineRpc({ name: "ai-router.codex-reroute", input: z.object({ enabled: z.boolean() }), output: Result });
+
+// ------------------------------------------------------------- agent apps
+
+export const CliToolSchema = z.object({
+  id: z.enum(["claude", "codex"]),
+  label: z.string(),
+  /** Where the binary the daemon runs really lives; null when it isn't on the daemon's PATH. */
+  path: z.string().nullable(),
+  installed: z.string().nullable(),
+  /** The newest on npm; null offline or before the first answer. */
+  latest: z.string().nullable(),
+  state: z.enum(["missing", "current", "behind", "ahead", "unknown"]),
+  /** How it was installed, in words ("npm, in /opt/npm-global"). */
+  method: z.string(),
+  /** The exact update command, when there is one. */
+  command: z.string().nullable(),
+  /** The button runs `command` as the daemon's user. */
+  canUpdate: z.boolean(),
+  /** Why there is no button, when there isn't. */
+  why: z.string().nullable(),
+});
+export const CliJobSchema = z.object({
+  id: z.enum(["claude", "codex"]),
+  state: z.enum(["running", "done", "failed"]),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  command: z.string(),
+  /** The last lines it printed. */
+  output: z.array(z.string()),
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+  message: z.string().nullable(),
+});
+export const ClisSchema = z.object({ checkedAt: z.string(), tools: z.array(CliToolSchema), job: CliJobSchema.nullable() });
+export type Clis = z.infer<typeof ClisSchema>;
+export const clis = defineRpc({ name: "ai-router.clis", input: z.object({ refresh: z.boolean().optional() }), output: ClisSchema });
+export const cliUpdate = defineRpc({ name: "ai-router.clis.update", input: z.object({ id: z.enum(["claude", "codex"]) }), output: Result });
 
 /** Account actions, with the manage key. */
 export const accountAction = defineRpc({

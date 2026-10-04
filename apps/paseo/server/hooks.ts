@@ -1,7 +1,7 @@
 // The session_open rewrite is adapted from the 9Router Agent Link plugin's server/hooks.ts (MIT); see THIRD-PARTY-NOTICES.md.
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { Status } from "../shared/contracts";
-import { CODEX_ROUTER_PROVIDER_ID, connectionProblem, routeSession, sessionKind, withSessionHeader, type SessionKind } from "../shared/logic";
+import { CODEX_ROUTER_PROVIDER_ID, connectionProblem, routeBuiltinCodex, routeSession, sessionKind, withSessionHeader, type SessionKind } from "../shared/logic";
 import { noteActivity } from "./provider";
 import { adapterFor } from "./routers";
 import { appendSessionLog, readConnection, readProviderEntries, readRoutingSettings } from "./store";
@@ -26,13 +26,15 @@ function record(agentId: string, kind: SessionKind, provider: string, routed: bo
  * Anything short of a keyed, healthy endpoint leaves a Claude session exactly
  * as Paseo built it. An AI Router session has no other way to work, so an
  * interactive one fails to open with the reason instead of reaching
- * OmniRoute without a key.
+ * OmniRoute without a key. Built-in Codex, while re-routed, gets the key under
+ * the name its launch command expects (see routeBuiltinCodex).
  */
 export function registerRoutingHooks(server: PluginServerContext): void {
   // Any agent activity is also the first chance after start to check the model sync.
   server.on("agent.turn_started", (_event, context) => noteActivity(context.paseo));
   server.before("agent.session_open", async ({ request }, context) => {
     noteActivity(context.paseo);
+    if (request.provider === "codex") return builtinCodex(request, context.paseo);
     const kind = sessionKind(request.provider);
     if (!kind) return request;
     const refuse = kind !== "claude" && request.purpose === "interactive";
@@ -62,4 +64,26 @@ export function registerRoutingHooks(server: PluginServerContext): void {
     if (refuse) throw new Error(`AI Router cannot start this agent: ${skipped}. Fix it in the AI Router panel, or pick another provider.`);
     return request;
   });
+}
+
+type OpenRequest = { agentId: string; provider: string; reason: string; env: Record<string, string> };
+
+/** Built-in Codex: untouched unless its launch command is ours; then the key goes into its environment. */
+async function builtinCodex<R extends OpenRequest>(request: R, paseo: Parameters<typeof readProviderEntries>[0]): Promise<R> {
+  let skipped: string;
+  try {
+    const { builtinCodex: reroute } = await readProviderEntries(paseo);
+    if (reroute.state !== "on") return request;
+    const decision = routeBuiltinCodex({ reroute, resolved: await readConnection() });
+    if (decision.action === "ignore") return request;
+    if (decision.action === "route") {
+      record(request.agentId, "codex", request.provider, true, `built-in codex session ${request.agentId} (${request.reason}) routed through ${reroute.baseUrl}`);
+      return { ...request, env: { ...request.env, ...decision.env } };
+    }
+    skipped = decision.reason;
+  } catch (error) {
+    skipped = `hook failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  record(request.agentId, "codex", request.provider, false, `routing skipped for built-in codex session ${request.agentId} (${request.reason}): ${skipped}`, skipped);
+  return request;
 }

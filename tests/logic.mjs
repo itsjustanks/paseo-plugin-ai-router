@@ -376,7 +376,7 @@ try {
     assert.equal(L.tidyReason(row("gemini", "unavailable", { source: "custom" })), null, "a user-made entry stays");
     assert.equal(L.tidyReason(row("opencode", "unavailable", { configured: true })), null, "a configured built-in stays");
     assert.equal(L.providerOwner(row("gemini", "ready", { source: "custom" })), "user");
-    assert.deepEqual(["claude", "codex", "ai-router", "codex-ai-router", "copilot"].map(L.throughRouter), ["claude-toggle", "codex-provider", "is-router", "is-router", "none"]);
+    assert.deepEqual(["claude", "codex", "ai-router", "codex-ai-router", "copilot"].map(L.throughRouter), ["claude-toggle", "codex-toggle", "is-router", "is-router", "none"]);
   });
 
   check("access tiers follow the saved credentials; a tunnel is recognised by its host", () => {
@@ -750,6 +750,87 @@ try {
     assert.equal(new Set(ids).size, ids.length);
     for (const plugin of P.RECOMMENDED_PLUGINS) assert.match(plugin.install, /^paseo plugin add \S+/, plugin.id);
     assert.equal(P.paseoCafeUrl("tell-agent"), "https://paseo.cafe/plugins/tell-agent/");
+  });
+
+
+  // ------------------------------------------------- built-in Codex re-route
+  check("Codex: the switch's mapping is truthful", () => {
+    assert.deepEqual(["claude", "codex", "ai-router", "codex-ai-router", "copilot", "cursor"].map(L.throughRouter), ["claude-toggle", "codex-toggle", "is-router", "is-router", "none", "none"], "built-in Codex has its own switch; only the rest are 'not switched here'");
+  });
+
+  check("Codex: the launch command carries OmniRoute, never the key", () => {
+    const command = L.codexRerouteCommand(REMOTE);
+    assert.deepEqual(command, ["codex", "-c", "model_provider=ai-router", "-c", `model_providers.ai-router={name="AI Router",base_url="${REMOTE}/v1",env_key="AI_ROUTER_API_KEY",wire_api="responses"}`]);
+    assert.ok(!command.join(" ").includes("sk-"), "only the name of the key's variable");
+    assert.equal(L.codexRerouteCommand('http://evil"host'), null, "nothing that could break out of the TOML string");
+    assert.equal(L.codexRerouteCommand("http://a b"), null);
+  });
+
+  check("Codex: reading the entry tells ours, someone else's and none apart", () => {
+    assert.deepEqual(L.codexRerouteState(undefined), { state: "off", baseUrl: null });
+    assert.deepEqual(L.codexRerouteState({ enabled: true }), { state: "off", baseUrl: null });
+    assert.deepEqual(L.codexRerouteState({ command: L.codexRerouteCommand(REMOTE) }), { state: "on", baseUrl: `${REMOTE}/v1` });
+    assert.deepEqual(L.codexRerouteState({ command: ["/opt/bin/codex", "--profile", "work"] }), { state: "foreign", baseUrl: null }, "a person's own command is never ours");
+    assert.deepEqual(L.codexRerouteState({ command: ["codex", "-c", "model_provider=ai-router"] }), { state: "foreign", baseUrl: null }, "half of ours is not ours");
+  });
+
+  check("Codex: session_open adds the key only for our command, at our address", () => {
+    const resolved = configured(REMOTE);
+    const on = { state: "on", baseUrl: `${REMOTE}/v1` };
+    assert.deepEqual(L.routeBuiltinCodex({ reroute: { state: "off", baseUrl: null }, resolved }), { action: "ignore" });
+    assert.deepEqual(L.routeBuiltinCodex({ reroute: { state: "foreign", baseUrl: null }, resolved }), { action: "ignore" });
+    assert.deepEqual(L.routeBuiltinCodex({ reroute: on, resolved }), { action: "route", kind: "codex", env: { AI_ROUTER_API_KEY: "sk-test" } });
+    const moved = L.routeBuiltinCodex({ reroute: { state: "on", baseUrl: "http://old:20128/v1" }, resolved });
+    assert.equal(moved.action, "skip", "the key never goes to an address other than the saved endpoint");
+    assert.match(moved.reason, /points at http:\/\/old:20128\/v1, not http:\/\/10\.0\.0\.5:20128\/v1; the next model sync updates it/);
+    const keyless = L.routeBuiltinCodex({ reroute: on, resolved: configured(REMOTE, null) });
+    assert.equal(keyless.action, "skip");
+  });
+
+  // --------------------------------------------------------- agent apps
+  const clisSource = readFileSync(new URL("../apps/paseo/shared/clis.ts", import.meta.url), "utf8");
+  writeFileSync(join(staging, "clis.mjs"), ts.transpileModule(clisSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  const C = await import(join(staging, "clis.mjs"));
+
+  check("agent apps: how each copy was installed, from where it really lives", () => {
+    assert.deepEqual(C.detectInstall("codex", "/opt/npm-global/lib/node_modules/@openai/codex/bin/codex.js"), { kind: "npm", prefix: "/opt/npm-global" }, "fleet container");
+    assert.deepEqual(C.detectInstall("claude", "/opt/npm-global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"), { kind: "npm", prefix: "/opt/npm-global" });
+    assert.deepEqual(C.detectInstall("codex", "/Users/me/.npm-global/lib/node_modules/@openai/codex/bin/codex.js"), { kind: "npm", prefix: "/Users/me/.npm-global" }, "Mac npm");
+    assert.deepEqual(C.detectInstall("claude", "/Users/me/.local/share/claude/versions/2.1.289"), { kind: "claude-native", root: "/Users/me/.local/share/claude" }, "Claude's own installer");
+    assert.deepEqual(C.detectInstall("codex", "/opt/homebrew/Caskroom/codex/0.160.0/codex"), { kind: "homebrew" });
+    assert.deepEqual(C.detectInstall("claude", "/usr/local/Caskroom/claude-code/2.1.289/claude"), { kind: "homebrew" });
+    assert.deepEqual(C.detectInstall("codex", "/opt/agent-home/.codex/packages/standalone/releases/0.156.1-x86_64-unknown-linux-musl/bin/codex"), { kind: "codex-standalone" });
+    assert.deepEqual(C.detectInstall("claude", "/opt/claude-code/claude"), { kind: "unknown" }, "a copy baked into an image");
+    assert.deepEqual(C.detectInstall("codex", "/opt/npm-global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"), { kind: "unknown" }, "the other app's package is not this one");
+  });
+
+  check("agent apps: a button only when the method is known and writable; otherwise the exact command", () => {
+    const npm = C.updatePlan("codex", { kind: "npm", prefix: "/opt/npm-global" }, { binPath: "/opt/npm-global/bin/codex", writable: true, npm: "/usr/local/bin/npm" });
+    assert.deepEqual(npm, { method: "npm, in /opt/npm-global", command: "npm install -g @openai/codex@latest --prefix /opt/npm-global", run: { file: "/usr/local/bin/npm", args: ["install", "-g", "@openai/codex@latest", "--prefix", "/opt/npm-global"] }, why: null });
+    const locked = C.updatePlan("codex", { kind: "npm", prefix: "/usr/lib" }, { binPath: "/usr/bin/codex", writable: false, npm: "/usr/bin/npm" });
+    assert.equal(locked.run, null);
+    assert.equal(locked.command, "npm install -g @openai/codex@latest --prefix /usr/lib");
+    assert.match(locked.why, /can't write to \/usr\/lib/);
+    assert.equal(C.updatePlan("codex", { kind: "npm", prefix: "/p" }, { binPath: "/p/bin/codex", writable: true, npm: null }).run, null, "no npm, no button");
+    assert.deepEqual(C.updatePlan("claude", { kind: "claude-native", root: "/h/.local/share/claude" }, { binPath: "/h/.local/bin/claude", writable: true, npm: null }).run, { file: "/h/.local/bin/claude", args: ["update"] });
+    const brew = C.updatePlan("claude", { kind: "homebrew" }, { binPath: "/opt/homebrew/bin/claude", writable: true, npm: "/opt/homebrew/bin/npm" });
+    assert.deepEqual([brew.command, brew.run], ["brew upgrade --cask claude-code", null]);
+    assert.deepEqual([C.updatePlan("codex", { kind: "codex-standalone" }, { binPath: "x", writable: true, npm: "npm" }).command, C.updatePlan("codex", { kind: "codex-standalone" }, { binPath: "x", writable: true, npm: "npm" }).run], [null, null]);
+    const unknown = C.updatePlan("claude", { kind: "unknown" }, { binPath: "/opt/claude-code/claude", writable: true, npm: "npm" });
+    assert.equal(unknown.run, null);
+    assert.match(unknown.why, /can't tell how \/opt\/claude-code\/claude was installed/);
+  });
+
+  check("agent apps: versions", () => {
+    assert.equal(C.parseVersion("2.1.289 (Claude Code)"), "2.1.289");
+    assert.equal(C.parseVersion("codex-cli 0.160.0"), "0.160.0");
+    assert.equal(C.parseVersion("nothing"), null);
+    assert.ok(C.compareVersions("0.156.1", "0.160.0") < 0);
+    assert.ok(C.compareVersions("2.1.289", "2.1.289") === 0);
+    assert.ok(C.compareVersions("0.161.0-alpha.1", "0.161.0") < 0, "a pre-release sorts before its release");
+    assert.ok(C.compareVersions("1.10.0", "1.9.9") > 0, "numbers, not strings");
+    assert.deepEqual([C.versionState("0.156.1", "0.160.0", true), C.versionState("2.1.289", "2.1.289", true), C.versionState("0.161.0", "0.160.0", true), C.versionState("0.160.0", null, true), C.versionState(null, "0.160.0", false)], ["behind", "current", "ahead", "unknown", "missing"]);
+    assert.deepEqual(C.tailLines(["a"], "\u001b[32madded 1 package\u001b[0m\r\nok\n\n", 2), ["added 1 package", "ok"], "colour codes go, the last lines stay");
   });
 
   console.log(`logic: ${passed} checks passed`);

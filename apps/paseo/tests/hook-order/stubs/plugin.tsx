@@ -267,8 +267,15 @@ for (const value of Object.values(fixtures)) {
   f.lastSeenAt ??= f.health?.up ? f.health.checkedAt : null;
   f.aiProvider = { via: f.aiProvider.present && f.aiProvider.lastSync ? "api" : null, ...f.aiProvider };
   f.codexRouter ??= { present: false, modelCount: 0 };
+  f.codexReroute ??= { state: "off", baseUrl: null, current: false };
   f.plugins ??= { installed: [] };
+  // The last comparison with OmniRoute, as the fleet measured it: 734 listed, the filter keeps one per model.
+  if (f.aiProvider.present && f.health?.up && f.aiProvider.check === undefined) f.aiProvider.check = { at: now, ok: true, message: null, upstream: f.tier === "basic" ? 212 : 734, kept: f.aiProvider.modelCount, missing: [], extra: [] };
 }
+// Admin re-routed built-in Codex; "drift" lacks two models OmniRoute now offers.
+(fixtures.admin as Record<string, any>).codexReroute = { state: "on", baseUrl: "http://10.0.0.5:20128/v1", current: true };
+fixtures.drift = { ...(fixtures["routing on"] as Record<string, any>) };
+(fixtures.drift as Record<string, any>).aiProvider = { ...(fixtures["routing on"] as Record<string, any>).aiProvider, check: { at: now, ok: true, message: null, upstream: 736, kept: SYNCED.length + 2, missing: ["cx/gpt-6-luna", "cc/claude-sonnet-5-5"], extra: [] } };
 // What 0.5.0 adds to each account: auth type, 24-hour health, expiry.
 const HEALTH = { a: { state: "healthy", successRatePct: 96, requests: 128, issueCount: 0, lastErrorAt: null, failingModels: [] }, c: { state: "degraded", successRatePct: 40, requests: 10, issueCount: 3, lastErrorAt: now, failingModels: ["gpt-5.6-sol"] } } as Record<string, unknown>;
 for (const value of Object.values(accountFixtures)) {
@@ -293,7 +300,7 @@ const providersFixtures: Record<string, unknown> = {
     state: "ok", message: null, checkedAt: now,
     rows: [
       providerRow("claude", "Claude", "ready", "paseo", "claude-toggle"),
-      providerRow("codex", "Codex", "unavailable", "paseo", "codex-provider", null, "not logged in"),
+      providerRow("codex", "Codex", "unavailable", "paseo", "codex-toggle", null, "not logged in"),
       providerRow("ai-router", "AI Router", "ready", "ai-router", "is-router"),
       providerRow("copilot", "GitHub Copilot", "loading", "paseo", "none", "never finished loading"),
       providerRow("gemini", "Gemini", "ready", "user", "none"),
@@ -302,6 +309,20 @@ const providersFixtures: Record<string, unknown> = {
     ],
   },
 };
+/** Claude Code and Codex as two kinds of daemon install them: a Mac (Claude's own installer, Codex from npm, behind) and a fleet container (both npm, current). */
+const clisFixtures: Record<string, unknown> = {
+  mac: { checkedAt: now, job: null, tools: [
+    { id: "claude", label: "Claude Code", path: "/Users/me/.local/share/claude/versions/2.1.289", installed: "2.1.289", latest: "2.1.289", state: "current", method: "Claude Code's own installer", command: "claude update", canUpdate: true, why: null },
+    { id: "codex", label: "Codex", path: "/Users/me/.npm-global/lib/node_modules/@openai/codex/bin/codex.js", installed: "0.156.1", latest: "0.160.0", state: "behind", method: "npm, in /Users/me/.npm-global", command: "npm install -g @openai/codex@latest --prefix /Users/me/.npm-global", canUpdate: true, why: null },
+  ] },
+  fleet: { checkedAt: now, job: null, tools: [
+    { id: "claude", label: "Claude Code", path: "/opt/npm-global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe", installed: "2.1.289", latest: "2.1.289", state: "current", method: "npm, in /opt/npm-global", command: "npm install -g @anthropic-ai/claude-code@latest --prefix /opt/npm-global", canUpdate: true, why: null },
+    { id: "codex", label: "Codex", path: "/opt/npm-global/lib/node_modules/@openai/codex/bin/codex.js", installed: "0.160.0", latest: "0.160.0", state: "current", method: "npm, in /opt/npm-global", command: "npm install -g @openai/codex@latest --prefix /opt/npm-global", canUpdate: true, why: null },
+  ] },
+  updating: { checkedAt: now, tools: [], job: { id: "codex", state: "running", startedAt: now, finishedAt: null, command: "npm install -g @openai/codex@latest --prefix /Users/me/.npm-global", output: ["npm warn deprecated …", "changed 1 package in 6s"], before: "0.156.1", after: null, message: null } },
+};
+let clisFixture = "mac";
+export function setClisFixture(name: string) { clisFixture = name; }
 const tunnelsFixtures: Record<string, unknown> = {
   ok: { state: "ok", message: null, tunnels: [
     { id: "cloudflared", label: "Cloudflare tunnel", installed: true, running: true, url: "https://quiet-river-demo.trycloudflare.com", phase: "running", error: null },
@@ -447,7 +468,8 @@ const contextFixtures: Record<string, unknown> = {
 };
 
 /** Preview: pick every answer at once. */
-export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; context?: string }) {
+export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; context?: string; apps?: string }) {
+  clisFixture = state.apps ?? "mac";
   profilesFixture = state.profiles ?? "ok";
   contextFixture = state.context ?? "ok";
   savedSwitches = {};
@@ -473,7 +495,7 @@ export function setSettingsFixture(name: string) { settingsFixture = name; }
 export function setUsageFixture(name: string) { usageFixture = name; }
 let accountFixture = "ok";
 let usageFixture = "ok";
-export function setStatusFixture(name: string, insights = "ok") { fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; contextFixture = "ok"; savedComboProfiles = null; savedSwitches = {}; }
+export function setStatusFixture(name: string, insights = "ok") { clisFixture = "mac"; fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; contextFixture = "ok"; savedComboProfiles = null; savedSwitches = {}; }
 
 const pendingRpc = new Set<() => void>();
 export function releaseRpc() { for (const release of pendingRpc) release(); pendingRpc.clear(); }
@@ -492,6 +514,9 @@ export function useRpc(contract: any) {
       access: () => accessFixtures[accessFixture],
       compression: () => ({ ...(compressionFixtures[compressionFixture] as object), canEdit: manage }),
       "providers.list": () => providersFixtures.ok,
+      clis: () => (clisFixture === "updating" ? { ...(clisFixtures.mac as object), job: (clisFixtures.updating as { job: unknown }).job } : clisFixtures[clisFixture]),
+      "clis.update": () => ({ ok: true, message: "Updating Codex…" }),
+      "codex-reroute": () => ({ ok: true, message: (input as { enabled: boolean }).enabled ? "Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart." : "Built-in Codex back on its own sign-in for new chats. Open chats switch when they restart." }),
       tunnels: () => (manage ? tunnelsFixtures.ok : { state: "no-manage-key", message: "OmniRoute only shows its tunnels to a manage key.", tunnels: [] }),
       "model.test": () => ({ ok: true, message: `${(input as { model: string }).model} answered in 640 ms` }),
       activity: () => activityAnswer(status, (input ?? {}) as ActivityInput),

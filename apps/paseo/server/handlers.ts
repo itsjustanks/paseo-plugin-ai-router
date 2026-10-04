@@ -1,11 +1,12 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput } from "@getpaseo/plugin";
 import type { Status, connectionTest } from "../shared/contracts";
-import { accessTier, agentIdFromTag, connectionProblem, maskSecret, mergeConnection, privateDashboardUrl, publicAddress, tunnelDashboardUrl } from "../shared/logic";
+import { accessTier, agentIdFromTag, codexBaseUrl, connectionProblem, maskSecret, mergeConnection, privateDashboardUrl, publicAddress, tunnelDashboardUrl } from "../shared/logic";
 import { RECOMMENDED_PLUGINS } from "../shared/plugins";
 import { linkAgents } from "../shared/routers/omniroute/parsers";
 import { getLastSession } from "./hooks";
-import { checkAutoSync, listOwnProfiles, noteActivity, providerState, setCodexRouter, syncAiProvider, testProviderModel } from "./provider";
+import { catalogueCheck, checkAutoSync, listOwnProfiles, noteActivity, providerState, setCodexReroute, setCodexRouter, syncAiProvider, testProviderModel } from "./provider";
+import { listClis, startCliUpdate } from "./clis";
 import { listProviders, setProviderEnabled, tidyProviders } from "./providers";
 import { adapterFor } from "./routers";
 import { usageSourceRegistered } from "./usage";
@@ -66,11 +67,36 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
       summary: entries?.aiRouter.summary ?? null,
       models: entries?.aiRouter.listed ?? [],
       ...providerState(),
+      check: modelCheck(entries?.aiRouter.present ? entries.aiRouter.models : null),
     },
     codexRouter: { present: entries?.codexRouter.present ?? false, modelCount: entries?.codexRouter.modelCount ?? 0 },
+    codexReroute: entries
+      ? { state: entries.builtinCodex.state, baseUrl: entries.builtinCodex.baseUrl, current: !!connection.endpoint && entries.builtinCodex.baseUrl === codexBaseUrl(connection.endpoint) }
+      : undefined,
     settingsDir: settingsDir(),
     plugins: { installed: RECOMMENDED_PLUGINS.map((plugin) => plugin.id).filter((id) => installed.has(id)) },
     nativeUsage: usageSourceRegistered(),
+  };
+}
+
+/**
+ * The last comparison with OmniRoute against what Paseo lists now: drift is a
+ * model the filter keeps that Paseo lacks, or the reverse. The models the
+ * filter drops (effort copies, twins, other accounts) are not drift.
+ */
+function modelCheck(present: string[] | null): Status["aiProvider"]["check"] {
+  const check = catalogueCheck();
+  if (!check) return null;
+  const have = new Set(present ?? []);
+  const want = new Set(check.wanted);
+  return {
+    at: check.at,
+    ok: check.ok,
+    message: check.message,
+    upstream: check.upstream,
+    kept: check.wanted.length,
+    missing: present && check.wanted.length ? check.wanted.filter((id) => !have.has(id)) : [],
+    extra: present && check.wanted.length ? [...have].filter((id) => !want.has(id)) : [],
   };
 }
 
@@ -139,6 +165,9 @@ export const handleProvidersList = ({ refresh }: { refresh?: boolean }, { paseo 
 export const handleProviderEnable = ({ id, enabled }: { id: string; enabled: boolean }, { paseo }: PluginHandlerContext) => setProviderEnabled(paseo, id, enabled);
 export const handleProvidersTidy = ({ ids }: { ids: string[] }, { paseo }: PluginHandlerContext) => tidyProviders(paseo, ids);
 export const handleCodexRouter = async ({ enabled }: { enabled: boolean }, { paseo }: PluginHandlerContext) => setCodexRouter(paseo, await current(), enabled);
+export const handleCodexReroute = async ({ enabled }: { enabled: boolean }, { paseo }: PluginHandlerContext) => setCodexReroute(paseo, await current(), enabled);
+export const handleClis = ({ refresh }: { refresh?: boolean }) => listClis(refresh === true);
+export const handleCliUpdate = ({ id }: { id: "claude" | "codex" }) => startCliUpdate(id);
 export const handleAccountAction = async ({ action, id, name }: { action: "test" | "refresh"; id: string; name: string }) => { const c = await current(); return adapterFor(c.router).accountAction(c, action, id, name); };
 export const handleAccountsCheckAll = async () => { const c = await current(); return adapterFor(c.router).checkAllAccounts(c); };
 export const handleTunnels = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).tunnels(c, refresh === true); };

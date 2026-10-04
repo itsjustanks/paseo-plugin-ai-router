@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -700,6 +700,118 @@ try {
     const removed = await t.mod.handleCodexRouter({ enabled: false }, { paseo: t.api });
     assert.equal(removed.ok, true);
     assert.deepEqual(t.box.patches.at(-1), { removeProviders: ["codex-ai-router"] });
+    passed += 1;
+  }
+
+  {
+    // Built-in Codex re-routed: Paseo's launch command for Codex carries OmniRoute; the key only ever comes at launch.
+    const t = await fresh("codex-reroute", full);
+    t.restore();
+    t.box.providers.codex = { enabled: true, order: 2 };
+    const on = await t.mod.handleCodexReroute({ enabled: true }, { paseo: t.api });
+    assert.deepEqual(on, { ok: true, message: "Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart." });
+    const command = ["codex", "-c", "model_provider=ai-router", "-c", `model_providers.ai-router={name="AI Router",base_url="${LIVE}/v1",env_key="AI_ROUTER_API_KEY",wire_api="responses"}`];
+    assert.deepEqual(t.box.patches.at(-1), { providers: { codex: { command } } }, "only the command; enabled and order stay");
+    assert.deepEqual(t.box.providers.codex, { enabled: true, order: 2, command });
+    assert.equal(JSON.stringify(t.box.patches).includes(KEY), false, "the key never lands in Paseo's config");
+    const status = await t.mod.handleStatus({}, { paseo: t.api });
+    t.mod.StatusSchema.parse(status);
+    assert.deepEqual(status.codexReroute, { state: "on", baseUrl: `${LIVE}/v1`, current: true });
+    let hook;
+    t.mod.registerRoutingHooks({ before: (name, handler) => { if (name === "agent.session_open") hook = handler; }, on() {} });
+    const request = { agentId: "agent-5", workspaceId: null, provider: "codex", cwd: "/tmp", reason: "create", purpose: "interactive", env: { KEEP: "1" } };
+    const opened = await hook({ request }, { paseo: t.api, signal: new AbortController().signal });
+    assert.deepEqual(opened.env, { KEEP: "1", AI_ROUTER_API_KEY: KEY }, "the key, under the name the command expects");
+    // The router moved: the old address never gets the key, and the next sync points Codex at the new one.
+    t.box.providers.codex = { ...t.box.providers.codex, command: command.map((part) => part.replace(`${LIVE}/v1`, "http://old:20128/v1")) };
+    const stale = await hook({ request }, { paseo: t.api, signal: new AbortController().signal });
+    assert.deepEqual(stale.env, { KEEP: "1" }, "no key for an address that isn't the saved endpoint");
+    await t.mod.checkAutoSync(t.api);
+    assert.deepEqual(t.box.providers.codex.command, command, "the auto-sync keeps it pointed at the router");
+    // Back to its own sign-in: the command goes, the rest comes back as it was.
+    const off = await t.mod.handleCodexReroute({ enabled: false }, { paseo: t.api });
+    assert.equal(off.ok, true);
+    assert.deepEqual(t.box.patches.slice(-2), [{ removeProviders: ["codex"] }, { providers: { codex: { enabled: true, order: 2 } } }]);
+    assert.deepEqual(t.box.providers.codex, { enabled: true, order: 2 });
+    const untouched = await hook({ request }, { paseo: t.api, signal: new AbortController().signal });
+    assert.deepEqual(untouched.env, { KEEP: "1" }, "built-in Codex is left alone when not re-routed");
+    // A person's own launch command: never touched either way.
+    t.box.providers.codex = { command: ["/opt/bin/codex", "--profile", "work"] };
+    const patches = t.box.patches.length;
+    for (const enabled of [true, false]) assert.match((await t.mod.handleCodexReroute({ enabled }, { paseo: t.api })).message, /has its own launch command/);
+    assert.equal(t.box.patches.length, patches, "nothing written");
+    passed += 1;
+  }
+  {
+    // The Models tab's check: when it last compared, OmniRoute's raw count, and drift against Paseo.
+    const t = await fresh("model-check", full);
+    t.restore();
+    await t.mod.checkAutoSync(t.api);
+    const first = await t.mod.handleStatus({}, { paseo: t.api });
+    t.mod.StatusSchema.parse(first);
+    const check = first.aiProvider.check;
+    assert.equal(check.ok, true);
+    assert.equal(check.kept, first.aiProvider.modelCount, "the filter's list is what Paseo lists");
+    assert.ok(check.upstream > check.kept, `OmniRoute's raw list (${check.upstream}) is longer than what is kept (${check.kept})`);
+    assert.deepEqual([check.missing, check.extra], [[], []], "in step after a sync");
+    const [gone, ...rest] = t.box.providers["ai-router"].models;
+    t.box.providers["ai-router"] = { ...t.box.providers["ai-router"], models: [...rest, { id: "cc/retired", label: "Claude · Retired" }] };
+    const drifted = (await t.mod.handleStatus({}, { paseo: t.api })).aiProvider.check;
+    assert.deepEqual([drifted.missing, drifted.extra], [[gone.id], ["cc/retired"]], "a kept model Paseo lacks, and one OmniRoute no longer offers");
+    passed += 1;
+  }
+  {
+    // Agent apps: a fake npm-installed Codex on PATH, a fake registry, and an update that really runs.
+    const t = await fresh("clis", full);
+    t.restore();
+    const root = mkdtempSync(join(tmpdir(), "ai-router-clis-"));
+    const prefix = join(root, "npm-global");
+    const pkg = join(prefix, "lib", "node_modules", "@openai", "codex", "bin");
+    mkdirSync(pkg, { recursive: true });
+    mkdirSync(join(prefix, "bin"), { recursive: true });
+    const versionFile = join(root, "codex-version");
+    writeFileSync(versionFile, "0.156.1");
+    writeFileSync(join(pkg, "codex.js"), `#!/bin/sh\necho "codex-cli $(/bin/cat ${versionFile})"\n`, { mode: 0o755 });
+    symlinkSync(join(pkg, "codex.js"), join(prefix, "bin", "codex"));
+    const tools = join(root, "tools");
+    mkdirSync(tools);
+    writeFileSync(join(tools, "npm"), `#!/bin/sh\necho "npm $*"\necho 0.160.0 > ${versionFile}\necho "changed 1 package in 1s"\n`, { mode: 0o755 });
+    const registry = createServer((req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ version: req.url.includes("codex") ? "0.160.0" : "2.1.289" }));
+    });
+    await new Promise((resolve) => registry.listen(0, "127.0.0.1", resolve));
+    const path = process.env.PATH;
+    process.env.PATH = `${join(prefix, "bin")}:${tools}`;
+    process.env.npm_config_registry = `http://127.0.0.1:${registry.address().port}/`;
+    try {
+      const listed = await t.mod.handleClis({ refresh: true });
+      t.mod.ClisSchema.parse(listed);
+      const codex = listed.tools.find((tool) => tool.id === "codex");
+      assert.deepEqual([codex.installed, codex.latest, codex.state, codex.method, codex.canUpdate], ["0.156.1", "0.160.0", "behind", `npm, in ${realpathSync(prefix)}`, true]);
+      assert.equal(codex.command, `npm install -g @openai/codex@latest --prefix ${realpathSync(prefix)}`);
+      const claude = listed.tools.find((tool) => tool.id === "claude");
+      assert.deepEqual([claude.state, claude.canUpdate, claude.latest], ["missing", false, "2.1.289"], "not on PATH: no button");
+      assert.deepEqual(await t.mod.handleCliUpdate({ id: "claude" }), { ok: false, message: "claude isn't on this daemon's PATH." });
+      const started = await t.mod.handleCliUpdate({ id: "codex" });
+      assert.deepEqual(started, { ok: true, message: "Updating Codex…" });
+      let job;
+      for (let i = 0; i < 100; i += 1) {
+        job = (await t.mod.handleClis({})).job;
+        if (job.state !== "running") break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.equal(job.state, "done");
+      assert.deepEqual([job.before, job.after], ["0.156.1", "0.160.0"]);
+      assert.match(job.message, /^Codex updated: 0\.156\.1 → 0\.160\.0\. Running chats keep the old version until they restart\.$/);
+      assert.ok(job.output.some((line) => line.startsWith("npm install -g @openai/codex@latest --prefix")), "the output is kept for the card");
+      assert.equal((await t.mod.handleClis({})).tools.find((tool) => tool.id === "codex").state, "current", "the version is read again");
+    } finally {
+      process.env.PATH = path;
+      delete process.env.npm_config_registry;
+      registry.close();
+      rmSync(root, { recursive: true, force: true });
+    }
     passed += 1;
   }
 

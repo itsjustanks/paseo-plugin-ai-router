@@ -12,6 +12,8 @@ type ScreenInput = { screenId: string; params?: Record<string, string> };
 type SidebarItemProps = PluginHostProps & {
   currentScreen: { screenId: string; params: Record<string, string> } | null;
   openScreen(input: ScreenInput): void;
+  /** 0.11: anchored to the row on wide layouts, a bottom sheet on compact ones. */
+  openPopover?: (Content: ComponentType<{ theme: PluginHostProps["theme"]; close(): void; openScreen(input: ScreenInput): void }>) => void;
 };
 type SidebarRowProps = { icon?: string; label?: string; onPress(): void; active?: boolean; trailing?: ReactNode };
 type NativeClient = {
@@ -25,7 +27,14 @@ export function hostSidebarRow(): ComponentType<SidebarRowProps> | null {
   return typeof row === "function" || (typeof row === "object" && row !== null) ? (row as ComponentType<SidebarRowProps>) : null;
 }
 
-export type MainScreen = { id: string; title: string; icon: string; Component: ComponentType<PluginSurfaceProps> };
+/** `Trailing`: drawn at the end of the app's own sidebar row (0.11), such as a status dot that opens a popover. */
+export type MainScreen = {
+  id: string;
+  title: string;
+  icon: string;
+  Component: ComponentType<PluginSurfaceProps>;
+  Trailing?: ComponentType<{ theme: PluginHostProps["theme"]; openPopover?: SidebarItemProps["openPopover"] }>;
+};
 export type MainScreenApi = { screen: "screen" | "surface"; sidebar: "row" | "item" };
 
 /**
@@ -49,8 +58,10 @@ export function registerMainScreen(client: PluginClientContext, screen: MainScre
 }
 
 function sidebarEntry(Row: ComponentType<SidebarRowProps>, screen: MainScreen): ComponentType<SidebarItemProps> {
-  return function MainScreenSidebarEntry({ currentScreen, openScreen }: SidebarItemProps) {
-    return <Row icon={screen.icon} active={currentScreen?.screenId === screen.id} onPress={() => openScreen({ screenId: screen.id })} />;
+  const Trailing = screen.Trailing;
+  return function MainScreenSidebarEntry({ theme, currentScreen, openScreen, openPopover }: SidebarItemProps) {
+    const trailing = Trailing ? <Trailing theme={theme} openPopover={typeof openPopover === "function" ? openPopover : undefined} /> : undefined;
+    return <Row icon={screen.icon} active={currentScreen?.screenId === screen.id} onPress={() => openScreen({ screenId: screen.id })} trailing={trailing} />;
   };
 }
 

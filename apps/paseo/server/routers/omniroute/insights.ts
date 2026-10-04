@@ -215,7 +215,7 @@ const UNFILTERED_MODELS = 300;
  * `/api/providers`. With only the inference key: `/v1/models?configuredOnly=true`,
  * which OmniRoute filters itself and also limits to the key's allowed models.
  */
-export async function catalogue(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[] } | { ok: false; error: string }> {
+export async function catalogue(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[]; upstream: number | null } | { ok: false; error: string }> {
   if (!connection.endpoint || !connection.apiKey) return { ok: false, error: "Set the endpoint URL and API key first." };
   const down = recentlyDown(connection);
   if (down) return { ok: false, error: `Models: ${down}` };
@@ -248,7 +248,8 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
   }
   const comboIds = list.filter((model) => model.provider === "combo").map((model) => model.id);
   const combos = describeCombos(comboIds, models.body, custom?.body ?? null, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK });
-  return { ok: true, list, combos };
+  const data = (models.body as { data?: unknown } | null)?.data;
+  return { ok: true, list, combos, upstream: Array.isArray(data) ? data.length : null };
 }
 
 // ------------------------------------------------------------- your access

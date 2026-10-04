@@ -491,7 +491,9 @@ export type SessionKind = "claude" | "provider" | "codex";
  * `claude`: built-in Claude, rerouted only while the toggle is on.
  * `provider`: the AI Router provider, which only works through OmniRoute.
  * `codex`: Codex via OmniRoute (and the legacy 0.1.0 AI Router Codex provider).
- * Built-in Codex builds its model provider from config, not env, and is never touched.
+ * Built-in Codex is routed separately (see `routeBuiltinCodex`): it takes its
+ * model provider from config, not env, so it only goes through OmniRoute while
+ * its launch command carries our config.
  */
 export function sessionKind(provider: string): SessionKind | null {
   if (provider === "claude") return "claude";
@@ -560,6 +562,62 @@ export function routeSession(input: RouteInput): RouteDecision {
     return { action: "skip", kind, reason: `${which} points at ${input.codexBaseUrl ?? "nothing"}, not ${expected}; turn it on again in the Providers tab` };
   }
   return { action: "route", kind, env: { OPENAI_API_KEY: apiKey } };
+}
+
+// ----------------------------------------------------- built-in Codex re-route
+//
+// Codex ignores OPENAI_BASE_URL and OPENAI_API_KEY in its environment
+// (verified with Codex 0.160.0: it still called api.openai.com), and Paseo's
+// session_open hook can only change the environment. What Codex does honour
+// is config on its command line, and Paseo lets a provider entry set the
+// launch command: `codex -c model_provider=ai-router -c
+// model_providers.ai-router={…} app-server` runs built-in Codex on OmniRoute
+// (verified end to end through OmniRoute, with Codex's own model ids). The key
+// is never in that command: `env_key` names a variable the hook sets at launch.
+
+/** The model provider name inside Codex's config, and the variable its key comes from. */
+export const CODEX_MODEL_PROVIDER = "ai-router";
+export const CODEX_KEY_ENV = "AI_ROUTER_API_KEY";
+const CODEX_PROVIDER_ARG = `model_provider=${CODEX_MODEL_PROVIDER}`;
+const CODEX_PROVIDERS_PREFIX = `model_providers.${CODEX_MODEL_PROVIDER}=`;
+
+/** Paseo's launch command for built-in Codex while it is re-routed; null for an endpoint that can't sit in a TOML string. */
+export function codexRerouteCommand(endpoint: string): string[] | null {
+  const base = codexBaseUrl(endpoint);
+  if (!/^https?:\/\/[^\s"\\]+$/.test(base)) return null;
+  return ["codex", "-c", CODEX_PROVIDER_ARG, "-c", `${CODEX_PROVIDERS_PREFIX}{name="AI Router",base_url="${base}",env_key="${CODEX_KEY_ENV}",wire_api="responses"}`];
+}
+
+/**
+ * Built-in Codex's entry in Paseo's config, read for the re-route: `off` (no
+ * launch command), `on` (ours, with the base URL it points at) or `foreign`
+ * (someone set their own command, which we never touch).
+ */
+export type CodexReroute = { state: "off" | "on" | "foreign"; baseUrl: string | null };
+export function codexRerouteState(entry: unknown): CodexReroute {
+  const command = (entry as { command?: unknown } | null | undefined)?.command;
+  if (command === undefined || command === null) return { state: "off", baseUrl: null };
+  const args = Array.isArray(command) ? command.filter((part): part is string => typeof part === "string") : [];
+  const ours = args.includes(CODEX_PROVIDER_ARG) && args.find((part) => part.startsWith(CODEX_PROVIDERS_PREFIX));
+  if (!ours) return { state: "foreign", baseUrl: null };
+  return { state: "on", baseUrl: ours.match(/base_url="([^"]+)"/)?.[1] ?? null };
+}
+
+/**
+ * The session_open decision for built-in Codex. Unlike Claude there is no
+ * own-sign-in fallback once the command points at OmniRoute, so the key goes
+ * in whenever there is one, even while a health check fails: Codex then says
+ * why it can't reach the router, instead of "missing AI_ROUTER_API_KEY". The
+ * key is never sent to an address other than the saved endpoint.
+ */
+export function routeBuiltinCodex(input: { reroute: CodexReroute; resolved: Pick<ResolvedConnection, "connection" | "blocked"> }): RouteDecision {
+  if (input.reroute.state !== "on") return { action: "ignore" };
+  const problem = connectionProblem(input.resolved);
+  const { endpoint, apiKey } = input.resolved.connection;
+  if (problem || !endpoint || !apiKey) return { action: "skip", kind: "codex", reason: problem ?? "no endpoint URL set" };
+  const expected = codexBaseUrl(endpoint);
+  if (input.reroute.baseUrl !== expected) return { action: "skip", kind: "codex", reason: `built-in Codex points at ${input.reroute.baseUrl ?? "nothing"}, not ${expected}; the next model sync updates it` };
+  return { action: "route", kind: "codex", env: { [CODEX_KEY_ENV]: apiKey } };
 }
 
 /**
@@ -800,10 +858,15 @@ export function tidyReason(row: ProviderRowInput): string | null {
   return null;
 }
 
-/** What "Through OmniRoute" offers for a provider. */
-export function throughRouter(id: string): "claude-toggle" | "codex-provider" | "is-router" | "none" {
+/**
+ * What the Providers tab offers for a provider. Built-in Claude and Codex each
+ * have an ask-first re-route switch; ours always go through the router;
+ * anything else is not switched here (its models are in the AI Router
+ * provider when OmniRoute has an account for them).
+ */
+export function throughRouter(id: string): "claude-toggle" | "codex-toggle" | "is-router" | "none" {
   if (id === "claude") return "claude-toggle";
-  if (id === "codex") return "codex-provider";
+  if (id === "codex") return "codex-toggle";
   if (OUR_PROVIDER_IDS.includes(id)) return "is-router";
   return "none";
 }

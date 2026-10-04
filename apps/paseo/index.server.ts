@@ -9,6 +9,9 @@ import {
   context,
   aiProvider,
   codexRouter,
+  codexReroute,
+  cliUpdate,
+  clis,
   connectionClear,
   connectionTest,
   ensure,
@@ -36,6 +39,9 @@ import {
   handleAccountsCheckAll,
   handleAiProvider,
   handleCodexRouter,
+  handleCodexReroute,
+  handleCliUpdate,
+  handleClis,
   handleConnectionClear,
   handleConnectionTest,
   handleEnsure,
@@ -56,7 +62,7 @@ import {
 } from "./server/handlers";
 import { handleBadge, handleContext } from "./server/context";
 import { registerRoutingHooks } from "./server/hooks";
-import { noteActivity, startAutoSync } from "./server/provider";
+import { noteActivity, recheckSoon, startAutoSync } from "./server/provider";
 import { registerUsage } from "./server/usage";
 
 /** Every RPC is also a chance to run the background model sync; it never delays the answer. */
@@ -68,7 +74,11 @@ function active<I, O>(handler: (input: I, context: PluginHandlerContext) => O) {
 }
 
 export default function contribute(server: PluginServerContext) {
-  server.registerSettings(routingSettings);
+  // Paseo 0.10+ hands back the settings with subscribe(): a switch flipped anywhere (this panel, Paseo's
+  // Settings, another client) re-checks the combo profiles at once. Older daemons return nothing; the
+  // panel's own apply call and the 5-minute check cover them.
+  const settings = server.registerSettings(routingSettings) as unknown as { subscribe?: (listener: () => void) => () => void } | undefined;
+  const unsubscribe = typeof settings?.subscribe === "function" ? settings.subscribe(() => recheckSoon()) : null;
   registerRoutingHooks(server);
   server.handle(status, active(handleStatus));
   server.handle(connectionTest, active(handleConnectionTest));
@@ -84,6 +94,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(providerEnable, active(handleProviderEnable));
   server.handle(providersTidy, active(handleProvidersTidy));
   server.handle(codexRouter, active(handleCodexRouter));
+  server.handle(codexReroute, active(handleCodexReroute));
+  server.handle(clis, handleClis);
+  server.handle(cliUpdate, handleCliUpdate);
   server.handle(accountAction, active(handleAccountAction));
   server.handle(accountsCheckAll, active(handleAccountsCheckAll));
   server.handle(tunnels, active(handleTunnels));
@@ -100,5 +113,9 @@ export default function contribute(server: PluginServerContext) {
   // Paseo 0.11+: one card per router account on Paseo's own Usage page. Older daemons skip this.
   registerUsage(server);
   // Also checks the AI Router provider once at load, with no Paseo handle yet (see server/provider.ts).
-  return startAutoSync();
+  const stop = startAutoSync();
+  return () => {
+    stop();
+    unsubscribe?.();
+  };
 }

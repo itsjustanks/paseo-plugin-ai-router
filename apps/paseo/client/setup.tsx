@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { connectionTest, type Status } from "../shared/contracts";
 import { ENDPOINT_EXAMPLES, ROUTER_IDS, type RouterId } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
-import { Button, Card, Chip, Field, Meta, Note, Row, TYPE, type Tone } from "./ui";
+import { Button, Card, Chip, Field, Meta, Note, Row, TYPE, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 export type Message = { text: string; tone: Tone } | null;
@@ -16,7 +16,7 @@ export const errorText = (error: unknown) => (error instanceof Error ? error.mes
 
 function Step({ theme, title, why }: { theme: Theme; title: string; why: string }) {
   return (
-    <View style={{ gap: 4, marginTop: 8 }}>
+    <View style={{ gap: SPACE.xs, marginTop: SPACE.sm }}>
       <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>{title}</Text>
       <Note theme={theme}>{why}</Note>
     </View>
@@ -112,7 +112,7 @@ function Credential({ theme, data, field, title, why, hint, warning, problem, on
   const saved = data.connection[field];
   const submit = (next: string | null) => save.mutate({ router: data.connection.router, endpoint: data.connection.endpoint ?? "", [field]: next });
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: SPACE.xs }}>
       <Step theme={theme} title={title} why={why} />
       {warning ? <Note theme={theme} tone="warning">{warning}</Note> : null}
       {problem && saved.present ? <Note theme={theme} tone="warning">{`Last check failed: ${problem}`}</Note> : null}

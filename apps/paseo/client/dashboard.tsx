@@ -5,7 +5,7 @@ import { tunnelKind } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
 import { copyLink, openInBrowser } from "./links";
 import type { Message } from "./setup";
-import { Banner, Button, Chip, Meta, Note, Row } from "./ui";
+import { Button, Chip, QuietLine } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -47,16 +47,14 @@ export function OpenDashboardButton({ theme, data, say, primary, label }: { them
   );
 }
 
-/** Top of Providers and Settings: the rest of routing is the router's own dashboard's job. */
+/** Bottom of Providers and Settings, in one line: the rest of routing is the router's own dashboard's job. */
 export function AdvancedBanner({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
+  const links = useLinks(say);
   const name = ROUTERS[data.connection.router].label;
+  const { url } = dashboardTarget(data);
   return (
-    <Banner theme={theme} tone="neutral" title={`Advanced routing (combos, fallbacks, per-provider rules) lives in the ${name} dashboard`}>
-      <Note theme={theme}>That is where an admin sets up combos (named groups of models), fallbacks (what to try when a model fails) and rules for each provider.</Note>
-      <Row>
-        <OpenDashboardButton theme={theme} data={data} say={say} label="Open dashboard" />
-      </Row>
-      <Meta theme={theme}>Dashboard login: ask your router admin.</Meta>
-    </Banner>
+    <QuietLine theme={theme} icon="SlidersHorizontal" links={url ? [{ label: "Open dashboard", accessibilityLabel: `Open the ${name} dashboard`, onPress: () => void links.open(url) }] : []}>
+      {`Combos (named groups of models), fallbacks and per-provider rules are set in the ${name} dashboard; its login comes from your router admin.`}
+    </QuietLine>
   );
 }

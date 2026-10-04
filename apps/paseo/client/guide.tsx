@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Text, View, type LayoutChangeEvent } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { TabId } from "./navigation";
-import { Card, Chip, HostIcon, IconBadge, Link, Row, TYPE, tint } from "./ui";
+import { Card, Chip, Disclosure, Divider, HostIcon, IconBadge, Link, RADIUS, Row, SectionTitle, TYPE, tint, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 type Go = (tab: TabId) => void;
@@ -21,12 +21,22 @@ function useWidth(): [number | null, (event: LayoutChangeEvent) => void] {
 
 const bold = { fontWeight: "700" } as const;
 
+/** One part of the guide: a heading and its text, inside the guide's single card. */
+function Part({ theme, title, icon, children }: { theme: Theme; title: string; icon: string; children: React.ReactNode }) {
+  return (
+    <View style={{ gap: SPACE.row }}>
+      <SectionTitle theme={theme} icon={icon}>{title}</SectionTitle>
+      {children}
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------- what is it
 
 /** "What is AI Router?", with the kinds of account this router offers when the model list names them. */
 export function WhatIsCard({ theme, router, accounts }: { theme: Theme; router: string; accounts: readonly string[] }) {
   return (
-    <Card theme={theme} title="What is AI Router?" icon="Route">
+    <Part theme={theme} title="What is AI Router?" icon="Route">
       <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>
         {`AI Router is one connection that lets every chat in Paseo use all of your team's AI subscriptions (Claude, ChatGPT/Codex, Kimi and more) through one shared router called ${router}.`}
       </Text>
@@ -39,7 +49,7 @@ export function WhatIsCard({ theme, router, accounts }: { theme: Theme; router: 
           {accounts.map((name) => <Chip key={name} theme={theme} label={name} tone="success" />)}
         </Row>
       ) : null}
-    </Card>
+    </Part>
   );
 }
 
@@ -54,7 +64,7 @@ const FLOW = [
 
 function Arrow({ theme, down }: { theme: Theme; down: boolean }) {
   const glyph = HostIcon ? <HostIcon name={down ? "ArrowDown" : "ArrowRight"} size={20} color={theme.colors.foregroundMuted} /> : <Text style={{ ...TYPE.lead, color: theme.colors.foregroundMuted }}>{down ? "↓" : "→"}</Text>;
-  return <View accessible={false} style={down ? { width: 48, alignItems: "center", paddingVertical: 2 } : { paddingTop: 16, width: 24, alignItems: "center" }}>{glyph}</View>;
+  return <View accessible={false} style={down ? { width: 48, alignItems: "center", paddingVertical: SPACE.hair } : { paddingTop: SPACE.md, width: 24, alignItems: "center" }}>{glyph}</View>;
 }
 
 /** Four steps with icons and arrows: across on a wide screen, down on a narrow one. */
@@ -63,22 +73,22 @@ export function HowItWorksCard({ theme, compact, router }: { theme: Theme; compa
   const stacked = width === null ? compact : width < FLOW_STACK_WIDTH;
   const steps = FLOW.map((step) => (step.icon === "Route" ? { ...step, title: `${router} picks an account` } : step));
   return (
-    <Card theme={theme} title="How it works" icon="Workflow">
+    <Part theme={theme} title="How it works" icon="Workflow">
       <View onLayout={onLayout} style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "stretch" : "flex-start" }}>
         {steps.map((step, index) => (
           <React.Fragment key={step.icon}>
             {index > 0 ? <Arrow theme={theme} down={stacked} /> : null}
             {stacked ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-                <IconBadge theme={theme} name={step.icon} size={48} />
-                <View style={{ flex: 1, gap: 2 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.row }}>
+                <IconBadge theme={theme} name={step.icon} size={40} />
+                <View style={{ flex: 1, gap: SPACE.hair }}>
                   <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>{`${index + 1}. ${step.title}`}</Text>
                   <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>{step.text}</Text>
                 </View>
               </View>
             ) : (
-              <View style={{ flex: 1, alignItems: "center", gap: 8, paddingHorizontal: 4 }}>
-                <IconBadge theme={theme} name={step.icon} size={52} />
+              <View style={{ flex: 1, alignItems: "center", gap: SPACE.sm, paddingHorizontal: SPACE.xs }}>
+                <IconBadge theme={theme} name={step.icon} size={44} />
                 <Text style={{ ...TYPE.item, color: theme.colors.foreground, textAlign: "center" }}>{`${index + 1}. ${step.title}`}</Text>
                 <Text style={{ ...TYPE.secondary, color: theme.colors.foreground, textAlign: "center" }}>{step.text}</Text>
               </View>
@@ -86,14 +96,14 @@ export function HowItWorksCard({ theme, compact, router }: { theme: Theme; compa
           </React.Fragment>
         ))}
       </View>
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 14, borderRadius: 12, backgroundColor: tint(theme.colors.accent, 0.07) ?? theme.colors.surface2 }}>
-        {HostIcon ? <View style={{ paddingTop: 3 }}><HostIcon name="RefreshCw" size={18} color={theme.colors.accent} /></View> : null}
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.row, padding: SPACE.row, borderRadius: RADIUS.control, backgroundColor: tint(theme.colors.accent, 0.07) ?? theme.colors.surface2 }}>
+        {HostIcon ? <View style={{ paddingTop: SPACE.hair }}><HostIcon name="RefreshCw" size={18} color={theme.colors.accent} /></View> : null}
         <Text style={{ ...TYPE.body, color: theme.colors.foreground, flex: 1 }}>
           <Text style={bold}>If an account is busy</Text>
           {" or has used up its allowance, the router tries another one by itself, so your chat keeps going."}
         </Text>
       </View>
-    </Card>
+    </Part>
   );
 }
 
@@ -101,11 +111,11 @@ export function HowItWorksCard({ theme, compact, router }: { theme: Theme; compa
 
 function Step({ theme, n, children }: { theme: Theme; n: number; children: React.ReactNode }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.row }}>
       <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <Text style={{ ...TYPE.secondary, color: theme.colors.accentForeground, fontWeight: "700" }}>{n}</Text>
       </View>
-      <View style={{ flex: 1, gap: 2, paddingTop: 3 }}>{children}</View>
+      <View style={{ flex: 1, gap: SPACE.hair, paddingTop: SPACE.hair }}>{children}</View>
     </View>
   );
 }
@@ -114,7 +124,7 @@ function Step({ theme, n, children }: { theme: Theme; n: number; children: React
 export function HowToUseCard({ theme, go, synced }: { theme: Theme; go: Go; synced: boolean }) {
   const body = { ...TYPE.body, color: theme.colors.foreground };
   return (
-    <Card theme={theme} title="How to use it" icon="ListOrdered">
+    <Part theme={theme} title="How to use it" icon="ListOrdered">
       <Step theme={theme} n={1}><Text style={body}>Start a new chat in Paseo.</Text></Step>
       <Step theme={theme} n={2}>
         <Text style={body}>In the provider menu, choose <Text style={bold}>AI Router</Text>.</Text>
@@ -126,12 +136,12 @@ export function HowToUseCard({ theme, go, synced }: { theme: Theme; go: Go; sync
       <Step theme={theme} n={4}>
         <Text style={body}>Set the thinking level and mode as you normally would. They work the same as with any other provider.</Text>
       </Step>
-      <View style={{ gap: 4, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }}>
-        <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>Rather keep the built-in Claude provider?</Text>
-        <Text style={body}>Switch on re-routing in the Providers tab, and its chats go through the router too. It asks before changing anything.</Text>
+      <View style={{ gap: SPACE.xs, padding: SPACE.row, borderRadius: RADIUS.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }}>
+        <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>Rather keep the built-in Claude or Codex provider?</Text>
+        <Text style={body}>Re-route it in the Providers tab, and its chats go through the router too. It asks before changing anything.</Text>
         <Link theme={theme} label="Open Providers" accessibilityLabel="Open the Providers tab" onPress={() => go("providers")} />
       </View>
-    </Card>
+    </Part>
   );
 }
 
@@ -151,30 +161,41 @@ const WORDS = [
 /** One plain line for each word the panel uses, two across when there is room. */
 export function GlossaryCard({ theme }: { theme: Theme }) {
   return (
-    <Card theme={theme} title="Words you'll see" icon="BookOpen">
-      <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 24, rowGap: 16 }}>
+    <Part theme={theme} title="Words you'll see" icon="BookOpen">
+      <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: SPACE.section, rowGap: SPACE.md }}>
         {WORDS.map((word) => (
-          <View key={word.term} style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, flexBasis: 300, flexGrow: 1, flexShrink: 1 }}>
-            <IconBadge theme={theme} name={word.icon} size={30} />
-            <View style={{ flex: 1, gap: 2 }}>
+          <View key={word.term} style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.row, flexBasis: 300, flexGrow: 1, flexShrink: 1 }}>
+            <IconBadge theme={theme} name={word.icon} size={28} />
+            <View style={{ flex: 1, gap: SPACE.hair }}>
               <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>{word.term}</Text>
               <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>{word.text}</Text>
             </View>
           </View>
         ))}
       </View>
-    </Card>
+    </Part>
   );
 }
 
-/** Overview's guide, top to bottom: what it is, how it works, how to use it, and the words. */
-export function OverviewGuide({ theme, compact, go, router, accounts, synced }: { theme: Theme; compact: boolean; go: Go; router: string; accounts: readonly string[]; synced: boolean }) {
+/**
+ * Everything Overview teaches, in one card behind "New to AI Router? How it
+ * works": what it is, how it works, how to use it, and the words. Open while
+ * setup is unfinished; folded away once everything works.
+ */
+export function OverviewGuide({ theme, compact, go, router, accounts, synced, open }: { theme: Theme; compact: boolean; go: Go; router: string; accounts: readonly string[]; synced: boolean; open: boolean }) {
   return (
-    <>
-      <WhatIsCard theme={theme} router={router} accounts={accounts} />
-      <HowItWorksCard theme={theme} compact={compact} router={router} />
-      <HowToUseCard theme={theme} go={go} synced={synced} />
-      <GlossaryCard theme={theme} />
-    </>
+    <View style={{ marginBottom: SPACE.section }}>
+      <Disclosure key={open ? "open" : "closed"} theme={theme} label="New to AI Router? How it works" openLabel="Hide how AI Router works" initiallyOpen={open}>
+        <Card theme={theme} flush>
+          <WhatIsCard theme={theme} router={router} accounts={accounts} />
+          <Divider theme={theme} />
+          <HowItWorksCard theme={theme} compact={compact} router={router} />
+          <Divider theme={theme} />
+          <HowToUseCard theme={theme} go={go} synced={synced} />
+          <Divider theme={theme} />
+          <GlossaryCard theme={theme} />
+        </Card>
+      </Disclosure>
+    </View>
   );
 }

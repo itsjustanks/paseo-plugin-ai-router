@@ -7,7 +7,7 @@ import { badge, context, type ContextView } from "../shared/contracts";
 import { contextTone, formatTokens, usageOf, type ChatAlert, type ContextUsage } from "../shared/context";
 import { routingSettings } from "../shared/settings";
 import { errorText } from "./setup";
-import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, TYPE, toneColor, type Tone } from "./ui";
+import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, TYPE, toneColor, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 export const CONTEXT_PANEL_ID = "ai-router-context";
@@ -257,8 +257,8 @@ function Parts({ theme, data }: { theme: Theme; data: ContextView }) {
     <Card theme={theme} title="What's using it" icon="ChartPie">
       <Note theme={theme}>Biggest first. ≈ means estimated from this chat's own history (about 4 characters per token). The line marked "the rest" is the exact total minus everything else listed.</Note>
       {data.parts.map((part) => (
-        <View key={part.id} style={{ gap: 6, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}>
+        <View key={part.id} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: SPACE.sm }}>
             <ItemTitle theme={theme}>{part.label}</ItemTitle>
             <Meta theme={theme}>{`${part.kind === "measured" ? "" : "≈ "}${formatTokens(part.tokens)} · ${percent(part.share)}${part.kind === "rest" ? " · the rest" : part.kind === "measured" ? " · measured" : ""}`}</Meta>
           </View>
@@ -335,7 +335,7 @@ export function ContextBody({ theme, data, onRefresh, refreshing, onHide }: { th
       </Card>
       {data.parts.length ? <Parts theme={theme} data={data} /> : null}
       <RouterCard theme={theme} router={data.router} />
-      <View style={{ gap: 4, marginBottom: 12 }}>
+      <View style={{ gap: SPACE.xs, marginBottom: SPACE.row }}>
         {counted.compactedAt ? <Note theme={theme}>{`Counted since the chat was last compacted (${hhmm(counted.compactedAt)}).`}</Note> : null}
         {counted.capped ? <Note theme={theme}>{`A long chat: only its newest ${counted.items.toLocaleString()} history entries were counted, so the older ones sit in "the rest".`}</Note> : null}
         {counted.overshoot ? <Note theme={theme} tone="warning">The estimates add up to more than the reported total, so treat them as rough here.</Note> : null}
@@ -368,8 +368,8 @@ export function makeContextPanel(store: BadgeStore, openSurface: ((id: string) =
     };
     const data = query.data;
     return (
-      <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: layout.compact ? 12 : 16, paddingBottom: 32 }}>
-        <View style={{ gap: 4, marginBottom: 14 }}>
+      <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: layout.compact ? SPACE.row : SPACE.md, paddingBottom: SPACE.section + SPACE.sm }}>
+        <View style={{ gap: SPACE.xs, marginBottom: SPACE.row }}>
           <Text accessibilityRole="header" style={{ ...TYPE.tabTitle, color: theme.colors.foreground }}>Context</Text>
           <Note theme={theme}>{data?.agent?.title ?? "What this chat is carrying, and what uses the most of it."}</Note>
         </View>

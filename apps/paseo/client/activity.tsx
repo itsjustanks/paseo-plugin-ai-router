@@ -7,7 +7,7 @@ import { activity, activityDetail, type Activity, type RequestRowView, type Stat
 import { plainReason, paseoProviderName } from "../shared/logic";
 import { compactNumber as compact } from "../shared/routers/omniroute/parsers";
 import { errorText } from "./setup";
-import { Banner, Card, Chip, Link, Meta, Note, Row, StaleNote, TYPE, ToggleRow, toneColor } from "./ui";
+import { Banner, Card, Chip, Link, Meta, Note, Row, StaleNote, TYPE, ToggleRow, toneColor, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 /** Paseo's own "go to this agent"; null on hosts that do not offer it. */
@@ -22,11 +22,11 @@ const bare = (id: string) => id.slice(id.lastIndexOf("/") + 1).toLowerCase();
 
 function Segmented<T extends string>({ theme, value, options, onChange }: { theme: Theme; value: T; options: ReadonlyArray<{ id: T; label: string }>; onChange: (next: T) => void }) {
   return (
-    <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 4, padding: 3, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 }}>
+    <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: SPACE.xs, padding: SPACE.hair, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 }}>
       {options.map((option) => {
         const selected = option.id === value;
         return (
-          <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} onPress={() => onChange(option.id)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
+          <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} onPress={() => onChange(option.id)} style={{ paddingHorizontal: SPACE.row, paddingVertical: SPACE.sm, borderRadius: 8, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
             <Text style={{ ...TYPE.secondary, color: selected ? theme.colors.accentForeground : theme.colors.foreground, fontWeight: "600" }}>{option.label}</Text>
           </Pressable>
         );
@@ -38,7 +38,7 @@ function Segmented<T extends string>({ theme, value, options, onChange }: { them
 /** A filter chip: tap to pick, tap again to clear. */
 function Pick({ theme, label, selected, onPress }: { theme: Theme; label: string; selected: boolean; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${selected ? "Clear" : "Only"} ${label}`} accessibilityState={{ selected }} onPress={onPress} style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: selected ? theme.colors.accent : theme.colors.border, backgroundColor: selected ? theme.colors.surface2 : "transparent" }}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${selected ? "Clear" : "Only"} ${label}`} accessibilityState={{ selected }} onPress={onPress} style={{ paddingHorizontal: SPACE.row, paddingVertical: SPACE.xs, borderRadius: 999, borderWidth: 1, borderColor: selected ? theme.colors.accent : theme.colors.border, backgroundColor: selected ? theme.colors.surface2 : "transparent" }}>
       <Text style={{ ...TYPE.secondary, color: selected ? theme.colors.accent : theme.colors.foreground, fontWeight: selected ? "700" : "500" }}>{label}</Text>
     </Pressable>
   );
@@ -63,7 +63,7 @@ function Sessions({ theme, sessions, openAgent }: { theme: Theme; sessions: Acti
       <Note theme={theme}>Each time an agent starts or resumes here, AI Router decides whether it goes through the router. Kept for the last 200.</Note>
       {!sessions.length ? <Note theme={theme}>No agent has started on this daemon since AI Router was installed.</Note> : null}
       {shown.map((s, i) => (
-        <View key={`${s.at}-${s.agentId}-${i}`} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+        <View key={`${s.at}-${s.agentId}-${i}`} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
           <Row>
             <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, width: 72 }}>{time(s.at)}</Text>
             <Text style={{ ...TYPE.item, color: theme.colors.foreground, flexShrink: 1 }}>{s.agentTitle ?? `Agent ${shortId(s.agentId)}`}</Text>
@@ -86,7 +86,7 @@ function Detail({ theme, row }: { theme: Theme; row: RequestRowView }) {
   const query = useQuery({ queryKey: ["ai-router", "activity", "detail", row.id], queryFn: () => call({ id: row.id }), staleTime: 60_000 });
   const d = query.data;
   return (
-    <View style={{ gap: 6, marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface0, borderWidth: 1, borderColor: theme.colors.border }}>
+    <View style={{ gap: SPACE.xs, marginTop: SPACE.sm, padding: SPACE.row, borderRadius: 10, backgroundColor: theme.colors.surface0, borderWidth: 1, borderColor: theme.colors.border }}>
       {row.error ? <Note theme={theme} tone="danger">{`Error: ${row.error}`}</Note> : null}
       {!d ? <Note theme={theme}>{query.error ? errorText(query.error) : "Asking the router why…"}</Note> : null}
       {d && d.state !== "ok" ? <Note theme={theme} tone="warning">{d.message}</Note> : null}
@@ -109,8 +109,8 @@ function RequestLine({ theme, row, open, onToggle, showDaemon, openAgent }: { th
   const changed = !!row.requestedModel && !!row.model && bare(row.requestedModel) !== bare(row.model);
   const tokens = row.tokensIn !== null || row.tokensOut !== null ? `${compact(row.tokensIn ?? 0)} in / ${compact(row.tokensOut ?? 0)} out` : null;
   return (
-    <View style={{ borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Request ${row.id}, ${row.ok ? "succeeded" : "failed"}; ${open ? "hide" : "show"} why`} accessibilityState={{ expanded: open }} onPress={onToggle} style={{ gap: 4 }}>
+    <View style={{ borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Request ${row.id}, ${row.ok ? "succeeded" : "failed"}; ${open ? "hide" : "show"} why`} accessibilityState={{ expanded: open }} onPress={onToggle} style={{ gap: SPACE.xs }}>
         <Row>
           <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, width: 72 }}>{time(row.at)}</Text>
           <Chip theme={theme} label={row.status === null ? (row.ok ? "ok" : "error") : String(row.status)} tone={row.ok ? "success" : "danger"} />

@@ -10,7 +10,7 @@ import { ROUTERS } from "../shared/routers/copy";
 import { dashboardTarget, useLinks } from "./dashboard";
 import { openInBrowser } from "./links";
 import type { Message } from "./setup";
-import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone } from "./ui";
+import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -51,7 +51,7 @@ export function Gate({ theme, title, data, error, loading, refetch }: { theme: T
 
 /** Parts that failed while the rest worked. Small print, at the bottom. */
 export function Notes({ theme, notes }: { theme: Theme; notes: string[] }) {
-  return notes.length ? <View style={{ gap: 4, marginTop: 4 }}>{notes.map((note) => <Note key={note} theme={theme}>{note}</Note>)}</View> : null;
+  return notes.length ? <View style={{ gap: SPACE.xs, marginTop: SPACE.xs }}>{notes.map((note) => <Note key={note} theme={theme}>{note}</Note>)}</View> : null;
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
@@ -82,8 +82,8 @@ function RouterHealth({ theme, router, version, uptime }: { theme: Theme; router
 /** Paseo 0.11+ daemons put each account on Paseo's own Usage page too; say where. */
 function NativeUsageNote({ theme }: { theme: Theme }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-      {HostIcon ? <View style={{ paddingTop: 3 }}><HostIcon name="Gauge" size={16} color={theme.colors.accent} /></View> : null}
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.sm }}>
+      {HostIcon ? <View style={{ paddingTop: SPACE.hair }}><HostIcon name="Gauge" size={16} color={theme.colors.accent} /></View> : null}
       <View style={{ flex: 1 }}>
         <Note theme={theme}>These accounts and how much of their limits is left also show on Paseo's Usage page (Settings → Usage), where you can pin a limit to the sidebar.</Note>
       </View>
@@ -146,7 +146,7 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
             const relogin = providerDashboardPage(dashboard, account.provider);
             const expiry = account.expiry && EXPIRY_WORDS[account.expiry.status];
             return (
-            <View key={account.id} style={{ gap: 8, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 14, marginTop: index ? 0 : 4 }}>
+            <View key={account.id} style={{ gap: SPACE.sm, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row, marginTop: index ? 0 : 4 }}>
               <Row>
                 <ItemTitle theme={theme}>{account.shortName}</ItemTitle>
                 {isPaused ? <Chip theme={theme} label="Paused" tone="danger" /> : <Chip theme={theme} label={account.state === "healthy" ? "Healthy" : account.state === "disabled" ? "Disabled" : "Needs attention"} tone={account.state === "healthy" ? "success" : account.state === "disabled" ? "neutral" : "warning"} />}
@@ -156,8 +156,8 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
               {account.coolingUntil ? <Note theme={theme} tone="warning">{`Cooling down until ${time(account.coolingUntil)}`}</Note> : null}
               {expiry ? <Note theme={theme} tone={account.expiry!.status === "expired" ? "danger" : "warning"}>{`${expiry}${account.expiry!.expiresAt ? ` (${account.expiry!.expiresAt.slice(0, 10)})` : ""}${account.expiry!.note ? `: ${account.expiry!.note}` : ""}`}</Note> : null}
               {account.quotas.map((quota) => (
-                <View key={quota.name} style={{ gap: 3 }}>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+                <View key={quota.name} style={{ gap: SPACE.hair }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", gap: SPACE.sm }}>
                     <Text style={{ ...TYPE.secondary, color: theme.colors.foreground, flexShrink: 1 }}>{quotaName(quota.name)}</Text>
                     <Text style={{ ...TYPE.secondary, color: tone(quota.remainingPct) === "success" ? theme.colors.foregroundMuted : toneColor(theme, tone(quota.remainingPct)) }}>{`${quota.remainingPct}% left${quota.resetAt ? ` · resets ${time(Date.parse(quota.resetAt))}` : ""}`}</Text>
                   </View>
@@ -190,9 +190,9 @@ export function Breakdown({ theme, title, why, rows, icon }: { theme: Theme; tit
     <Card theme={theme} title={title} icon={icon}>
       <Note theme={theme}>{why}</Note>
       {rows.map((row) => (
-        <View key={row.label} style={{ gap: 3 }}>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
+        <View key={row.label} style={{ gap: SPACE.hair }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: SPACE.sm }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.xs, flexShrink: 1 }}>
               <Text style={{ ...TYPE.body, color: theme.colors.foreground, fontWeight: row.thisDaemon ? "700" : "400", flexShrink: 1 }}>{row.label}</Text>
               {row.thisDaemon ? <Chip theme={theme} label="this daemon" tone="success" /> : null}
             </View>
@@ -238,7 +238,7 @@ export function RouterSettingsCard({ theme, dashboardUrl, onMessage }: { theme: 
         const link = dashboardLink(dashboardUrl, item.dashboardPath);
         const editable = data.canEdit && item.id !== "routing";
         return (
-          <View key={item.id} style={{ gap: 4, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 12 }}>
+          <View key={item.id} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>
             <Row>
               <ItemTitle theme={theme}>{item.label}</ItemTitle>
               <Chip theme={theme} label={item.value} tone={item.tone} />

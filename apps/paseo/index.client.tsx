@@ -1,6 +1,7 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { CONTEXT_PANEL_ID, createBadgeStore, makeContextPanel, registerContextBadges } from "./client/context";
 import { openMainScreen, registerMainScreen } from "./client/native";
+import { makeQuickActions, makeStatusTrailing } from "./client/quick";
 import { AiRouterSurface } from "./client/surface";
 import { ensure } from "./shared/contracts";
 
@@ -8,7 +9,8 @@ const MAIN_SCREEN = "ai-router";
 
 export default function contribute(client: PluginClientContext) {
   // A screen and the app's own sidebar row on Paseo 0.11 apps; the surface and sidebar item before.
-  registerMainScreen(client, { id: MAIN_SCREEN, title: "AI Router", icon: "Route", Component: AiRouterSurface });
+  // On 0.11 the row also carries a status dot; pressing it opens quick actions (open, dashboard, sync).
+  registerMainScreen(client, { id: MAIN_SCREEN, title: "AI Router", icon: "Route", Component: AiRouterSurface, Trailing: makeStatusTrailing(makeQuickActions(MAIN_SCREEN)) });
   // The app just connected to this host: let the server check the AI Router provider now,
   // with a Paseo handle, instead of waiting until someone opens the panel or starts an agent.
   void client.rpc(ensure, {}).catch(() => undefined);
