@@ -1338,12 +1338,12 @@ try {
     const [claude, codex] = reports;
     assert.deepEqual(claude, {
       status: "available",
-      planLabel: "Subscription",
+      planLabel: "Claude #1",
       windows: [
         { id: "session-5h", label: "5-hour limit", shortLabel: "5h", usedPct: 36, remainingPct: 64, resetsAt: "2026-10-04T15:00:00.000Z", tone: "ok" },
         { id: "weekly-7d", label: "Weekly limit", shortLabel: "wk", usedPct: 92, remainingPct: 8, resetsAt: "2026-10-09T00:00:00.000Z", tone: "danger" },
       ],
-      details: [{ id: "account", label: "Account", value: "so…@example.com" }],
+      details: [{ id: "account", label: "Account", value: "so…@example.com" }, { id: "plan", label: "Signs in with", value: "Subscription" }],
     });
     assert.deepEqual(codex, { status: "unavailable", problem: { kind: "no_quota", detail: "OmniRoute has not reported this account's limits yet." } });
     for (const secret of ["someone@example.com", KEY, TOKEN]) assert.equal(JSON.stringify([cards, reports]).includes(secret), false, "no raw email or key reaches the Usage page");
@@ -1361,8 +1361,9 @@ try {
     assert.deepEqual(problem({ state: "attention", problem: "out of credits", quotas: [] }), { kind: "no_quota", detail: "Out of credits." });
     assert.deepEqual(problem({ quotas: [] }, { ...ctx, paused: true }), { kind: "no_quota", detail: "Paused for a moment by OmniRoute after errors; it tries again by itself." });
     const busy = Report.parse(R({ ...acct, coolingUntil: Date.parse("2026-10-04T14:02:00Z"), expiry: { status: "expiring_soon", expiresAt: "2026-10-06T00:00:00Z", note: null } }, { ...ctx, paused: true, stale: { reason: "connection refused", checkedAt: "2026-10-04T13:58:00.000Z" } }));
-    assert.equal(busy.planLabel, "API key");
+    assert.equal(busy.planLabel, "Claude #1", "the card's header names the account: AI Router · Claude #1");
     assert.deepEqual(busy.details, [
+      { id: "plan", label: "Signs in with", value: "API key" },
       { id: "status", label: "Status", value: "Paused for a moment by OmniRoute after errors; it tries again by itself", tone: "danger" },
       { id: "sign-in", label: "Sign-in", value: "Expires 2026-10-06", tone: "warning" },
       { id: "stale", label: "Last read", value: "13:58 UTC: OmniRoute is not answering now (connection refused)", tone: "warning" },
@@ -1370,6 +1371,7 @@ try {
     const health = { state: "degraded", successRatePct: 80, requests: 10, issueCount: 1, lastErrorAt: null, failingModels: ["claude-opus-5-5"] };
     assert.deepEqual(Report.parse(R({ ...acct, coolingUntil: Date.parse("2026-10-04T14:02:00Z"), authType: null, health }, ctx)), {
       status: "available",
+      planLabel: "Claude #1",
       windows: [{ id: "session-5h", label: "5-hour limit", shortLabel: "5h", usedPct: 50, remainingPct: 50, resetsAt: null, tone: "ok" }],
       details: [
         { id: "status", label: "Status", value: "Cooling down until 14:02 UTC", tone: "warning" },
@@ -1399,7 +1401,7 @@ try {
     const basicCards = Discovered.parse(await b[0].discover());
     const basicReport = await fetchCard(b[0], basicCards[0]);
     basic.restore();
-    assert.deepEqual(basicCards, [{ key: "router", input: { account: null } }]);
+    assert.deepEqual(basicCards, [{ key: "router", label: "OmniRoute", input: { account: null } }]);
     assert.deepEqual(basicReport, { status: "unavailable", problem: { kind: "no_quota", detail: basic.mod.READ_TOKEN_NEEDED } });
     assert.match(basic.mod.READ_TOKEN_NEEDED, /read-only access token in AI Router → Connection/);
     const none = await fresh("usage-none", {});
@@ -1424,7 +1426,7 @@ try {
     const asked = requested.length;
     const again = await d[0].discover();
     down.restore();
-    assert.deepEqual(downCards, [{ key: "router", input: { account: null } }]);
+    assert.deepEqual(downCards, [{ key: "router", label: "OmniRoute", input: { account: null } }]);
     assert.equal(downReport.status, "error");
     assert.match(downReport.error, /^Accounts: /);
     assert.deepEqual(again, downCards, "backing off: the last answer again");

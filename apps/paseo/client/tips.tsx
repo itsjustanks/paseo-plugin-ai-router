@@ -30,7 +30,7 @@ export function TipsTab({ theme, data, say }: { theme: PluginTheme; data: Status
               <ItemTitle theme={theme}>{plugin.name}</ItemTitle>
               <Meta theme={theme}>{`by ${plugin.by}`}</Meta>
               {here ? <Chip theme={theme} label="Installed" tone="success" /> : null}
-              {blocked ? <Chip theme={theme} label="Not on Paseo 0.9.1 yet" tone="warning" /> : null}
+              {blocked ? <Chip theme={theme} label="Can't install here yet" tone="warning" /> : null}
             </Row>
             <Note theme={theme}>{plugin.what}</Note>
             {blocked ? <Note theme={theme}>{blocked}</Note> : null}

@@ -231,6 +231,18 @@ try {
     assert.deepEqual([...I.activeProviders(inactive)], ["claude"], "an inactive provider's models are left out");
   });
 
+  check("model list: GPT-6.1 Sol is kept (OmniRoute 3.8.51, 2026-10-04), its twin and effort copies are not", () => {
+    const live = { data: [
+      { id: "cx/gpt-6.1-sol", owned_by: "codex", root: "gpt-6.1-sol", parent: null },
+      { id: "codex/gpt-6.1-sol", owned_by: "codex", root: "gpt-6.1-sol", parent: "cx/gpt-6.1-sol" },
+      { id: "cx/gpt-6-astra", owned_by: "codex", root: "gpt-6-astra", parent: null },
+      { id: "cx/gpt-6-astra-ultra", owned_by: "codex", root: "gpt-6-astra", parent: null },
+      { id: "cx/gpt-6-sol", owned_by: "codex", root: "gpt-6-sol", parent: null },
+      { id: "cx/gpt-6-sol-high", owned_by: "codex", root: "gpt-6-sol", parent: null },
+    ] };
+    assert.deepEqual(I.buildModelList(live, new Set(["codex"])).map((m) => m.id), ["cx/gpt-6-astra", "cx/gpt-6-sol", "cx/gpt-6.1-sol"]);
+  });
+
   check("every parser survives junk", () => {
     for (const junk of [null, undefined, "<redacted>", 42, [], {}, { connections: "x", data: {}, summary: [] }]) {
       assert.deepEqual(I.parseAccounts({ providers: junk, rateLimits: junk, limits: junk, now: NOW }), []);

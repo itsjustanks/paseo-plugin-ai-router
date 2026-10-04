@@ -47,6 +47,13 @@ is still there. `requirements.paseo` stays `>=0.8.0`; everything newer is looked
   Providers and Settings, instead of a banner at the top.
 - **Tips recommends fewer plugins.** Shared Browser and Advanced Markdown are no longer listed; Tips now
   suggests Paseo MCP, Activity, Remote Editor and Tell Agent.
+- **Tell Agent can be installed again.** Its 1.2.0 builds and loads on Paseo 0.11 (checked on the Mac), so
+  Tips offers Paseo Cafe's command for it instead of "Not on Paseo 0.9.1 yet".
+- **Usage page cards name their account** (Paseo 0.11). Paseo's card header shows the source's name and
+  the report's plan badge; the account's name only appeared small in the footer, so every card read
+  "AI Router". The badge now carries the account, so the header reads "AI Router · Claude #1",
+  "AI Router · Codex #2" (numbered by OmniRoute priority, never an email). How it signs in
+  (Subscription or API key) moved to a "Signs in with" line. The read-token card is named after the router.
 
 ## 0.14.0 — 2026-10-04
 

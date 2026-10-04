@@ -63,8 +63,8 @@ Where the Paseo app or daemon has its own way to show something, AI Router uses 
 looked for when the plugin loads; an older Paseo (the fleet's 0.9.1, or 0.10) gets exactly what it
 got before.
 
-- **Paseo's Usage page** (daemon 0.11+, Settings → Usage): one **AI Router** card per router account
-  ("Claude #1", "Codex #2"), with each limit's used and left and its reset time, the account's masked
+- **Paseo's Usage page** (daemon 0.11+, Settings → Usage): one **AI Router** card per router account,
+  named in its header ("AI Router · Claude #1", "AI Router · Codex #2", numbered by OmniRoute priority), with each limit's used and left and its reset time, the account's masked
   name, its status (paused, cooling down, sign-in expiring) and the last 24 hours. An account that can't
   be used says why (turned off, sign-in expired, banned, no limits reported yet). A key-only connection
   shows one card saying a read token is needed; a daemon that isn't connected shows none. The cards

@@ -35,9 +35,7 @@ export const RECOMMENDED_PLUGINS: readonly RecommendedPlugin[] = [
     name: "Tell Agent",
     by: "Omer Cohen",
     what: "Send messages to agents in other workspaces on the same Paseo host.",
-    install: "paseo plugin add npm:@omercnet/paseo-tell-agent@0.3.0",
-    // Checked 2026-09-24 on the Mac and all ten daemons: the build fails with
-    // `Could not resolve type dependency "@getpaseo/client"` (plugin-client-runtime-boundary).
-    blocked: "Doesn't install on Paseo 0.9.1 yet: its build fails there. Watch its Paseo Cafe page for a fixed version.",
+    // 1.2.0 builds and loads on Paseo 0.11.0-beta.3 (checked 2026-10-04 on the Mac); 0.3.0 failed on 0.9.1.
+    install: "paseo plugin add npm:@omercnet/paseo-tell-agent@1.2.0",
   },
 ];

@@ -83,7 +83,7 @@ export const USAGE_SOURCE_ID = "ai-router";
 const UsageInputSchema = z.object({ account: z.string().min(1).max(200).nullable() });
 type UsageInput = z.infer<typeof UsageInputSchema>;
 /** The card shown instead of account cards: a key-only connection, or a router that has not answered yet. */
-const ROUTER_CARD: UsageAccount = { key: "router", input: { account: null } };
+const routerCard = (router: string): UsageAccount => ({ key: "router", label: router, input: { account: null } });
 
 /** "Add a read token" for a key-only connection: the plain key cannot see the router's accounts. */
 export const READ_TOKEN_NEEDED = "Add a read-only access token in AI Router → Connection (under More access) to see each of the router's accounts and how much of its limits is left.";
@@ -110,16 +110,22 @@ function windowIds(names: readonly string[]): string[] {
   });
 }
 
-function planLabel(authType: string | null): string | undefined {
+function signInKind(authType: string | null): string | null {
   if (authType === "oauth") return "Subscription";
   if (authType && /^api[-_ ]?key$/i.test(authType)) return "API key";
-  return undefined;
+  return null;
 }
 
 /**
  * One router account as a Usage-page card: each quota as a window (used and
  * left, reset time, tone), and a few plain details. An account that cannot
  * be used says why instead.
+ *
+ * Paseo's card header shows the source's label ("AI Router") and the
+ * report's `planLabel`; the account's own label only appears small in the
+ * footer (and in pinned limits). So `planLabel` carries the account's name,
+ * "Claude #1" (numbered by OmniRoute priority), and the header reads
+ * "AI Router · Claude #1". How it signs in becomes a detail line.
  */
 export function accountReport(account: Account, context: { router: string; paused: boolean; stale: { reason: string; checkedAt: string | null } | null }): UsageReport {
   const { router } = context;
@@ -145,6 +151,8 @@ export function accountReport(account: Account, context: { router: string; pause
 
   const details: UsageDetail[] = [];
   if (account.label) details.push({ id: "account", label: "Account", value: account.label });
+  const kind = signInKind(account.authType);
+  if (kind) details.push({ id: "plan", label: "Signs in with", value: kind });
   if (status) details.push(status);
   if (account.expiry?.status === "expiring_soon") details.push({ id: "sign-in", label: "Sign-in", value: account.expiry.expiresAt ? `Expires ${account.expiry.expiresAt.slice(0, 10)}` : "Expires soon", tone: "warning" });
   if (account.health) details.push({ id: "health", label: "Last 24 hours", value: healthLine(account.health), tone: account.health.state === "healthy" ? "default" : "warning" });
@@ -152,8 +160,7 @@ export function accountReport(account: Account, context: { router: string; pause
     const at = iso(context.stale.checkedAt);
     details.push({ id: "stale", label: "Last read", value: `${at ? utcTime(Date.parse(at)) : "Earlier"}: ${router} is not answering now (${context.stale.reason})`, tone: "warning" });
   }
-  const plan = planLabel(account.authType);
-  return { status: "available", ...(plan ? { planLabel: plan } : {}), windows, details };
+  return { status: "available", planLabel: account.shortName, windows, details };
 }
 
 // ----------------------------------------------------------- the reads
@@ -197,9 +204,10 @@ export async function discoverUsage(): Promise<UsageAccount[]> {
   const resolved = await readConnection();
   if (connectionProblem(resolved)) return [];
   const { connection } = resolved;
-  if (accessTier(connection) === "basic") return [ROUTER_CARD];
+  const card = routerCard(ROUTERS[connection.router].label);
+  if (accessTier(connection) === "basic") return [card];
   const answer = await accountsForUsage(connection);
-  if (!answer.accounts.length) return answer.state === "ok" ? [] : [ROUTER_CARD];
+  if (!answer.accounts.length) return answer.state === "ok" ? [] : [card];
   return answer.accounts.map((account) => ({ key: accountKey(connection, account.id), label: account.shortName, input: { account: account.id } }));
 }
 
