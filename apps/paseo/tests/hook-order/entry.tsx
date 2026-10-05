@@ -14,6 +14,7 @@ import { RouterSettingsCard } from "../../client/insights";
 import { UsageTab } from "../../client/analytics";
 import { TabBar, type TabId } from "../../client/navigation";
 import { createBadgeStore, makeContextChip, makeContextPanel, recheckBadges, registerContextBadges } from "../../client/context";
+import { followAgents } from "../../client/agents";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
 import contributeClient from "../../index.client";
 import { hostOpener } from "../../client/links";
@@ -345,6 +346,157 @@ export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
   await flush();
   const afterStop = rpcCalls - beforeSlow;
   return { first, afterTurn, offRemoved, backOn, removedAll: [...removed].filter((id) => id !== "d").sort(), rpcCalls: beforeSlow, whileOut, slowReads, afterStop, alerted, cleared };
+}
+
+/**
+ * The same registry on Paseo 0.8.0 stable and later (0.15.1): chips are buttons the app validates, the
+ * label is pushed with update(), and agents come from the plugin's own observation (0.9+).
+ */
+export async function badgeButtonsCheck(): Promise<Record<string, unknown>> {
+  const added: Array<{ agentId: string; label?: string; icon: string }> = [];
+  const updates: Array<[string, unknown]> = [];
+  const removed: string[] = [];
+  const opened: unknown[] = [];
+  const invalid: string[] = [];
+  const presses = new Map<string, () => void>();
+  let refuseNext = 0;
+  let alertsNext: unknown[] = [];
+  let observer: any = null;
+  let released = 0;
+  let listCalls = 0;
+  let oldSubscribeCalls = 0;
+  const agentOf = (id: string, used?: number, over: Record<string, unknown> = {}) => ({ id, workspaceId: "ws-1", archivedAt: null, lastUsage: used ? { contextWindowUsedTokens: used, contextWindowMaxTokens: 200_000 } : undefined, ...over });
+  // What the 0.11 app's validateButton and requireButtonId check, so a wrong shape fails here as it does there.
+  const validate = (pill: any) => {
+    const b = pill.button;
+    if (typeof pill.id !== "string" || !/^[a-z][a-z0-9-]*$/.test(pill.id)) return "id";
+    if (!b || typeof b.title !== "string" || !b.title.trim()) return "title";
+    if (b.label !== undefined && (typeof b.label !== "string" || !b.label.trim())) return "label";
+    if (typeof b.icon !== "string" || !["ChartPie", "TriangleAlert"].includes(b.icon)) return "icon";
+    if (b.behavior?.kind !== "action" || typeof b.behavior.onPress !== "function") return "behavior";
+    if ("Component" in pill || "onPress" in pill) return "old shape";
+    return null;
+  };
+  const client = {
+    addHeaderButton() {},
+    addComposerPill(pill: any) {
+      const problem = validate(pill);
+      if (problem) {
+        invalid.push(problem);
+        throw new Error(`invalid button: ${problem}`);
+      }
+      if (refuseNext > 0) {
+        refuseNext -= 1;
+        throw new Error("Plugin button needs a workspace");
+      }
+      added.push({ agentId: pill.agentId, label: pill.button.label, icon: pill.button.icon });
+      presses.set(pill.agentId, pill.button.behavior.onPress);
+      return {
+        update(patch: unknown) {
+          const problem = validate({ ...pill, button: { ...pill.button, ...(patch as object) } });
+          if (problem) invalid.push(`update ${problem}`);
+          updates.push([pill.agentId, patch]);
+        },
+        remove: () => removed.push(pill.agentId),
+      };
+    },
+    openPanel(id: string, options: unknown) { opened.push([id, options]); },
+    rpc: async () => ({ enabled: true, alerts: alertsNext }),
+    paseo: {
+      observeEvents() {},
+      agents: {
+        subscribe() { oldSubscribeCalls += 1; return () => {}; },
+        async list(options: any) {
+          listCalls += 1;
+          if (!options?.subscribe) throw new Error("no subscribe");
+          return {
+            entries: [{ agent: agentOf("a", 40_000) }, { agent: agentOf("b") }, { agent: agentOf("c", 90_000, { archivedAt: "2026-09-23T00:00:00Z" }) }],
+            subscription: { subscribe(next: any) { observer = next; return () => {}; }, release: async () => { released += 1; } },
+          };
+        },
+      },
+    },
+  } as any;
+  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+  const store = createBadgeStore();
+  // The first add is refused (the app doesn't know the workspace yet): the loop carries on and retries.
+  refuseNext = 1;
+  const stop = registerContextBadges(client, store);
+  await flush();
+  await flush();
+  const afterRefusal = { refusedLeft: refuseNext, added: added.map((pill) => pill.agentId) };
+  recheckBadges();
+  await flush();
+  const first = added.map((pill) => ({ ...pill }));
+  observer.update({ type: "agent_update", payload: { kind: "upsert", agent: agentOf("b", 12_000) } });
+  observer.update({ type: "something_else", payload: { kind: "upsert", agent: agentOf("z", 1) } });
+  await flush();
+  const afterTurn = added.map((pill) => pill.agentId);
+  alertsNext = [{ agentId: "a", text: "Router down", detail: "x" }];
+  recheckBadges();
+  await flush();
+  const alertUpdate = updates.filter(([id]) => id === "a").at(-1)?.[1];
+  alertsNext = [];
+  recheckBadges();
+  await flush();
+  const clearedUpdate = updates.filter(([id]) => id === "a").at(-1)?.[1];
+  const updatesBefore = updates.length;
+  recheckBadges();
+  await flush();
+  const quietReads = updates.length - updatesBefore;
+  presses.get("a")?.();
+  // A fresh snapshot (a reconnect) replaces the list: a is gone, d is new.
+  observer.snapshot({ entries: [{ agent: agentOf("b", 12_000) }, { agent: agentOf("d", 5_000) }] });
+  await flush();
+  const afterSnapshot = { added: added.map((pill) => pill.agentId), removed: [...removed] };
+  observer.update({ type: "agent_update", payload: { kind: "remove", agentId: "b" } });
+  await flush();
+  stop();
+  await flush();
+  return { afterRefusal, first, afterTurn, alertUpdate, clearedUpdate, quietReads, opened, afterSnapshot, removedAll: [...removed].sort(), released, listCalls, oldSubscribeCalls, invalid };
+}
+
+/** The agent follower: no observation on 0.8; on 0.9+ one, reopened with backoff when dropped or refused, released on stop. */
+export async function followAgentsCheck(): Promise<Record<string, unknown>> {
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const seen: string[] = [];
+  const follower = { replaceAll: (list: any[]) => seen.push(`all:${list.map((a) => a.id).join(",")}`), upsert: (a: any) => seen.push(`up:${a.id}`), remove: (id: string) => seen.push(`rm:${id}`) };
+
+  let oldList = 0;
+  let oldEmit: (update: any) => void = () => {};
+  const old = { paseo: { agents: { list: async () => { oldList += 1; return { entries: [] }; }, subscribe(handler: any) { oldEmit = handler; return () => { oldEmit = () => {}; }; } } } } as any;
+  const stopOld = followAgents(old, follower);
+  oldEmit({ kind: "upsert", agent: { id: "p", workspaceId: "ws" } });
+  oldEmit({ kind: "remove", agentId: "p" });
+  stopOld();
+  const onOld = { listCalls: oldList, seen: seen.splice(0) };
+
+  let calls = 0;
+  let released = 0;
+  let observer: any = null;
+  const current = {
+    paseo: {
+      observeEvents() {},
+      agents: {
+        subscribe() { throw new Error("0.9+: agents.subscribe alone hears nothing"); },
+        async list(options: any) {
+          calls += 1;
+          if (calls === 1) throw new Error("host not connected yet");
+          if (calls === 2) return { entries: [] }; // no observation handed back: treated as a failure
+          return { entries: [{ agent: { id: "a", workspaceId: "ws" } }, { agent: null }], subscription: { subscribe(next: any) { observer = next; return () => {}; }, release: async () => { released += 1; } }, _signal: options.signal };
+        },
+      },
+    },
+  } as any;
+  const stop = followAgents(current, follower, { minMs: 1, maxMs: 4 });
+  await wait(30);
+  const opened = { calls, seen: seen.splice(0) };
+  observer.error(new Error("dropped"));
+  await wait(30);
+  const reopened = { calls, seen: seen.splice(0) };
+  stop();
+  await wait(10);
+  return { onOld, opened, reopened, released, callsAfterStop: calls };
 }
 
 /** The tab bar measured at a half-width window: labels give way to icons, the active tab keeps its name. */

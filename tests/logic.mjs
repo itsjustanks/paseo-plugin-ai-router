@@ -597,6 +597,36 @@ try {
   writeFileSync(join(staging, "plugins.mjs"), ts.transpileModule(pluginsSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
   const P = await import(join(staging, "plugins.mjs"));
 
+  const hostSource = readFileSync(new URL("../apps/paseo/shared/host-features.ts", import.meta.url), "utf8");
+  writeFileSync(join(staging, "host-features.mjs"), ts.transpileModule(hostSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  const HF = await import(join(staging, "host-features.mjs"));
+
+  check("chip face: Breakdown for a chat that reported its window, the router problem instead when one reaches it", () => {
+    const usage = { used: 40_000, max: 200_000 };
+    assert.equal(X.contextChipFace(null, null), null, "no window and no problem: no chip");
+    assert.deepEqual(X.contextChipFace(usage, null), { label: "Breakdown", icon: "ChartPie", spoken: "What is filling this chat's context", alert: false });
+    const down = X.contextChipFace(usage, { text: "Router down" });
+    assert.deepEqual(down, { label: "Router down", icon: "TriangleAlert", spoken: "Router down: open the details", alert: true }, "the icon carries the warning, not colour alone");
+    assert.deepEqual(X.contextChipFace(null, { text: "Claude paused" })?.label, "Claude paused", "a problem gives a chip before the first turn");
+    // What Paseo's validateButton asks of a button: a non-empty title and label, a Lucide name.
+    for (const face of [X.contextChipFace(usage, null), down]) {
+      assert.ok(face.label.trim().length > 0);
+      assert.ok(/^[A-Z][A-Za-z]+$/.test(face.icon));
+    }
+    assert.ok(/^[a-z][a-z0-9-]*$/.test("context-badge"), "the chip id passes the app's id rule");
+  });
+
+  check("host features: buttons from 0.8.0 stable (addHeaderButton); agent observations from 0.9 (observeEvents)", () => {
+    assert.equal(HF.supportsButtonPills({ addComposerPill() {}, addHeaderButton() {} }), true);
+    assert.equal(HF.supportsButtonPills({ addComposerPill() {} }), false, "the 0.8.0-beta.1 shape");
+    assert.equal(HF.supportsButtonPills({ addHeaderButton: "yes" }), false, "only a function counts");
+    assert.equal(HF.supportsButtonPills(null), false);
+    assert.equal(HF.supportsButtonPills(undefined), false);
+    assert.equal(HF.canObserveAgents({ observeEvents() {}, agents: {} }), true);
+    assert.equal(HF.canObserveAgents({ agents: {} }), false, "a 0.8 app: never send subscribe");
+    assert.equal(HF.canObserveAgents(null), false);
+  });
+
   check("badge label, tint and the reported window", () => {
     assert.deepEqual([950, 4_200, 9_960, 186_204, 999_400, 1_000_000, 1_200_000].map(X.formatTokens), ["950", "4.2k", "10k", "186k", "999k", "1M", "1.2M"]);
     assert.equal(X.badgeLabel(186_204, 1_000_000), "186k / 1M");

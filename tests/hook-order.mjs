@@ -20,7 +20,7 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival, badgeRegistryCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck, quickActionsCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, badgeRegistryCheck, badgeButtonsCheck, followAgentsCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck, quickActionsCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
 const BASIC_TABS = ["Overview", "Traffic", "Models", "Providers", "Settings", "Connection", "Tips"];
@@ -295,6 +295,25 @@ try {
   assert.deepEqual([seen.alerted, seen.cleared], [true, true], "a router problem gives an affected chat a chip even before its first turn, and takes it away once cleared");
   assert.deepEqual([seen.whileOut, seen.slowReads, seen.afterStop], [1, 2, 2], "three presses during a slow read: one read out, one queued, and nothing after stopping");
   console.log(`ok   context badge registry (${seen.rpcCalls} switch reads)`);
+  const btn = await badgeButtonsCheck();
+  assert.deepEqual(btn.invalid, [], "every chip and update passes the app's validateButton rules");
+  assert.deepEqual(btn.afterRefusal, { refusedLeft: 0, added: ["a"] }, "a refused add does not throw out of the loop; the next pass adds the chip");
+  assert.deepEqual(btn.first, [{ agentId: "a", label: "Breakdown", icon: "ChartPie" }], "0.9+: the snapshot gives a chip to the chat with a window; none before a turn or once archived");
+  assert.deepEqual(btn.afterTurn, ["a", "b"], "an agent_update from the observation adds b's chip; other messages are ignored");
+  assert.deepEqual(btn.alertUpdate, { label: "Router down", icon: "TriangleAlert" }, "a router problem is pushed as the label, with a warning icon");
+  assert.deepEqual(btn.clearedUpdate, { label: "Breakdown", icon: "ChartPie" }, "and pushed back once it clears");
+  assert.equal(btn.quietReads, 0, "an unchanged face is not pushed again");
+  assert.deepEqual(btn.opened, [["ai-router-context", { workspaceId: "ws-1", agentId: "a" }]], "pressing the button opens that chat's panel");
+  assert.deepEqual(btn.afterSnapshot, { added: ["a", "b", "d"], removed: ["a"] }, "a new snapshot replaces the list");
+  assert.deepEqual(btn.removedAll, ["a", "b", "d"], "a removed agent loses its chip, and stopping removes the rest");
+  assert.deepEqual([btn.listCalls, btn.oldSubscribeCalls, btn.released], [1, 0, 1], "one observation, never the bare listener, released on stop");
+  console.log("ok   context badge as a button on Paseo 0.8.0 stable and later, fed by its own agent observation");
+  const follow = await followAgentsCheck();
+  assert.deepEqual(follow.onOld, { listCalls: 0, seen: ["up:p", "rm:p"] }, "0.8: the app's own listener, and never an observation of the plugin's");
+  assert.deepEqual(follow.opened, { calls: 3, seen: ["all:a"] }, "0.9+: a refused open and one with no observation are retried with backoff; the list skips empty entries");
+  assert.deepEqual(follow.reopened, { calls: 4, seen: ["all:a"] }, "a dropped observation is reopened and its list replaces what was known");
+  assert.deepEqual([follow.released, follow.callsAfterStop], [1, 4], "stop releases the observation and opens nothing more");
+  console.log("ok   agents followed on 0.8 (listener) and 0.9+ (own observation, reopened when dropped)");
   assert.deepEqual(openedAgents.slice(-2), ["agent-7", "agent-5"], "Activity's Open asks Paseo to open that agent");
   console.log("ok   activity opens agents through Paseo's navigation");
 } catch (error) {

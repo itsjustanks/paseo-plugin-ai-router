@@ -43,6 +43,21 @@ export function formatTokens(n: number): string {
 
 export const badgeLabel = (used: number, max: number) => `${formatTokens(used)} / ${formatTokens(max)}`;
 
+/**
+ * The Breakdown chip's face, beside Paseo's own context meter (which already
+ * shows how full the window is): "Breakdown" opens what fills it; a router
+ * problem reaching the chat ("Router down", "Claude paused") replaces it, with
+ * a warning icon so colour is not the only signal. Null: no chip. It never
+ * repeats Paseo's number. Used by the old chip component and, since 0.15.1,
+ * pushed as the label of the button chip on Paseo 0.8.0 stable and later.
+ */
+export type ContextChipFace = { label: string; icon: "ChartPie" | "TriangleAlert"; spoken: string; alert: boolean };
+export function contextChipFace(usage: ContextUsage | null, alert: { text: string } | null): ContextChipFace | null {
+  if (alert) return { label: alert.text, icon: "TriangleAlert", spoken: `${alert.text}: open the details`, alert: true };
+  if (usage) return { label: "Breakdown", icon: "ChartPie", spoken: "What is filling this chat's context", alert: false };
+  return null;
+}
+
 export type ContextTone = "neutral" | "warning" | "danger";
 /** Calm until 60 % full, amber until 85 %, red after: agents compact on their own a little later. */
 export function contextTone(used: number, max: number): ContextTone {

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.15.1 — 2026-10-05
+
+A hotfix: the context **Breakdown** chip shows again on current Paseo apps. `requirements.paseo` stays
+`>=0.8.0`; both fixes are chosen at runtime, so 0.8 apps behave as before.
+
+- **The chip is a button on Paseo 0.8.0 stable and later.** Those apps take composer chips as buttons
+  (`title`, `icon`, `label`, `behavior`) and check them on add. AI Router still sent the old
+  0.8.0-beta.1 shape (a React component), so the add threw, the chip never showed on 0.9 or 0.11 apps
+  and the loop that keeps chips in step stopped. AI Router now works out the label itself and pushes
+  it: "Breakdown" with a pie-chart icon, or the router problem ("Router down", "Claude paused") with a
+  warning icon. Pressing it still opens the chat's Context panel. A 0.8.0-beta.1 app keeps the old
+  component. One chip the app refuses no longer stops the others; it is tried again on the next pass.
+- **Agents are followed on Paseo 0.9 and later.** Since 0.9 the plugin only hears agents through an
+  observation it opens itself. AI Router now keeps one open, takes its list as the truth after every
+  reconnect, and reopens it with backoff if the app drops it. On 0.8 it never opens one (that would
+  replace the app's own). This feeds the chip and the Context panel's refresh.
+- Found by the paseo-mcp agent while fixing the same bug in paseo-mcp 0.18.1, after @hteo1337's report
+  (itsjustanks/paseo-mcp#1).
+
 ## 0.15.0 — 2026-10-04
 
 A calmer panel, Codex that really can go through the router, update buttons for Claude Code and Codex,

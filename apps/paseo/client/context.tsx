@@ -4,8 +4,10 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings, type PluginAgentPanelProps, type PluginClientContext, type PluginComposerPillProps } from "@getpaseo/plugin/client";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { badge, context, type ContextView } from "../shared/contracts";
-import { contextTone, formatTokens, usageOf, type ChatAlert, type ContextUsage } from "../shared/context";
+import { contextChipFace, contextTone, formatTokens, usageOf, type ChatAlert, type ContextChipFace, type ContextUsage } from "../shared/context";
+import { supportsButtonPills } from "../shared/host-features";
 import { routingSettings } from "../shared/settings";
+import { followAgents, type FollowedAgent } from "./agents";
 import { errorText } from "./setup";
 import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, TYPE, toneColor, type Tone, SPACE } from "./ui";
 
@@ -97,41 +99,86 @@ const BADGE_POLL_CAP_MS = 15 * 60_000;
  * on. The switch is read once a minute while there is a chat to put a chip on
  * (1, 2, 4 … 15 minutes while the daemon does not answer), and at once when
  * this client changes it. The same pattern as paseo-mcp's MCP chip.
+ *
+ * 0.15.1: Paseo 0.8.0 stable and later take a chip as a button whose label the
+ * plugin pushes; the old component shape threw on add there, so the chip never
+ * showed on 0.9 or 0.11 apps and the loop stopped. And since 0.9 the agents are
+ * followed through the plugin's own observation (client/agents.ts). Both are
+ * chosen at runtime; a 0.8.0-beta.1 app keeps the component and the listener.
+ * Found by the paseo-mcp agent, after @hteo1337's report (itsjustanks/paseo-mcp#1).
  */
+type ChipButtonsClient = {
+  addComposerPill(contribution: {
+    id: string;
+    workspaceId: string;
+    agentId: string;
+    button: { title: string; icon: string; label?: string; behavior: { kind: "action"; onPress(): void } };
+  }): { update(patch: { label?: string; icon?: string }): void; remove(): void };
+};
+type ChipHandle = { face: string; update(face: ContextChipFace): void; remove(): void };
+
+const CHIP_ID = "context-badge";
+const CHIP_TITLE = "What fills this chat's context";
+const faceKey = (face: ContextChipFace) => `${face.icon}:${face.label}`;
+
 export function registerContextBadges(client: PluginClientContext, store: BadgeStore): () => void {
-  const pills = new Map<string, () => void>();
-  const ChipBody = makeContextChip(store);
+  const pills = new Map<string, ChipHandle>();
+  const buttons = supportsButtonPills(client);
+  const ChipBody = buttons ? null : makeContextChip(store);
   // Assume on until the daemon says otherwise: on is the default.
   let wanted = true;
   let stopped = false;
   let failures = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
+  const addChip = (agentId: string, workspaceId: string, face: ContextChipFace): ChipHandle => {
+    const onPress = () => client.openPanel(CONTEXT_PANEL_ID, { workspaceId, agentId });
+    if (buttons) {
+      const registration = (client as unknown as ChipButtonsClient).addComposerPill({
+        id: CHIP_ID,
+        workspaceId,
+        agentId,
+        button: { title: CHIP_TITLE, icon: face.icon, label: face.label, behavior: { kind: "action", onPress } },
+      });
+      const handle: ChipHandle = {
+        face: faceKey(face),
+        update(next) {
+          registration.update({ label: next.label, icon: next.icon });
+          handle.face = faceKey(next);
+        },
+        remove: () => registration.remove(),
+      };
+      return handle;
+    }
+    // The 0.8.0-beta.1 shape: the component reads the store and draws its own label.
+    const remove = client.addComposerPill({ id: CHIP_ID, title: CHIP_TITLE, workspaceId, agentId, Component: ChipBody!, onPress });
+    return { face: faceKey(face), update: () => undefined, remove };
+  };
+
   const reconcile = () => {
     if (stopped) return;
     const live = new Set<string>();
     for (const { agentId, workspaceId, usage } of store.agents()) {
       // A chip for a chat that reported its window, or one a router problem reaches.
-      if (!wanted || (!usage && !store.alert(agentId))) continue;
+      const face = wanted ? contextChipFace(usage, store.alert(agentId)) : null;
+      if (!face) continue;
       live.add(agentId);
-      if (pills.has(agentId)) continue;
-      pills.set(
-        agentId,
-        client.addComposerPill({
-          id: "context-badge",
-          title: "What fills this chat's context",
-          workspaceId,
-          agentId,
-          Component: ChipBody,
-          onPress() {
-            client.openPanel(CONTEXT_PANEL_ID, { workspaceId, agentId });
-          },
-        }),
-      );
+      const pill = pills.get(agentId);
+      // An app that refuses one chip never stops the others; it gets another try on the next pass.
+      try {
+        if (!pill) pills.set(agentId, addChip(agentId, workspaceId, face));
+        else if (pill.face !== faceKey(face)) pill.update(face);
+      } catch {
+        // Nothing to do until the next pass.
+      }
     }
-    for (const [agentId, remove] of pills) {
+    for (const [agentId, pill] of pills) {
       if (live.has(agentId)) continue;
-      remove();
+      try {
+        pill.remove();
+      } catch {
+        // Already gone on the app's side.
+      }
       pills.delete(agentId);
     }
   };
@@ -183,25 +230,37 @@ export function registerContextBadges(client: PluginClientContext, store: BadgeS
   };
   rechecks.add(pollNow);
 
-  const unsubscribe = client.paseo.agents.subscribe((update) => {
-    if (update.kind === "remove") {
-      store.remove(update.agentId);
-      reconcile();
-      return;
-    }
-    if (update.kind !== "upsert") return;
-    const agent = update.agent;
+  /** One agent into the store; true when it needs a reconcile (a chip may appear or go). */
+  const take = (agent: FollowedAgent): boolean => {
     if (agent.archivedAt || !agent.workspaceId) {
       store.remove(agent.id);
-      reconcile();
-      return;
+      return true;
     }
-    const first = store.agents().length === 0;
     const hadChip = pills.has(agent.id);
     store.set(agent.id, agent.workspaceId, usageOf(agent.lastUsage));
-    if (!hadChip || !store.usage(agent.id)) reconcile();
-    // The first chat to appear gets the switch read now, not a minute later.
-    if (first) pollNow();
+    return !hadChip || !store.usage(agent.id);
+  };
+  const stopFollowing = followAgents(client, {
+    upsert(agent) {
+      if (stopped) return;
+      const first = store.agents().length === 0;
+      if (take(agent)) reconcile();
+      // The first chat to appear gets the switch read now, not a minute later.
+      if (first && store.agents().length > 0) pollNow();
+    },
+    remove(agentId) {
+      store.remove(agentId);
+      reconcile();
+    },
+    replaceAll(list) {
+      if (stopped) return;
+      const first = store.agents().length === 0;
+      const listed = new Set(list.map((agent) => agent.id));
+      for (const { agentId } of store.agents()) if (!listed.has(agentId)) store.remove(agentId);
+      for (const agent of list) take(agent);
+      reconcile();
+      if (first && store.agents().length > 0) pollNow();
+    },
   });
   void poll();
 
@@ -209,31 +268,31 @@ export function registerContextBadges(client: PluginClientContext, store: BadgeS
     stopped = true;
     rechecks.delete(pollNow);
     if (timer) clearTimeout(timer);
-    unsubscribe();
-    for (const remove of pills.values()) remove();
+    stopFollowing();
+    for (const pill of pills.values()) {
+      try {
+        pill.remove();
+      } catch {
+        // Already gone.
+      }
+    }
     pills.clear();
   };
 }
 
-/**
- * The chip, beside Paseo's own context meter (which already shows how full
- * the window is): "Breakdown" opens what fills it; "Router down" or "Claude
- * paused" in red when a router problem reaches this chat, with a warning icon
- * so colour is not the only signal. It never repeats Paseo's number.
- */
+/** The chip body for apps on the old component shape (0.8.0-beta.1): the same face, drawn here. */
 export function makeContextChip(store: BadgeStore) {
   return function ContextChip({ theme, agentId }: PluginComposerPillProps) {
     const usage = useUsage(store, agentId);
     const alert = useAlert(store, agentId);
-    if (!usage && !alert) return null;
-    const color = alert ? toneColor(theme, "danger") : theme.colors.foregroundMuted;
-    const label = alert ? alert.text : "Breakdown";
-    const spoken = alert ? `${alert.text}: open the details` : "What is filling this chat's context";
+    const face = contextChipFace(usage, alert);
+    if (!face) return null;
+    const color = face.alert ? toneColor(theme, "danger") : theme.colors.foregroundMuted;
     return (
       <>
-        {HostIcon ? <HostIcon name={alert ? "TriangleAlert" : "ChartPie"} size={14} color={color} /> : null}
-        <Text numberOfLines={1} accessibilityLabel={spoken} style={{ color, flexShrink: 1 }}>
-          {label}
+        {HostIcon ? <HostIcon name={face.icon} size={14} color={color} /> : null}
+        <Text numberOfLines={1} accessibilityLabel={face.spoken} style={{ color, flexShrink: 1 }}>
+          {face.label}
         </Text>
       </>
     );
