@@ -4,12 +4,12 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { codexReroute, codexRouter, providersList, providersTidy, type Providers, type Status } from "../shared/contracts";
-import { AI_ROUTER_PROVIDER_ID } from "../shared/logic";
+import { AI_ROUTER_PROVIDER_ID, codexRowState, providerDashboardPage } from "../shared/logic";
 import { routingSettings } from "../shared/settings";
-import { AdvancedBanner } from "./dashboard";
+import { AdvancedBanner, dashboardTarget, useLinks } from "./dashboard";
 import { STATUS_KEY, errorText, type Message } from "./setup";
 import { AgentAppsCard } from "./apps";
-import { Banner, Button, Card, Disclosure, ItemTitle, Meta, Note, Row, ToggleRow, SPACE } from "./ui";
+import { Banner, Button, Card, Disclosure, ItemTitle, Link, Meta, Note, Row, ToggleRow, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -38,10 +38,10 @@ function ClaudeReroute({ theme, say }: { theme: Theme; say: Say }) {
   return (
     <View style={{ gap: SPACE.sm, flexShrink: 1 }}>
       <ToggleRow theme={theme} label="Re-route Claude through OmniRoute" text={on ? "Through OmniRoute" : "Own sign-in"} value={on} busy={settings.saving} disabled={settings.status !== "ready" || asking !== null} onChange={(next) => setAsking(next)} />
-      {on && asking === null ? <Meta theme={theme}>Paseo's Fast switch has no effect on these chats: OmniRoute can't pass Fast mode on yet.</Meta> : null}
+      {on && asking === null ? <Meta theme={theme}>Fast mode is off for these chats: OmniRoute can't pass it on yet.</Meta> : null}
       {asking === true ? (
         <>
-          <Note theme={theme} tone="warning">New Claude chats on this daemon will use OmniRoute's accounts instead of this daemon's own Claude sign-in. Open chats switch when they reopen. ~/.claude is not changed, and if OmniRoute is down a chat keeps its own sign-in. Fast mode stays off for them: OmniRoute can't pass it on yet.</Note>
+          <Note theme={theme} tone="warning">New Claude chats here will use OmniRoute's accounts, not this daemon's sign-in; open chats switch when reopened. If OmniRoute is down, they use their own sign-in. Fast mode stays off: OmniRoute can't pass it on yet.</Note>
           <Row>
             <Button theme={theme} label="Re-route Claude" primary busy={settings.saving} onPress={confirm} />
             <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />
@@ -50,7 +50,7 @@ function ClaudeReroute({ theme, say }: { theme: Theme; say: Say }) {
       ) : null}
       {asking === false ? (
         <>
-          <Note theme={theme} tone="warning">New Claude chats will use this daemon's own Claude sign-in. If this daemon has none, they won't answer: pick the AI Router provider for Claude through OmniRoute instead.</Note>
+          <Note theme={theme} tone="warning">New Claude chats will use this daemon's own sign-in. Without one they won't answer; the AI Router provider still reaches Claude through OmniRoute.</Note>
           <Row>
             <Button theme={theme} label="Use own sign-in" primary busy={settings.saving} onPress={confirm} />
             <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />
@@ -82,15 +82,15 @@ function CodexReroute({ theme, data, say }: { theme: Theme; data: Status; say: S
     },
     onError: (error) => say({ text: errorText(error), tone: "danger" }),
   });
-  if (reroute.state === "foreign") return <Note theme={theme}>Codex has its own launch command in Paseo's config (agents.providers.codex.command), so AI Router leaves it alone.</Note>;
+  if (reroute.state === "foreign") return <Meta theme={theme}>Built-in Codex has its own launch command in Paseo's config, so AI Router leaves it alone.</Meta>;
   const on = reroute.state === "on";
   return (
     <View style={{ gap: SPACE.sm, flexShrink: 1 }}>
-      <ToggleRow theme={theme} label="Re-route Codex through OmniRoute" text={on ? "Through OmniRoute" : "Own sign-in"} value={on} busy={toggle.isPending} disabled={data.problem !== null || asking !== null} onChange={(next) => setAsking(next)} />
+      <ToggleRow theme={theme} label="Re-route built-in Codex through OmniRoute" text={on ? "Built-in Codex goes through OmniRoute" : "Re-route built-in Codex: off, it uses its own sign-in"} value={on} busy={toggle.isPending} disabled={data.problem !== null || asking !== null} onChange={(next) => setAsking(next)} />
       {on && !reroute.current && asking === null ? <Note theme={theme} tone="warning">{`It still points at ${reroute.baseUrl ?? "an old address"}; the next model sync moves it to this router.`}</Note> : null}
       {asking === true ? (
         <>
-          <Note theme={theme} tone="warning">New Codex chats on this daemon will use OmniRoute's accounts instead of this daemon's own Codex sign-in. Paseo starts Codex with OmniRoute as its model provider; the key is added when each chat starts and is never saved. ~/.codex is not changed. Open chats switch when they restart. Unlike Claude, a re-routed Codex chat can't fall back to its own sign-in: while OmniRoute is down, it won't answer.</Note>
+          <Note theme={theme} tone="warning">New built-in Codex chats here will use OmniRoute's accounts, not this daemon's sign-in; open chats switch when restarted. ~/.codex isn't changed. Unlike Claude there's no fallback: while OmniRoute is down, these chats won't answer.</Note>
           <Row>
             <Button theme={theme} label="Re-route Codex" primary busy={toggle.isPending} onPress={() => toggle.mutate(true)} />
             <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />
@@ -99,7 +99,7 @@ function CodexReroute({ theme, data, say }: { theme: Theme; data: Status; say: S
       ) : null}
       {asking === false ? (
         <>
-          <Note theme={theme} tone="warning">New Codex chats will use this daemon's own Codex sign-in. If this daemon has none, they won't answer: use "Codex via OmniRoute" or the AI Router provider instead.</Note>
+          <Note theme={theme} tone="warning">New built-in Codex chats will use this daemon's own sign-in. Without one they won't answer; the AI Router provider still has Codex's models.</Note>
           <Row>
             <Button theme={theme} label="Use own sign-in" primary busy={toggle.isPending} onPress={() => toggle.mutate(false)} />
             <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />
@@ -110,7 +110,7 @@ function CodexReroute({ theme, data, say }: { theme: Theme; data: Status; say: S
   );
 }
 
-/** "Codex via OmniRoute": a separate Codex provider on OmniRoute's accounts, beside built-in Codex. */
+/** "Codex via OmniRoute": an optional second Codex entry in Paseo's menu that always uses OmniRoute. */
 function CodexThrough({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
   const queryClient = useQueryClient();
   const call = useRpc(codexRouter);
@@ -124,19 +124,38 @@ function CodexThrough({ theme, data, say }: { theme: Theme; data: Status; say: S
   });
   const present = data.codexRouter.present;
   return (
-    <Disclosure theme={theme} quiet label={present ? `Also: "Codex via OmniRoute" provider · ${data.codexRouter.modelCount} models` : "Or add Codex via OmniRoute as its own provider"} initiallyOpen={present}>
-      <ToggleRow theme={theme} label="Codex via OmniRoute" text={present ? "Codex via OmniRoute is in Paseo's menu" : "Add Codex via OmniRoute"} value={present} busy={toggle.isPending} disabled={data.problem !== null} onChange={(next) => toggle.mutate(next)} />
-      <Meta theme={theme}>A second Codex in Paseo's provider menu that always uses OmniRoute, so built-in Codex can keep its own sign-in.</Meta>
-    </Disclosure>
+    <View style={{ gap: SPACE.xs }}>
+      <ToggleRow theme={theme} label="Separate Codex via OmniRoute provider" text={present ? `"Codex via OmniRoute" is in Paseo's menu · ${data.codexRouter.modelCount} models` : `Separate "Codex via OmniRoute" provider: not added`} value={present} busy={toggle.isPending} disabled={data.problem !== null} onChange={(next) => toggle.mutate(next)} />
+      <Meta theme={theme}>A second Codex in the provider menu that always uses OmniRoute, for people who prefer Codex's own app to the AI Router provider.</Meta>
+    </View>
+  );
+}
+
+/** Codex: what OmniRoute has first, then the two optional extras, folded unless one is on. */
+function CodexSection({ theme, data, accounts, say }: { theme: Theme; data: Status; accounts: number | null; say: Say }) {
+  const links = useLinks(say);
+  const models = data.aiProvider.models.filter((model) => model.label.startsWith("Codex · ")).length;
+  const row = codexRowState({ accounts, models, synced: data.aiProvider.present });
+  const extrasOn = data.codexRouter.present || data.codexReroute?.state === "on";
+  const addPage = row.state === "none" ? providerDashboardPage(dashboardTarget(data).url, "codex") : null;
+  return (
+    <View style={{ gap: SPACE.sm }}>
+      <Note theme={theme} tone={row.tone === "warning" ? "warning" : "neutral"}>{row.text}</Note>
+      {addPage ? <Link theme={theme} label="Add a Codex account in the dashboard" onPress={() => void links.open(addPage)} /> : null}
+      <Disclosure theme={theme} quiet label={extrasOn ? "Optional extras (one is on)" : "Optional extras"} openLabel="Hide optional extras" initiallyOpen={extrasOn}>
+        <CodexReroute theme={theme} data={data} say={say} />
+        <CodexThrough theme={theme} data={data} say={say} />
+      </Disclosure>
+    </View>
   );
 }
 
 /**
  * The providers that can go through OmniRoute, and how. The AI Router
- * provider always does; built-in Claude and Codex each have an ask-first
- * switch; anything else is not switched here.
+ * provider always does; built-in Claude has an ask-first switch; Codex says
+ * what OmniRoute has, with its two extras folded; the rest aren't switched here.
  */
-function RerouteCard({ theme, rows, data, say }: { theme: Theme; rows: readonly ProviderRowData[]; data: Status; say: Say }) {
+function RerouteCard({ theme, rows, data, codexAccounts, say }: { theme: Theme; rows: readonly ProviderRowData[]; data: Status; codexAccounts: number | null; say: Say }) {
   const router = rows.find((row) => row.id === AI_ROUTER_PROVIDER_ID);
   const claude = rows.find((row) => row.through === "claude-toggle");
   const codex = rows.find((row) => row.through === "codex-toggle");
@@ -149,13 +168,13 @@ function RerouteCard({ theme, rows, data, say }: { theme: Theme; rows: readonly 
   );
   return (
     <Card theme={theme} title="Re-route providers" icon="Route">
-      <Note theme={theme}>Pick AI Router in Paseo's menu to use OmniRoute. Or keep a built-in provider and re-route it here; each switch asks first.</Note>
+      <Meta theme={theme}>AI Router always goes through OmniRoute. Claude can too; the switch asks first.</Meta>
       {line(router?.label ?? "AI Router", data.aiProvider.present
         ? <Meta theme={theme}>{`Always through OmniRoute · ${data.aiProvider.modelCount} models`}</Meta>
-        : <Note theme={theme}>Not in Paseo yet: Models → Sync models to Paseo adds it.</Note>)}
+        : <Note theme={theme}>Not in Paseo yet: Models → Sync models adds it.</Note>)}
       {claude ? line(claude.label, <ClaudeReroute theme={theme} say={say} />) : null}
-      {codex ? line(codex.label, <><CodexReroute theme={theme} data={data} say={say} /><CodexThrough theme={theme} data={data} say={say} /></>) : null}
-      {others.length ? line("Other providers", <Meta theme={theme}>{`${others.join(", ")}: not switched here, so they keep their own sign-in. Their models are in the AI Router provider when OmniRoute has an account for them.`}</Meta>) : null}
+      {codex ? line(codex.label, <CodexSection theme={theme} data={data} accounts={codexAccounts} say={say} />) : null}
+      {others.length ? line("Other providers", <Meta theme={theme}>{`${others.join(", ")}: not switched here; they keep their own sign-in.`}</Meta>) : null}
     </Card>
   );
 }
@@ -178,7 +197,7 @@ export function ProvidersTab({ theme, data, say }: { theme: Theme; data: Status;
   const candidates = list?.rows.filter((row) => row.tidy !== null) ?? [];
   return (
     <>
-      {list?.state === "ok" ? <RerouteCard theme={theme} rows={list.rows} data={data} say={say} /> : null}
+      {list?.state === "ok" ? <RerouteCard theme={theme} rows={list.rows} data={data} codexAccounts={list.codexAccounts} say={say} /> : null}
       {!list ? (
         <Card theme={theme} title="Re-route providers" icon="Route">
           {query.error ? <Note theme={theme} tone="danger">{errorText(query.error)}</Note> : <Note theme={theme}>Asking Paseo…</Note>}
@@ -190,12 +209,12 @@ export function ProvidersTab({ theme, data, say }: { theme: Theme; data: Status;
         </Banner>
       ) : null}
       {list?.state === "ok" ? (
-        <Card theme={theme} title="Tidy up" icon="Sparkles" subtitle="Hide providers that can't run on this computer">
+        <Card theme={theme} title="Tidy up" icon="Sparkles">
           {!candidates.length ? (
-            <Note theme={theme}>Nothing to tidy: every enabled provider answers. Claude, Codex, the router's providers and anything you set up yourself are never touched. Turning providers on and off one by one is in Paseo's Settings → Providers.</Note>
+            <Meta theme={theme}>Nothing to tidy: every enabled provider answers.</Meta>
           ) : !previewing ? (
             <>
-              <Note theme={theme}>{`${candidates.length} enabled provider${candidates.length === 1 ? " is" : "s are"} not usable on this daemon. Turning ${candidates.length === 1 ? "it" : "them"} off tidies Paseo's menu; any can go back on in Paseo's Settings → Providers.`}</Note>
+              <Note theme={theme}>{`${candidates.length} enabled provider${candidates.length === 1 ? " can't" : "s can't"} run here. Turn ${candidates.length === 1 ? "it" : "them"} off to tidy Paseo's menu; Settings → Providers turns any back on.`}</Note>
               <Row><Button theme={theme} label="Tidy up…" icon="Sparkles" onPress={() => setPreviewing(true)} /></Row>
             </>
           ) : (

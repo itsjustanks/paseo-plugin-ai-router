@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "../apps/paseo/node_modules/typescript/lib/typescript.js";
 
+// Local-day logic (the Usage tab's "today" and custom dates) is checked in one fixed time zone.
+process.env.TZ = "Australia/Sydney";
+
 // Pure decisions only: URLs, connection resolution, health parsing and the session_open rewrite.
 const staging = mkdtempSync(join(tmpdir(), "ai-router-logic-"));
 let passed = 0;
@@ -861,6 +864,94 @@ try {
     assert.ok(C.compareVersions("1.10.0", "1.9.9") > 0, "numbers, not strings");
     assert.deepEqual([C.versionState("0.156.1", "0.160.0", true), C.versionState("2.1.289", "2.1.289", true), C.versionState("0.161.0", "0.160.0", true), C.versionState("0.160.0", null, true), C.versionState(null, "0.160.0", false)], ["behind", "current", "ahead", "unknown", "missing"]);
     assert.deepEqual(C.tailLines(["a"], "\u001b[32madded 1 package\u001b[0m\r\nok\n\n", 2), ["added 1 package", "ok"], "colour codes go, the last lines stay");
+  });
+
+  // ------------------------------------------------------------ 0.16.0
+  // updates.ts imports compareVersions from ./clis; point it at the staged copy.
+  const updatesSource = readFileSync(new URL("../apps/paseo/shared/updates.ts", import.meta.url), "utf8");
+  writeFileSync(join(staging, "updates.mjs"), ts.transpileModule(updatesSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace('from "./clis"', 'from "./clis.mjs"'));
+  const U = await import(join(staging, "updates.mjs"));
+
+  check("updates: plugin version matches package.json", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../apps/paseo/package.json", import.meta.url), "utf8"));
+    assert.equal(U.PLUGIN_VERSION, pkg.version);
+  });
+
+  check("updates: versions, states and the newest real release", () => {
+    assert.deepEqual([U.versionOf("v3.8.51"), U.versionOf("0.16.0-rc.1"), U.versionOf("radar-export-latest"), U.versionOf(null)], ["3.8.51", "0.16.0-rc.1", null, null]);
+    assert.deepEqual([U.updateState("3.8.51", "3.8.52"), U.updateState("3.8.51", "3.8.51"), U.updateState("0.16.0", "0.15.1"), U.updateState(null, "3.8.51"), U.updateState("3.8.51", null), U.updateState("custom", "3.8.51")], ["behind", "current", "ahead", "unknown", "unknown", "unknown"]);
+    assert.equal(U.updateState("3.8.51-toolcap", "3.8.51"), "behind", "a pre-release suffix sorts before its release");
+    const releases = [
+      { tag_name: "radar-export-latest", published_at: "2026-10-01T00:00:00Z", body: "not a version" },
+      { tag_name: "v3.8.53-rc.1", prerelease: true, body: "- **pre**" },
+      { tag_name: "v3.8.52", draft: true, body: "- **draft**" },
+      { tag_name: "v3.8.50", published_at: "2026-08-26T19:30:30Z", html_url: "https://github.com/o/r/releases/tag/v3.8.50", body: "- old" },
+      { tag_name: "v3.8.51", published_at: "2026-09-30T01:41:50Z", html_url: "https://github.com/o/r/releases/tag/v3.8.51", body: "# OmniRoute v3.8.51\n\n**2,022 documented changes**.\n\n| a | b |\n\n## Highlights\n\n- **Providers and catalogs** (42 provider features): new gateways, [GPT-6](https://x) in `cx`.\n- **Routing and resilience**: hierarchical concurrency admission,\n  adaptive reasoning effort.\n- **Proxies**: pools stop re-serving.\n- **Fourth**: dropped.\n\n## Other\n\n- not a highlight" },
+    ];
+    const latest = U.pickLatestRelease(releases);
+    assert.deepEqual([latest.version, latest.tag, latest.publishedAt, latest.url], ["3.8.51", "v3.8.51", "2026-09-30T01:41:50Z", "https://github.com/o/r/releases/tag/v3.8.51"]);
+    assert.deepEqual(latest.highlights, ["Providers and catalogs (42 provider features): new gateways, GPT-6 in cx.", "Routing and resilience: hierarchical concurrency admission, adaptive reasoning effort.", "Proxies: pools stop re-serving."], "three highlight bullets, wrapped lines joined, markdown gone");
+    assert.equal(U.pickLatestRelease([{ tag_name: "nightly" }]), null);
+    assert.equal(U.pickLatestRelease({ message: "API rate limit exceeded" }), null, "GitHub's error object is no release");
+  });
+
+  check("updates: highlights from any release body, never the whole body", () => {
+    assert.deepEqual(U.releaseHighlights("A hotfix: the chip shows again.\n\n- **The chip is a button on Paseo 0.8.0 stable and later.** Those apps take chips as buttons.\n- **Agents are followed on Paseo 0.9 and later.** Since 0.9…\n- Found by the paseo-mcp agent."), ["The chip is a button on Paseo 0.8.0 stable and later.", "Agents are followed on Paseo 0.9 and later.", "Found by the paseo-mcp agent."], "a bold sentence stands alone");
+    assert.deepEqual(U.releaseHighlights("# Title\n\n📄 Complete notes attached.\n\nJust one plain paragraph about the release."), ["Just one plain paragraph about the release."]);
+    assert.deepEqual(U.releaseHighlights(null), []);
+    const long = U.releaseHighlights(`- ${"word ".repeat(80)}`)[0];
+    assert.ok(long.length <= 140 && long.endsWith("…"), "long lines are clipped at a word");
+  });
+
+  check("updates: the Overview's Versions line and each product's sentence", () => {
+    const product = (label, running, latest, state, error = null) => ({ label, running, latest: latest ? { version: latest, tag: `v${latest}`, publishedAt: null, url: "", highlights: [] } : null, state, changelogUrl: "", error });
+    const router = product("OmniRoute", "3.8.51", "3.8.51", "current");
+    const plugin = product("AI Router", "0.16.0", "0.16.0", "current");
+    assert.deepEqual(U.versionsLine(router, plugin), { value: "Up to date", tone: "success", hint: "OmniRoute 3.8.51 · AI Router 0.16.0" });
+    assert.deepEqual(U.versionsLine(product("OmniRoute", "3.8.51", "3.8.52", "behind"), plugin), { value: "OmniRoute 3.8.52 available", tone: "warning", hint: "OmniRoute 3.8.51 · AI Router 0.16.0" });
+    assert.equal(U.versionsLine(product("OmniRoute", "3.8.51", "3.8.52", "behind"), product("AI Router", "0.15.1", "0.16.0", "behind")).value, "2 updates available");
+    assert.deepEqual(U.versionsLine(product("OmniRoute", null, "3.8.51", "unknown"), plugin), { value: "AI Router up to date", tone: "success", hint: "OmniRoute version needs a read token · AI Router 0.16.0" }, "a key-only daemon can't see the router's version");
+    assert.equal(U.versionsLine(product("OmniRoute", null, null, "unknown"), product("AI Router", "0.16.0", null, "unknown")).value, "Not checked yet");
+    assert.equal(U.updateLine(product("OmniRoute", "3.8.51", "3.8.52", "behind")), "3.8.52 is out; you run 3.8.51.");
+    assert.equal(U.updateLine(router), "You run 3.8.51, the newest release.");
+    assert.match(U.updateLine(product("AI Router", "0.16.0", "0.15.1", "ahead")), /newer than the latest release \(0\.15\.1\): a preview or custom build/);
+    assert.equal(U.updateLine(product("OmniRoute", "3.8.51", null, "unknown", "GitHub's rate limit")), "Couldn't check for OmniRoute releases (GitHub's rate limit).");
+  });
+
+  check("Codex row: say what OmniRoute has first", () => {
+    assert.deepEqual(L.codexRowState({ accounts: 4, models: 30, synced: true }), { state: "connected", text: "4 Codex accounts connected in OmniRoute; their 30 models are in the AI Router provider.", tone: "success" });
+    assert.equal(L.codexRowState({ accounts: 1, models: 0, synced: false }).text, "1 Codex account connected in OmniRoute; sync the models (Models tab) to put them in the AI Router provider.");
+    assert.equal(L.codexRowState({ accounts: 2, models: 0, synced: true }).state, "unsynced");
+    assert.deepEqual(L.codexRowState({ accounts: 0, models: 0, synced: true }), { state: "none", text: "OmniRoute has no Codex account yet. Add one in its dashboard, then sync.", tone: "warning" });
+    assert.equal(L.codexRowState({ accounts: null, models: 3, synced: true }).text, "Codex is in the AI Router provider: 3 models.");
+    assert.equal(L.codexRowState({ accounts: null, models: 0, synced: false }).state, "unknown");
+  });
+
+  check("resets: labels and the ask-first wording", () => {
+    assert.deepEqual(L.RESET_KINDS, ["cooldown", "error", "lockout", "codex-cooldown", "credit"]);
+    assert.deepEqual(["cooldown", "error", "codex-cooldown", "credit", "breaker"].map((k) => L.resetLabel(k)), ["Clear cooldown", "Clear old error", "Release cooldown", "Use a reset credit", "Resume now"]);
+    assert.equal(L.resetLabel("lockout", "gpt-6-sol"), "Unlock gpt-6-sol");
+    assert.equal(L.resetQuestion("credit", { name: "Codex #2", provider: "Codex", credits: 2 }), "Spends 1 of its 2 reset credits to reset Codex #2's used-up limit now. If no limit is used up, the provider says so.");
+    assert.match(L.resetQuestion("credit", { name: "Codex #1", provider: "Codex", credits: 1 }), /^Spends its only reset credit/);
+    assert.match(L.resetQuestion("cooldown", { name: "Claude #1", provider: "Claude" }), /^Claude #1 goes back into rotation now, before its cooldown ends\./);
+    assert.match(L.resetQuestion("breaker", { name: "Claude", provider: "Claude" }), /^OmniRoute sends Claude requests again now/);
+    for (const kind of [...L.RESET_KINDS, "breaker"]) assert.ok(L.resetQuestion(kind, { name: "A", provider: "B", model: "m", credits: 3 }).length < 220, `${kind}: one or two sentences`);
+  });
+
+  check("money: cents, thousands and tiny amounts", () => {
+    assert.deepEqual([L.formatUsd(0), L.formatUsd(0.004), L.formatUsd(12.345), L.formatUsd(999.99), L.formatUsd(7200.18), L.formatUsd(1234567)], ["$0.00", "<$0.01", "$12.35", "$999.99", "$7,200", "$1,234,567"]);
+  });
+
+  check("usage request: the viewer's own days", () => {
+    // TZ is set to Australia/Sydney for this file (see the top), so midnight is 13:00 or 14:00 UTC the day before.
+    const now = new Date("2026-10-05T04:00:00.000Z");
+    assert.equal(L.localYmd(now), "2026-10-05");
+    assert.deepEqual(L.usageRequest("7d", null, now), { range: "7d" });
+    assert.deepEqual(L.usageRequest("today", null, now), { range: "today", start: "2026-10-04T13:00:00.000Z" });
+    assert.deepEqual(L.usageRequest("custom", { from: "2026-10-01", to: "2026-10-03" }, now), { range: "custom", start: "2026-09-30T14:00:00.000Z", end: "2026-10-03T13:59:59.999Z" }, "both days are before Sydney's daylight saving (from 2026-10-04): UTC+10");
+    assert.deepEqual(L.usageRequest("custom", { from: "2026-10-03", to: "2026-10-01" }, now), { error: "The end date is before the start date." });
+    assert.deepEqual(L.usageRequest("custom", { from: "2026-02-30", to: "2026-03-01" }, now), { error: "Write both dates as YYYY-MM-DD." }, "no 30 February");
+    assert.deepEqual(L.usageRequest("custom", { from: "1/10/2026", to: "" }, now), { error: "Write both dates as YYYY-MM-DD." });
   });
 
   console.log(`logic: ${passed} checks passed`);

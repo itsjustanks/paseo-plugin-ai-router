@@ -50,8 +50,8 @@ export function describeManagementStatus(status: number, body: unknown, path: st
 export const isBasicAuthChallenge = (challenge: string | null | undefined) => typeof challenge === "string" && /^\s*basic\b/i.test(challenge);
 
 /**
- * The 401 came from the console lock (basic auth) on the web server in front
- * of OmniRoute, before OmniRoute saw the token: that path is not let through.
+ * The 401 came from a web server's own login (basic auth) in front of
+ * OmniRoute, before OmniRoute saw the token: that path is not let through.
  */
 export function describeConsoleLock(url: string, path: string): string {
   let host = url;
@@ -60,7 +60,7 @@ export function describeConsoleLock(url: string, path: string): string {
   } catch {
     // keep the URL as given
   }
-  return `401 from the console lock (basic auth) in front of OmniRoute at ${host}, not from OmniRoute: ${path} is not let through it, so the token never reached the router`;
+  return `401 from a web server login (basic auth) in front of OmniRoute at ${host}, not from OmniRoute: it doesn't let ${path} through, so the token never reached the router`;
 }
 
 // --------------------------------------------------------------- accounts
@@ -84,7 +84,12 @@ export type Account = {
   health: AccountHealth | null;
   /** From `/api/providers/expiration`. Null when OmniRoute tracks no expiry for it. */
   expiry: { status: "active" | "expiring_soon" | "expired" | "unknown"; expiresAt: string | null; note: string | null } | null;
+  /** The resets OmniRoute offers for this account now; see RESET_KINDS in shared/logic.ts. */
+  resets: Array<{ kind: AccountResetKind; model: string | null }>;
+  /** Banked usage-limit reset credits the provider reports; null when none are reported. */
+  resetCredits: number | null;
 };
+type AccountResetKind = "cooldown" | "error" | "lockout" | "codex-cooldown" | "credit";
 
 export type AccountHealth = { state: string; successRatePct: number | null; requests: number; issueCount: number; lastErrorAt: string | null; failingModels: string[] };
 
@@ -165,11 +170,95 @@ function problemFor(connection: Rec): string | null {
   return null;
 }
 
+// ------------------------------------------------------------- resets
+
+/** Providers whose banked reset credits OmniRoute can redeem, and the route it uses (its dashboard's own list). */
+export function resetCreditPath(provider: string): string | null {
+  if (provider === "codex" || provider === "grok-cli") return "/api/usage/codex-reset-credit";
+  if (["glm", "glm-cn", "glmt", "zai"].includes(provider)) return "/api/usage/glm-reset-card";
+  return null;
+}
+
+/** Health autopilot action types, by the reset that runs them. */
+export const AUTOPILOT_ACTIONS = { cooldown: "clear_connection_cooldown", error: "clear_stale_connection_error", lockout: "clear_model_lockout", breaker: "clear_provider_breaker" } as const;
+type AutopilotAction = { type: string; target: { provider: string; connectionId: string | null; model: string | null }; hash: string };
+
+/** Every action `/api/providers/health-autopilot` offers right now, with the target and hash it must be sent back with. */
+export function parseAutopilot(body: unknown): AutopilotAction[] {
+  const out: AutopilotAction[] = [];
+  for (const provider of list(rec(body).providers).map(rec)) {
+    for (const issue of list(provider.issues).map(rec)) {
+      for (const action of list(issue.actions).map(rec)) {
+        const target = rec(action.target);
+        const type = str(action.type);
+        const hash = str(action.preconditionsHash);
+        const name = str(target.provider);
+        if (!type || !hash || !name) continue;
+        out.push({ type, target: { provider: name, connectionId: str(target.connectionId), model: str(target.model) }, hash });
+      }
+    }
+  }
+  return out;
+}
+
+/** The action that runs one reset: per account (`id`), per model on it, or per provider for a breaker. */
+export function findAutopilotAction(actions: readonly AutopilotAction[], kind: keyof typeof AUTOPILOT_ACTIONS, where: { provider: string; id?: string | null; model?: string | null }): AutopilotAction | null {
+  const type = AUTOPILOT_ACTIONS[kind];
+  return (
+    actions.find((action) => {
+      if (action.type !== type) return false;
+      if (kind === "breaker") return providerLabel(action.target.provider) === providerLabel(where.provider);
+      return action.target.connectionId === (where.id ?? null) && (kind !== "lockout" || action.target.model === (where.model ?? null));
+    }) ?? null
+  );
+}
+
+/** A Codex account whose own quota scope is cooling down or used up (`codexAccountPool`), which the Codex release clears. */
+function codexScopeLimited(connection: Rec): boolean {
+  if (str(connection.provider) !== "codex") return false;
+  return list(rec(connection.codexAccountPool).children).map(rec).some((child) => str(rec(child.key).scope) === "codex" && (child.unavailable === true || rec(child.cooldown).active === true));
+}
+
+function resetsFor(connection: Rec, actions: readonly AutopilotAction[], credits: number | null): Account["resets"] {
+  const id = str(connection.id);
+  const provider = str(connection.provider) ?? "";
+  const mine = actions.filter((action) => action.target.connectionId === id);
+  const resets: Account["resets"] = [];
+  if (mine.some((action) => action.type === AUTOPILOT_ACTIONS.cooldown)) resets.push({ kind: "cooldown", model: null });
+  if (mine.some((action) => action.type === AUTOPILOT_ACTIONS.error)) resets.push({ kind: "error", model: null });
+  for (const action of mine.filter((entry) => entry.type === AUTOPILOT_ACTIONS.lockout && entry.target.model)) resets.push({ kind: "lockout", model: action.target.model });
+  if (codexScopeLimited(connection)) resets.push({ kind: "codex-cooldown", model: null });
+  // Codex redeems with the account's own OAuth sign-in; OmniRoute refuses API-key Codex accounts.
+  const oauthOk = provider !== "codex" || str(connection.authType) === "oauth";
+  if (credits && credits > 0 && resetCreditPath(provider) && oauthOk && connection.isActive !== false) resets.push({ kind: "credit", model: null });
+  return resets;
+}
+
+/** What a reset's answer means, in one line. OmniRoute's own error text is passed on, shortened. */
+export function describeReset(kind: string, ok: boolean, body: unknown, name: string): { ok: boolean; message: string } {
+  const root = rec(body);
+  const detail = str(rec(root.error).message) ?? str(root.error) ?? str(root.message);
+  if (!ok) {
+    const code = str(root.code);
+    if (code === "nothing_to_reset") return { ok: false, message: `${name}: nothing to reset, no limit is used up right now.` };
+    if (code === "no_credit") return { ok: false, message: `${name} has no reset credits left.` };
+    if (/observation changed|not currently applicable/i.test(detail ?? "")) return { ok: false, message: `${name} changed since this page loaded (it may have recovered). Refreshed; try again if it still needs it.` };
+    return { ok: false, message: `${name}: ${detail ? (detail.length > 160 ? `${detail.slice(0, 157)}…` : detail) : "OmniRoute refused the reset."}` };
+  }
+  if (kind === "credit") return { ok: true, message: str(root.outcome)?.toLowerCase() === "alreadyredeemed" ? `${name}: that credit was already used; the limit is reset.` : `${name}: limit reset with a reset credit.` };
+  if (kind === "breaker") return { ok: true, message: `${name} resumed: OmniRoute sends its requests again.` };
+  if (kind === "lockout") return { ok: true, message: `${name}: model unlocked.` };
+  if (kind === "error") return { ok: true, message: `${name}: old error cleared.` };
+  return { ok: true, message: `${name} is back in rotation.` };
+}
+
 /**
  * One row per connection in `/api/providers`, joined by connection id with
- * `/api/rate-limits` lockouts and `/api/usage/provider-limits` quotas.
+ * `/api/rate-limits` lockouts and `/api/usage/provider-limits` quotas, and
+ * the resets `/api/providers/health-autopilot` offers for it.
  */
-export function parseAccounts(input: { providers: unknown; rateLimits?: unknown; limits?: unknown; now: number }): Account[] {
+export function parseAccounts(input: { providers: unknown; rateLimits?: unknown; limits?: unknown; autopilot?: unknown; now: number }): Account[] {
+  const actions = parseAutopilot(input.autopilot);
   const caches = rec(rec(input.limits).caches);
   const lockouts = list(rec(input.rateLimits).lockouts).map(rec);
   const counts = new Map<string, number>();
@@ -192,6 +281,7 @@ export function parseAccounts(input: { providers: unknown; rateLimits?: unknown;
       }),
     ].filter((ms): ms is number => ms !== null && ms > input.now);
     const quotas = parseQuotas(caches[id]);
+    const banked = num(rec(caches[id]).bankedResetCredits);
     const disabled = connection.isActive === false;
     const problem = disabled ? "disabled in OmniRoute" : problemFor(connection);
     return {
@@ -206,6 +296,8 @@ export function parseAccounts(input: { providers: unknown; rateLimits?: unknown;
       authType: str(connection.authType),
       health: null,
       expiry: null,
+      resets: resetsFor(connection, actions, banked),
+      resetCredits: banked !== null && banked > 0 ? banked : null,
     };
   });
 }
@@ -409,17 +501,6 @@ export function findOwnKey(keysBody: unknown, apiKey: string | null): KeyIdentit
   return match ? { id: str(match.id), name: str(match.name) } : null;
 }
 
-/** `byApiKey`: one row per inference key, which on this fleet is one row per daemon. */
-export function parseByDaemon(analytics: unknown, own: KeyIdentity | null): UsageRow[] {
-  const name = (row: Rec) => str(row.apiKeyName) ?? str(row.apiKey);
-  const byKey = list(rec(analytics).byApiKey).map(rec);
-  return rows(byKey, name).map((entry) => {
-    const row = byKey.find((candidate) => name(candidate) === entry.label);
-    const mine = !!own && ((own.id !== null && str(row?.apiKeyId) === own.id) || (own.name !== null && entry.label === own.name));
-    return mine ? { ...entry, thisDaemon: true } : entry;
-  });
-}
-
 // ------------------------------------------------------------ router strip
 
 export type ProviderStat = { name: string; requests: number; errorPct: number | null; avgLatencyMs: number | null };
@@ -432,7 +513,7 @@ export type RouterStrip = {
   /** Providers whose breaker is OPEN: OmniRoute is refusing their traffic. `lastError` is filled from call logs. */
   paused: Paused[];
 };
-export type Paused = { provider: string; retryAfterMs: number | null; lastError: string | null };
+export type Paused = { provider: string; retryAfterMs: number | null; lastError: string | null; canResume: boolean };
 
 /** A breaker in plain words: OPEN → "Claude paused", HALF_OPEN → "Claude testing again". */
 function breakerWords(breaker: Rec): string {
@@ -473,7 +554,7 @@ export function parseRouterStrip(health: unknown, providerStats: unknown): Route
   const paused = list(rec(health).providerBreakers)
     .map(rec)
     .filter((breaker) => str(breaker.state)?.toUpperCase() === "OPEN" && str(breaker.provider))
-    .map((breaker) => ({ provider: str(breaker.provider)!, retryAfterMs: num(breaker.retryAfterMs), lastError: null }));
+    .map((breaker) => ({ provider: str(breaker.provider)!, retryAfterMs: num(breaker.retryAfterMs), lastError: null, canResume: false }));
   return { breakers, providers, p95Ms: p95, failingModels, paused };
 }
 
@@ -825,7 +906,112 @@ export function describeCombos(ids: readonly string[], modelsBody: unknown, cust
 
 export type AnalyticsRange = "1d" | "7d" | "30d";
 export const RANGE_DAYS: Record<AnalyticsRange, number> = { "1d": 2, "7d": 7, "30d": 30 };
-export type RichRow = UsageRow & { provider?: string | null; successRatePct?: number | null; avgLatencyMs?: number | null; sharePct?: number | null };
+
+/** The longest custom window the Usage tab asks OmniRoute for. */
+export const MAX_WINDOW_DAYS = 366;
+const DAY_MS = 86_400_000;
+export type UsageWindowInput = { range?: "today" | "7d" | "30d" | "custom"; start?: string; end?: string };
+/** What OmniRoute is asked for: its own range, or a start (and end) in ISO; `dates` are the UTC days it covers, oldest first. */
+export type UsageWindow = { range: "today" | "7d" | "30d" | "custom"; start: string | null; end: string | null; dates: string[] };
+
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+function daysBetween(startMs: number, endMs: number): string[] {
+  const dates: string[] = [];
+  for (let day = Date.parse(`${isoDay(startMs)}T00:00:00Z`); day <= endMs; day += DAY_MS) dates.push(isoDay(day));
+  return dates;
+}
+
+/**
+ * Check and settle a Usage window. "7d" and "30d" use OmniRoute's own ranges;
+ * "today" needs the viewer's midnight as `start`; "custom" needs `start` and
+ * `end`, in order, at most MAX_WINDOW_DAYS apart and not in the future.
+ */
+export function usageWindow(input: UsageWindowInput, now: number): { ok: true; window: UsageWindow } | { ok: false; error: string } {
+  const range = input.range ?? "7d";
+  if (range === "7d" || range === "30d") {
+    const days = range === "7d" ? 7 : 30;
+    return { ok: true, window: { range, start: null, end: null, dates: daysBetween(now - (days - 1) * DAY_MS, now) } };
+  }
+  const start = input.start ? Date.parse(input.start) : Number.NaN;
+  if (!Number.isFinite(start)) return { ok: false, error: range === "today" ? "Today's start time is missing." : "Pick a start date." };
+  if (start > now) return { ok: false, error: "The start date is in the future." };
+  if (range === "today") {
+    if (now - start > 2 * DAY_MS) return { ok: false, error: "Today's start time is more than a day ago." };
+    return { ok: true, window: { range, start: new Date(start).toISOString(), end: null, dates: daysBetween(start, now) } };
+  }
+  const end = input.end ? Date.parse(input.end) : Number.NaN;
+  if (!Number.isFinite(end)) return { ok: false, error: "Pick an end date." };
+  if (end < start) return { ok: false, error: "The end date is before the start date." };
+  const until = Math.min(end, now);
+  if ((until - start) / DAY_MS > MAX_WINDOW_DAYS) return { ok: false, error: `Pick at most ${MAX_WINDOW_DAYS} days.` };
+  return { ok: true, window: { range, start: new Date(start).toISOString(), end: end >= now ? null : new Date(end).toISOString(), dates: daysBetween(start, until) } };
+}
+
+/**
+ * `/api/usage/analytics` for a window. `value` adds OmniRoute's
+ * `includeFlatRateEstimates`, which prices subscription use at API rates;
+ * without it subscriptions cost $0. `keyId` narrows it to one API key.
+ */
+export function analyticsPath(window: UsageWindow, options: { value?: boolean; keyId?: string } = {}): string {
+  const params = new URLSearchParams();
+  if (window.start) {
+    params.set("startDate", window.start);
+    if (window.end) params.set("endDate", window.end);
+  } else {
+    params.set("range", window.range);
+  }
+  if (options.keyId) params.set("apiKeyIds", options.keyId);
+  if (options.value) params.set("includeFlatRateEstimates", "true");
+  return `/api/usage/analytics?${params.toString()}`;
+}
+
+export type KeyRow = { id: string | null; label: string; requests: number; tokens: number | null; cost: number | null; value: number | null; thisDaemon: boolean };
+
+/**
+ * `byApiKey` from the billed read and the value read, joined by key id (or
+ * name): one row per API key, which on this fleet is one per daemon. Most
+ * tokens first, so the heaviest users lead.
+ */
+export function parseByKey(billed: unknown, valued: unknown, own: KeyIdentity | null): KeyRow[] {
+  const keyOf = (row: Rec) => str(row.apiKeyId) ?? str(row.apiKeyName) ?? str(row.apiKey);
+  const values = new Map(list(rec(valued).byApiKey).map(rec).map((row) => [keyOf(row), num(row.cost)] as const));
+  return list(rec(billed).byApiKey)
+    .map(rec)
+    .flatMap((row) => {
+      const label = str(row.apiKeyName) ?? str(row.apiKey);
+      const requests = num(row.requests);
+      if (!label || requests === null) return [];
+      const id = str(row.apiKeyId);
+      const mine = !!own && ((own.id !== null && id === own.id) || (own.name !== null && label === own.name));
+      return [{ id, label, requests, tokens: num(row.totalTokens), cost: num(row.cost), value: values.has(keyOf(row)) ? values.get(keyOf(row)) ?? null : null, thisDaemon: mine }];
+    })
+    .sort((a, b) => (b.tokens ?? 0) - (a.tokens ?? 0) || b.requests - a.requests);
+}
+
+/** One key's models from a value read narrowed to that key: most tokens first, the top `limit`. */
+export function parseKeyModels(valued: unknown, limit = 8): Array<{ label: string; provider: string | null; requests: number; tokens: number | null; value: number | null }> {
+  return list(rec(valued).byModel)
+    .map(rec)
+    .flatMap((row) => {
+      const label = str(row.model);
+      const requests = num(row.requests);
+      return label && requests !== null ? [{ label, provider: str(row.provider) ? providerLabel(str(row.provider)!) : null, requests, tokens: num(row.totalTokens), value: num(row.cost) }] : [];
+    })
+    .sort((a, b) => (b.tokens ?? 0) - (a.tokens ?? 0))
+    .slice(0, limit);
+}
+
+/** The value read's per-model prices, keyed like the rows parseAnalytics builds ("provider/model"). */
+export function modelValues(valued: unknown): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of list(rec(valued).byModel).map(rec)) {
+    const model = str(row.model);
+    const cost = num(row.cost);
+    if (model && cost !== null) out.set(`${str(row.provider) ? providerLabel(str(row.provider)!) : ""}/${model}`, cost);
+  }
+  return out;
+}
+export type RichRow = UsageRow & { provider?: string | null; successRatePct?: number | null; avgLatencyMs?: number | null; sharePct?: number | null; value?: number | null };
 export type Analytics = {
   totals: { requests: number; promptTokens: number | null; completionTokens: number | null; tokens: number | null; cost: number | null; successRatePct: number | null; avgLatencyMs: number | null; fallbackRatePct: number | null; streak: number | null } | null;
   trend: Array<{ date: string; requests: number; tokens: number | null; cost: number | null }>;
@@ -844,7 +1030,7 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 export const MAX_STACKED = 5;
 
 /** `/api/usage/analytics?range=…` → everything the analytics view draws. Defensive: any missing part is empty. */
-export function parseAnalytics(body: unknown, range: AnalyticsRange, now: number): Analytics {
+export function parseAnalytics(body: unknown, range: AnalyticsRange | { dates: readonly string[] }, now: number): Analytics {
   const root = rec(body);
   const summary = rec(root.summary);
   const requests = num(summary.totalRequests);
@@ -859,9 +1045,9 @@ export function parseAnalytics(body: unknown, range: AnalyticsRange, now: number
     fallbackRatePct: num(summary.fallbackRatePct),
     streak: num(summary.streak),
   };
-  const days = RANGE_DAYS[range];
   const dates: string[] = [];
-  for (let i = days - 1; i >= 0; i -= 1) dates.push(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+  if (typeof range === "string") for (let i = RANGE_DAYS[range] - 1; i >= 0; i -= 1) dates.push(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+  else dates.push(...range.dates);
   const daily = new Map(list(root.dailyTrend).map(rec).map((row) => [str(row.date), row] as const));
   const trend = dates.map((date) => {
     const row = daily.get(date);

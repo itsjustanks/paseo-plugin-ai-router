@@ -6,7 +6,8 @@
  */
 import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { RANGE_DAYS, describeCombos, linkAgents, parseAnalytics, parseByAccount, parseByDaemon, parseCallLogs, parseRouteExplanation, parseSettings, type AnalyticsRange } from "../../../shared/routers/omniroute/parsers";
+import { describeCombos, linkAgents, parseAnalytics, parseByAccount, parseByKey, parseCallLogs, parseKeyModels, parseRouteExplanation, parseSettings, usageWindow, type UsageWindowInput } from "../../../shared/routers/omniroute/parsers";
+import { PLUGIN_VERSION, releaseHighlights } from "../../../shared/updates";
 import { AUTO_COMBO_DEFAULT, AUTO_COMBO_KINDS, CUSTOM_COMBO_LOOK } from "../../../shared/routers/omniroute/copy";
 import { agentIdFromTag, classifyPublicCheck, comboProfile } from "../../../shared/logic";
 import { buildBreakdown, createTally, tallyEntry } from "../../../shared/context";
@@ -64,15 +65,15 @@ const accountFixtures: Record<string, unknown> = {
   ok: {
     ...insight, notes: ["Quota bars unavailable: 404 — /api/usage/provider-limits not found; is OmniRoute older than 3.8?"],
     accounts: [
-      { id: "a", provider: "claude", shortName: "Claude #1", label: "so…@example.com", state: "healthy", problem: null, coolingUntil: null, quotas: [{ name: "session (5h)", remainingPct: 60, resetAt: now }, { name: "weekly (7d)", remainingPct: 3, resetAt: null }] },
-      { id: "b", provider: "codex", shortName: "Codex #1", label: null, state: "attention", problem: null, coolingUntil: soon, quotas: [] },
+      { id: "a", provider: "claude", shortName: "Claude #1", label: "so…@example.com", state: "attention", problem: "unavailable: rate limited", coolingUntil: soon, quotas: [{ name: "session (5h)", remainingPct: 0, resetAt: new Date(soon).toISOString() }, { name: "weekly (7d)", remainingPct: 38, resetAt: null }], resets: [{ kind: "cooldown", model: null }] },
+      { id: "b", provider: "codex", shortName: "Codex #1", label: null, state: "attention", problem: null, coolingUntil: soon, quotas: [{ name: "5h", remainingPct: 0, resetAt: new Date(soon).toISOString() }, { name: "7d", remainingPct: 41, resetAt: null }], resets: [{ kind: "codex-cooldown", model: null }, { kind: "credit", model: null }], resetCredits: 2 },
       { id: "c", provider: "codex", shortName: "Codex #2", label: "wo…@example.com", state: "attention", problem: "re-login required", coolingUntil: null, quotas: [] },
     ],
     router: { breakers: { text: "No provider paused", tone: "success" }, p95Ms: 4100, providers: [{ name: "Claude Code", requests: 16, errorPct: 0, avgLatencyMs: 781 }], failingModels: [{ model: "claude-opus-5-5", provider: "Claude Code", failed: 3, requests: 3 }], paused: [] },
   },
   paused: {
     ...insight, accounts: [{ id: "a", provider: "claude", shortName: "Claude #1", label: null, state: "healthy", problem: null, coolingUntil: null, quotas: [] }],
-    router: { breakers: { text: "Claude paused", tone: "danger" }, p95Ms: null, providers: [], failingModels: [], paused: [{ provider: "claude", retryAfterMs: 30000, lastError: "[400] messages.1.output_config: Extra inputs are not permitted" }] },
+    router: { breakers: { text: "Claude paused", tone: "danger" }, p95Ms: null, providers: [], failingModels: [], paused: [{ provider: "claude", retryAfterMs: 30000, lastError: "[400] messages.1.output_config: Extra inputs are not permitted", canResume: true }] },
   },
   "no-token": { ...insight, state: "no-token", message: "Add a read-only access token (OmniRoute → Settings → Access Tokens, scope: read) to see accounts and usage.", accounts: [], router: null },
   error: { ...insight, state: "error", message: "Accounts: 401 — read token rejected: Invalid or expired access token", accounts: [], router: null },
@@ -136,10 +137,22 @@ function analyticsBody(days: number): Record<string, unknown> {
     activityMap,
   };
 }
-function usageAnswer(kind: string, range: AnalyticsRange): unknown {
-  if (kind === "no-token") return { ...insight, state: "no-token", message: "Add a read-only access token (OmniRoute → Settings → Access Tokens, scope: read) to see accounts and usage.", range, totals: null, trend: [], providerTrend: { providers: [], days: [] }, byModel: [], byProvider: [], byAccount: [], byDaemon: [], errors: [], activity: [], busiestWeekday: null, ownKey: null };
-  const body = kind === "empty" ? { summary: { totalRequests: 0, totalTokens: 0, totalCost: 0, successRatePct: null }, dailyTrend: [], activityMap: {} } : analyticsBody(RANGE_DAYS[range]);
-  const answer = { ...insight, range, ...parseAnalytics(body, range, Date.now()), byAccount: parseByAccount(body), byDaemon: parseByDaemon(body, { id: "k1", name: "daemon-a" }), ownKey: "daemon-a" };
+/** The same month priced at API rates (subscriptions included), as OmniRoute's value read answers. */
+function valued(body: Record<string, unknown>): Record<string, unknown> {
+  const price = (row: Record<string, unknown>) => ({ ...row, cost: Math.round(Number(row.totalTokens ?? 0) * 0.0000062 * 100) / 100 });
+  return { ...body, summary: { ...(body.summary as object), totalCost: Math.round(Number((body.summary as { totalTokens?: number }).totalTokens ?? 0) * 0.0000062 * 100) / 100 }, byApiKey: (body.byApiKey as Array<Record<string, unknown>> ?? []).map(price), byModel: (body.byModel as Array<Record<string, unknown>> ?? []).map(price) };
+}
+function usageAnswer(kind: string, input: UsageWindowInput): unknown {
+  const settled = usageWindow(input, Date.now());
+  const window = (settled.ok ? settled : (usageWindow({ range: "7d" }, Date.now()) as Extract<ReturnType<typeof usageWindow>, { ok: true }>)).window;
+  const shape = { range: input.range ?? "7d", window: { start: window.start, end: window.end, days: window.dates.length } };
+  const none = { totals: null, trend: [], providerTrend: { providers: [], days: [] }, byModel: [], byProvider: [], byAccount: [], byKey: [], valueTotal: null, errors: [], activity: [], busiestWeekday: null, ownKey: null };
+  if (kind === "no-token") return { ...insight, state: "no-token", message: "Add a read-only access token (OmniRoute → Settings → Access Tokens, scope: read) to see accounts and usage.", ...shape, ...none };
+  const body = kind === "empty" ? { summary: { totalRequests: 0, totalTokens: 0, totalCost: 0, successRatePct: null }, dailyTrend: [], activityMap: {} } : analyticsBody(window.dates.length);
+  const value = valued(body);
+  const parsed = parseAnalytics(body, window, Date.now());
+  const prices = new Map(((value.byModel as Array<Record<string, unknown>>) ?? []).map((row) => [row.model, row.cost as number]));
+  const answer = { ...insight, ...shape, ...parsed, byModel: parsed.byModel.map((row) => ({ ...row, value: prices.get(row.label) ?? null })), byAccount: parseByAccount(body), byKey: parseByKey(body, value, { id: "k1", name: "daemon-a" }), valueTotal: kind === "empty" ? 0 : (value.summary as { totalCost: number }).totalCost, ownKey: "daemon-a" };
   return kind === "stale" ? { ...answer, checkedAt: new Date(Date.now() - 38 * 60_000).toISOString(), stale: { reason: "Usage: the router is not answering (connection refused at http://10.0.0.5:20128/api/health/ping)" } } : answer;
 }
 const usageFixtures: Record<string, true> = { ok: true, empty: true, stale: true, "no-token": true };
@@ -249,7 +262,7 @@ Object.assign(accountFixtures, {
     ...insight,
     accounts: [
       { id: "a", provider: "claude", shortName: "Claude #1", label: "so…@example.com", state: "healthy", problem: null, coolingUntil: null, quotas: [{ name: "session (5h)", remainingPct: 64, resetAt: new Date(Date.now() + 2 * 3_600_000).toISOString() }, { name: "weekly (7d)", remainingPct: 81, resetAt: null }] },
-      { id: "b", provider: "codex", shortName: "Codex #1", label: "wo…@example.com", state: "healthy", problem: null, coolingUntil: null, quotas: [{ name: "5h", remainingPct: 92, resetAt: null }, { name: "7d", remainingPct: 38, resetAt: null }] },
+      { id: "b", provider: "codex", shortName: "Codex #1", label: "wo…@example.com", state: "healthy", problem: null, coolingUntil: null, quotas: [{ name: "5h", remainingPct: 92, resetAt: null }, { name: "7d", remainingPct: 38, resetAt: null }], resets: [{ kind: "credit", model: null }], resetCredits: 1 },
       { id: "c", provider: "codex", shortName: "Codex #2", label: "te…@example.com", state: "healthy", problem: null, coolingUntil: null, quotas: [{ name: "5h", remainingPct: 100, resetAt: null }, { name: "7d", remainingPct: 7, resetAt: null }] },
     ],
     router: { breakers: { text: "No provider paused", tone: "success" }, p95Ms: 3900, providers: [{ name: "Claude Code", requests: 128, errorPct: 0, avgLatencyMs: 781 }, { name: "OpenAI Codex", requests: 96, errorPct: 2.1, avgLatencyMs: 728 }], failingModels: [], paused: [] },
@@ -282,7 +295,7 @@ for (const value of Object.values(accountFixtures)) {
   const a = value as Record<string, any>;
   a.accounts = a.accounts.map((account: any) => {
     const relogin = account.problem === "re-login required";
-    return { authType: "oauth", health: relogin ? HEALTH.c : account.state === "healthy" ? HEALTH.a : null, expiry: relogin ? { status: "expired", expiresAt: "2026-09-20T00:00:00.000Z", note: null } : null, ...account };
+    return { authType: "oauth", health: relogin ? HEALTH.c : account.state === "healthy" ? HEALTH.a : null, expiry: relogin ? { status: "expired", expiresAt: "2026-09-20T00:00:00.000Z", note: null } : null, resets: [], resetCredits: null, ...account };
   });
 }
 const accessFixtures: Record<string, unknown> = {
@@ -321,6 +334,24 @@ const clisFixtures: Record<string, unknown> = {
   ] },
   updating: { checkedAt: now, tools: [], job: { id: "codex", state: "running", startedAt: now, finishedAt: null, command: "npm install -g @openai/codex@latest --prefix /Users/me/.npm-global", output: ["npm warn deprecated …", "changed 1 package in 6s"], before: "0.156.1", after: null, message: null } },
 };
+/** Release checks as the daemon answers them: up to date, an OmniRoute update out, and a key-only daemon that can't see the router's version. */
+const OMNI_NOTES = `# OmniRoute v3.8.52\n\n**412 documented changes**.\n\n## Highlights\n\n- **Routing and resilience**: per-account breakers close on a successful probe; local-cooldown 429s no longer read as quota exhaustion.\n- **Codex**: reset credits can be redeemed from the API, and account pools show each scope's cooldown.\n- **Usage**: custom date ranges and per-key value at API prices.\n- **Proxies**: pools stop re-serving a member the provider just refused.\n`;
+const release = (version: string, body: string, repo: string) => ({ version, tag: `v${version}`, publishedAt: "2026-10-02T01:41:50Z", url: `https://github.com/${repo}/releases/tag/v${version}`, highlights: releaseHighlights(body) });
+const routerRelease = (latest: string) => release(latest, latest === "3.8.52" ? OMNI_NOTES : "## Highlights\n\n- **Providers and catalogs**: GPT-6 Astra/Sol/Luna in the Codex and OpenAI catalogs, with effort aliases.\n- **Routing and resilience**: hierarchical concurrency admission and `expiry-first` account fallback.\n- **Proxies**: egress-IP visibility per pool.\n", "diegosouzapw/OmniRoute");
+const pluginRelease = release(PLUGIN_VERSION, "- **Overview shows updates.** OmniRoute's version and this plugin's, with what's new.\n- **Usage by daemon.** Pick any dates; see who uses the most tokens, and their value.\n- **Inline resets on Accounts.** Clear a cooldown or use a reset credit, after asking.\n", "itsjustanks/paseo-plugin-ai-router");
+function updatesAnswer(status: Record<string, any>) {
+  const running = status.tier === "operator" || status.tier === "admin" ? "3.8.51" : null;
+  const latest = updatesFixture === "behind" ? "3.8.52" : "3.8.51";
+  const state = !running ? "unknown" : running === latest ? "current" : "behind";
+  return {
+    router: { label: "OmniRoute", running, latest: routerRelease(latest), state, changelogUrl: "https://github.com/diegosouzapw/OmniRoute/releases", error: null },
+    plugin: { label: "AI Router", running: PLUGIN_VERSION, latest: pluginRelease, state: "current", changelogUrl: "https://github.com/itsjustanks/paseo-plugin-ai-router/releases", error: null },
+    checkedAt: now,
+  };
+}
+let updatesFixture = "current";
+export function setUpdatesFixture(name: string) { updatesFixture = name; }
+let codexFixture: number | null = 4;
 let clisFixture = "mac";
 export function setClisFixture(name: string) { clisFixture = name; }
 const tunnelsFixtures: Record<string, unknown> = {
@@ -468,8 +499,10 @@ const contextFixtures: Record<string, unknown> = {
 };
 
 /** Preview: pick every answer at once. */
-export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; context?: string; apps?: string }) {
+export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; context?: string; apps?: string; updates?: string; codexAccounts?: number | null }) {
   clisFixture = state.apps ?? "mac";
+  updatesFixture = state.updates ?? "current";
+  codexFixture = state.codexAccounts === undefined ? 4 : state.codexAccounts;
   profilesFixture = state.profiles ?? "ok";
   contextFixture = state.context ?? "ok";
   savedSwitches = {};
@@ -495,7 +528,7 @@ export function setSettingsFixture(name: string) { settingsFixture = name; }
 export function setUsageFixture(name: string) { usageFixture = name; }
 let accountFixture = "ok";
 let usageFixture = "ok";
-export function setStatusFixture(name: string, insights = "ok") { clisFixture = "mac"; fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; contextFixture = "ok"; savedComboProfiles = null; savedSwitches = {}; }
+export function setStatusFixture(name: string, insights = "ok") { clisFixture = "mac"; updatesFixture = "current"; codexFixture = 4; fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; contextFixture = "ok"; savedComboProfiles = null; savedSwitches = {}; }
 
 const pendingRpc = new Set<() => void>();
 export function releaseRpc() { for (const release of pendingRpc) release(); pendingRpc.clear(); }
@@ -508,12 +541,15 @@ export function useRpc(contract: any) {
     const answers: Record<string, () => unknown> = {
       status: () => status,
       accounts: () => ({ ...(accountFixtures[accountFixture] as object), canAct: manage }),
-      usage: () => usageAnswer(usageFixture, ((input as { range?: AnalyticsRange })?.range ?? "7d") as AnalyticsRange),
+      usage: () => usageAnswer(usageFixture, (input ?? {}) as UsageWindowInput),
+      "usage.key": () => ({ state: "ok", message: null, models: parseKeyModels(valued(analyticsBody(7))) }),
+      updates: () => updatesAnswer(status),
+      "accounts.reset": () => ({ ok: true, message: `${(input as { name: string }).name} is back in rotation.` }),
       profiles: () => profilesFixtures[savedComboProfiles === false ? "off" : savedComboProfiles === true ? "ok" : profilesFixture],
       settings: () => { const answer = settingsFixtures[settingsFixture] as Record<string, unknown>; return { ...answer, canEdit: answer.canEdit === true || manage }; },
       access: () => accessFixtures[accessFixture],
       compression: () => ({ ...(compressionFixtures[compressionFixture] as object), canEdit: manage }),
-      "providers.list": () => providersFixtures.ok,
+      "providers.list": () => ({ ...(providersFixtures.ok as object), codexAccounts: status.tier === "basic" ? null : codexFixture }),
       clis: () => (clisFixture === "updating" ? { ...(clisFixtures.mac as object), job: (clisFixtures.updating as { job: unknown }).job } : clisFixtures[clisFixture]),
       "clis.update": () => ({ ok: true, message: "Updating Codex…" }),
       "codex-reroute": () => ({ ok: true, message: (input as { enabled: boolean }).enabled ? "Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart." : "Built-in Codex back on its own sign-in for new chats. Open chats switch when they restart." }),

@@ -29,7 +29,7 @@ async function snapshot(paseo: Paseo, refresh: boolean): Promise<SnapshotEntry[]
 }
 
 /** Every Paseo provider on this daemon: status, enabled, who owns the entry, and what OmniRoute can do for it. */
-export async function listProviders(paseo: Paseo, refresh: boolean): Promise<Providers> {
+export async function listProviders(paseo: Paseo, refresh: boolean): Promise<Omit<Providers, "codexAccounts">> {
   const checkedAt = new Date().toISOString();
   try {
     const [entries, { config }] = await Promise.all([snapshot(paseo, refresh), paseo.config.get()]);

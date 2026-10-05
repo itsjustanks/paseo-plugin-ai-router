@@ -131,7 +131,9 @@ export const handleAiProvider = async ({ enabled }: { enabled: boolean }, { pase
 };
 export const handleModelTest = async ({ model }: { model: string }) => testProviderModel(await current(), model);
 export const handleAccounts = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).accounts(c, refresh === true); };
-export const handleUsage = async ({ refresh, range }: { refresh?: boolean; range?: "1d" | "7d" | "30d" }) => { const c = await current(); return adapterFor(c.router).usage(c, refresh === true, range ?? "7d"); };
+type WindowInput = { range?: "today" | "7d" | "30d" | "custom"; start?: string; end?: string };
+export const handleUsage = async ({ refresh, ...window }: { refresh?: boolean } & WindowInput) => { const c = await current(); return adapterFor(c.router).usage(c, refresh === true, window); };
+export const handleUsageKey = async ({ keyId, ...window }: { keyId: string } & WindowInput) => { const c = await current(); return adapterFor(c.router).usageKey(c, keyId, window); };
 
 /** The combo profiles, as Paseo holds them. `apply`: sync now (the switch just changed), then read. */
 export async function handleProfiles({ apply }: { apply?: boolean }, { paseo }: PluginHandlerContext) {
@@ -161,7 +163,15 @@ export const handleEnsure = async (_input: unknown, { paseo }: PluginHandlerCont
   noteActivity(paseo, true);
   return { ok: true };
 };
-export const handleProvidersList = ({ refresh }: { refresh?: boolean }, { paseo }: PluginHandlerContext) => listProviders(paseo, refresh === true);
+/** Paseo's providers, and how many Codex accounts OmniRoute has (from a 5-minute cache; never waits on the router long). */
+export async function handleProvidersList({ refresh }: { refresh?: boolean }, { paseo }: PluginHandlerContext) {
+  const c = await current();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const codex = Promise.race([adapterFor(c.router).codexAccounts(c).catch(() => null), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), 3_000)))]);
+  const [list, codexAccounts] = await Promise.all([listProviders(paseo, refresh === true), codex]);
+  clearTimeout(timer);
+  return { ...list, codexAccounts };
+}
 export const handleProviderEnable = ({ id, enabled }: { id: string; enabled: boolean }, { paseo }: PluginHandlerContext) => setProviderEnabled(paseo, id, enabled);
 export const handleProvidersTidy = ({ ids }: { ids: string[] }, { paseo }: PluginHandlerContext) => tidyProviders(paseo, ids);
 export const handleCodexRouter = async ({ enabled }: { enabled: boolean }, { paseo }: PluginHandlerContext) => setCodexRouter(paseo, await current(), enabled);
@@ -170,6 +180,12 @@ export const handleClis = ({ refresh }: { refresh?: boolean }) => listClis(refre
 export const handleCliUpdate = ({ id }: { id: "claude" | "codex" }) => startCliUpdate(id);
 export const handleAccountAction = async ({ action, id, name }: { action: "test" | "refresh"; id: string; name: string }) => { const c = await current(); return adapterFor(c.router).accountAction(c, action, id, name); };
 export const handleAccountsCheckAll = async () => { const c = await current(); return adapterFor(c.router).checkAllAccounts(c); };
+/** The RPC refuses without `confirm: true`: the panel always asks first. */
+export const handleAccountReset = async ({ confirm, ...input }: { kind: "cooldown" | "error" | "lockout" | "codex-cooldown" | "credit" | "breaker"; provider: string; id?: string; model?: string | null; name: string; confirm: true }) => {
+  if (confirm !== true) return { ok: false, message: "Not reset: the panel asks first." };
+  const c = await current();
+  return adapterFor(c.router).resetAccount(c, input);
+};
 export const handleTunnels = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).tunnels(c, refresh === true); };
 export const handleTunnelSet = async ({ id, on }: { id: "cloudflared" | "ngrok" | "tailscale"; on: boolean }) => { const c = await current(); return adapterFor(c.router).setTunnel(c, id, on); };
 export const handleAccess = async ({ refresh }: { refresh?: boolean }) => { const c = await current(); return adapterFor(c.router).access(c, refresh === true); };

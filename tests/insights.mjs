@@ -141,20 +141,107 @@ try {
     assert.equal(I.parseTopModels(failing)[0].failedPct, 37.5);
   });
 
-  check("by daemon: this daemon's key is found by its masked form", () => {
-    assert.deepEqual(I.parseByDaemon(week, null), [], "the capture redacted byApiKey; a non-list reads as empty");
-    const analytics = clone(week);
-    analytics.byApiKey = [
+  check("by key: this daemon's key is found by its masked form; value joins by key id; most tokens first", () => {
+    assert.deepEqual(I.parseByKey(week, null, null), [], "the capture redacted byApiKey; a non-list reads as empty");
+    const billed = clone(week);
+    billed.byApiKey = [
       { apiKey: "daemon-a (k1)", apiKeyId: "k1", apiKeyName: "daemon-a", requests: 3, totalTokens: 64114, cost: 0 },
       { apiKey: "daemon-b (k2)", apiKeyId: "k2", apiKeyName: "daemon-b", requests: 9, totalTokens: 1200, cost: 0.02 },
+      { apiKey: "old", requests: 1, totalTokens: 10, cost: 0 },
     ];
+    const valued = { byApiKey: [{ apiKeyId: "k2", cost: 0.4 }, { apiKeyId: "k1", cost: 12.5 }] };
     const keys = { keys: [{ id: "k1", name: "daemon-a", key: "sk-abcde****wxyz" }, { id: "k2", name: "daemon-b", key: "sk-zzzzz****0000" }] };
     const own = I.findOwnKey(keys, "sk-abcdefghijklmnopwxyz");
     assert.deepEqual(own, { id: "k1", name: "daemon-a" });
     assert.equal(I.findOwnKey(keys, "sk-other-key-1234"), null);
     assert.equal(I.findOwnKey(keys, null), null);
-    const rows = I.parseByDaemon(analytics, own);
-    assert.deepEqual(rows.map((r) => [r.label, r.requests, !!r.thisDaemon]), [["daemon-b", 9, false], ["daemon-a", 3, true]]);
+    const rows = I.parseByKey(billed, valued, own);
+    assert.deepEqual(rows.map((r) => [r.id, r.label, r.tokens, r.cost, r.value, r.thisDaemon]), [["k1", "daemon-a", 64114, 0, 12.5, true], ["k2", "daemon-b", 1200, 0.02, 0.4, false], [null, "old", 10, 0, null, false]], "tokens decide the order, not requests");
+    assert.deepEqual(I.parseByKey(billed, null, own).map((r) => r.value), [null, null, null], "no value read: value unknown, never $0");
+  });
+
+  check("usage window: ranges, today and custom dates", () => {
+    const now = Date.parse("2026-10-05T04:00:00.000Z");
+    const week7 = I.usageWindow({ range: "7d" }, now);
+    assert.equal(week7.ok, true);
+    assert.deepEqual([week7.window.start, week7.window.end, week7.window.dates.length, week7.window.dates.at(-1)], [null, null, 7, "2026-10-05"]);
+    assert.equal(I.analyticsPath(week7.window), "/api/usage/analytics?range=7d");
+    assert.equal(I.analyticsPath(week7.window, { value: true }), "/api/usage/analytics?range=7d&includeFlatRateEstimates=true");
+    assert.equal(I.usageWindow({}, now).window.range, "7d", "no range is 7 days");
+    // Sydney's midnight is 13:00 UTC the day before: today spans two UTC days.
+    const today = I.usageWindow({ range: "today", start: "2026-10-04T13:00:00.000Z" }, now);
+    assert.deepEqual([today.window.start, today.window.end, today.window.dates], ["2026-10-04T13:00:00.000Z", null, ["2026-10-04", "2026-10-05"]]);
+    assert.equal(I.analyticsPath(today.window), "/api/usage/analytics?startDate=2026-10-04T13%3A00%3A00.000Z");
+    const custom = I.usageWindow({ range: "custom", start: "2026-10-01T00:00:00.000Z", end: "2026-10-02T23:59:59.999Z" }, now);
+    assert.deepEqual(custom.window.dates, ["2026-10-01", "2026-10-02"]);
+    assert.equal(I.analyticsPath(custom.window, { value: true, keyId: "k1" }), "/api/usage/analytics?startDate=2026-10-01T00%3A00%3A00.000Z&endDate=2026-10-02T23%3A59%3A59.999Z&apiKeyIds=k1&includeFlatRateEstimates=true");
+    const open = I.usageWindow({ range: "custom", start: "2026-10-01T00:00:00.000Z", end: "2026-10-09T00:00:00.000Z" }, now);
+    assert.deepEqual([open.window.end, open.window.dates.at(-1)], [null, "2026-10-05"], "an end in the future reads up to now");
+    assert.deepEqual(I.usageWindow({ range: "today" }, now), { ok: false, error: "Today's start time is missing." });
+    assert.deepEqual(I.usageWindow({ range: "today", start: "2026-10-01T00:00:00.000Z" }, now).ok, false, "a stale 'today' is refused");
+    assert.deepEqual(I.usageWindow({ range: "custom", start: "2026-10-03T00:00:00.000Z", end: "2026-10-01T00:00:00.000Z" }, now), { ok: false, error: "The end date is before the start date." });
+    assert.deepEqual(I.usageWindow({ range: "custom", start: "2024-01-01T00:00:00.000Z", end: "2026-10-01T00:00:00.000Z" }, now), { ok: false, error: "Pick at most 366 days." });
+    assert.deepEqual(I.usageWindow({ range: "custom", start: "2026-11-01T00:00:00.000Z", end: "2026-11-02T00:00:00.000Z" }, now), { ok: false, error: "The start date is in the future." });
+    assert.equal(I.usageWindow({ range: "custom", start: "nope", end: "2026-10-01" }, now).ok, false);
+    const parsed = I.parseAnalytics({ dailyTrend: [{ date: "2026-10-01", requests: 4, totalTokens: 10, cost: 1 }] }, custom.window, now);
+    assert.deepEqual(parsed.trend.map((d) => [d.date, d.requests]), [["2026-10-01", 4], ["2026-10-02", 0]], "a custom window's own days, zero-filled");
+  });
+
+  check("one key's models and the value read's prices", () => {
+    const valued = { byModel: [{ model: "gpt-6-sol", provider: "codex", requests: 3, totalTokens: 900, cost: 2.5 }, { model: "claude-opus-5-5", provider: "claude", requests: 9, totalTokens: 5000, cost: 30 }, { provider: "claude", requests: 1 }] };
+    assert.deepEqual(I.parseKeyModels(valued), [{ label: "claude-opus-5-5", provider: "Claude", requests: 9, tokens: 5000, value: 30 }, { label: "gpt-6-sol", provider: "Codex", requests: 3, tokens: 900, value: 2.5 }]);
+    assert.deepEqual([...I.modelValues(valued)], [["Codex/gpt-6-sol", 2.5], ["Claude/claude-opus-5-5", 30]]);
+    assert.deepEqual(I.parseKeyModels(null), []);
+  });
+
+  check("resets: only what OmniRoute offers for each account", () => {
+    const autopilot = { providers: [
+      { provider: "claude", issues: [
+        { kind: "connection_cooldown", target: { provider: "claude", connectionId: "c1" }, actions: [{ type: "clear_connection_cooldown", target: { provider: "claude", connectionId: "c1" }, preconditionsHash: "h-cool" }, { type: "deactivate_connection", target: { provider: "claude", connectionId: "c1" }, preconditionsHash: "h-off" }] },
+        { kind: "provider_circuit_open", target: { provider: "claude" }, actions: [{ type: "clear_provider_breaker", target: { provider: "claude" }, preconditionsHash: "h-breaker" }] },
+        { kind: "terminal_connection_error", target: { provider: "claude", connectionId: "c2" }, actions: [] },
+      ] },
+      { provider: "codex", issues: [{ kind: "model_lockout", actions: [{ type: "clear_model_lockout", target: { provider: "codex", connectionId: "x1", model: "gpt-6-sol" }, preconditionsHash: "h-lock" }, { type: "clear_stale_connection_error", target: { provider: "codex", connectionId: "x1" }, preconditionsHash: "h-err" }] }] },
+    ] };
+    const actions = I.parseAutopilot(autopilot);
+    assert.equal(actions.length, 5);
+    assert.equal(I.findAutopilotAction(actions, "cooldown", { provider: "claude", id: "c1" }).hash, "h-cool");
+    assert.equal(I.findAutopilotAction(actions, "cooldown", { provider: "claude", id: "c2" }), null, "an account in a terminal state gets no reset");
+    assert.equal(I.findAutopilotAction(actions, "breaker", { provider: "Claude Code" }).hash, "h-breaker", "breakers match by provider, by any of its names");
+    assert.equal(I.findAutopilotAction(actions, "lockout", { provider: "codex", id: "x1", model: "gpt-6-sol" }).hash, "h-lock");
+    assert.equal(I.findAutopilotAction(actions, "lockout", { provider: "codex", id: "x1", model: "other" }), null);
+    const providers = { connections: [
+      { id: "c1", provider: "claude", authType: "oauth", isActive: true, testStatus: "unavailable" },
+      { id: "c2", provider: "claude", authType: "oauth", isActive: false, testStatus: "banned" },
+      { id: "x1", provider: "codex", authType: "oauth", isActive: true, codexAccountPool: { children: [{ key: { scope: "codex" }, unavailable: true, cooldown: { active: true, rateLimitedUntil: "2026-10-05T05:00:00Z" } }] } },
+      { id: "x2", provider: "codex", authType: "oauth", isActive: true },
+      { id: "x3", provider: "codex", authType: "apikey", isActive: true },
+      { id: "g1", provider: "glm", authType: "apikey", isActive: true },
+      { id: "k1", provider: "kimi-coding", authType: "oauth", isActive: true },
+    ] };
+    const limits = { caches: { x1: { bankedResetCredits: 2 }, x2: { bankedResetCredits: 0 }, x3: { bankedResetCredits: 1 }, g1: { bankedResetCredits: 1 }, k1: { bankedResetCredits: 3 } } };
+    const rows = Object.fromEntries(I.parseAccounts({ providers, limits, autopilot, now: NOW }).map((a) => [a.id, [a.resets.map((r) => r.model ? `${r.kind}:${r.model}` : r.kind), a.resetCredits]]));
+    assert.deepEqual(rows, {
+      c1: [["cooldown"], null],
+      c2: [[], null],
+      x1: [["error", "lockout:gpt-6-sol", "codex-cooldown", "credit"], 2],
+      x2: [[], null],
+      x3: [[], 1],
+      g1: [["credit"], 1],
+      k1: [[], 3],
+    }, "credits only where OmniRoute can redeem them (Codex over OAuth, GLM); Kimi's are shown but not offered");
+    assert.equal(I.parseAccounts({ providers, now: NOW })[0].resets.length, 0, "without the autopilot answer, no autopilot resets");
+    assert.deepEqual([I.resetCreditPath("codex"), I.resetCreditPath("grok-cli"), I.resetCreditPath("zai"), I.resetCreditPath("claude")], ["/api/usage/codex-reset-credit", "/api/usage/codex-reset-credit", "/api/usage/glm-reset-card", null]);
+  });
+
+  check("reset results in plain words", () => {
+    assert.deepEqual(I.describeReset("cooldown", true, { success: true }, "Claude #1"), { ok: true, message: "Claude #1 is back in rotation." });
+    assert.deepEqual(I.describeReset("credit", true, { ok: true, outcome: "reset" }, "Codex #2"), { ok: true, message: "Codex #2: limit reset with a reset credit." });
+    assert.deepEqual(I.describeReset("credit", false, { ok: false, code: "nothing_to_reset", error: "No exhausted Codex usage limit can be reset right now." }, "Codex #2"), { ok: false, message: "Codex #2: nothing to reset, no limit is used up right now." });
+    assert.deepEqual(I.describeReset("credit", false, { code: "no_credit" }, "Codex #2"), { ok: false, message: "Codex #2 has no reset credits left." });
+    assert.match(I.describeReset("cooldown", false, { success: false, error: "autopilot observation changed; refresh before applying this action" }, "Claude #1").message, /changed since this page loaded/);
+    assert.equal(I.describeReset("breaker", true, {}, "Claude").message, "Claude resumed: OmniRoute sends its requests again.");
+    assert.match(I.describeReset("error", false, null, "X").message, /OmniRoute refused the reset/);
   });
 
   // ------------------------------------------------------- router health
@@ -250,7 +337,10 @@ try {
       assert.equal(I.parseTrend(junk, 7, NOW).length, 7);
       assert.deepEqual(I.parseByAccount(junk), []);
       assert.deepEqual(I.parseTopModels(junk), []);
-      assert.deepEqual(I.parseByDaemon(junk, { id: "k1", name: "x" }), []);
+      assert.deepEqual(I.parseByKey(junk, junk, { id: "k1", name: "x" }), []);
+      assert.deepEqual(I.parseKeyModels(junk), []);
+      assert.deepEqual(I.parseAutopilot(junk), []);
+      assert.deepEqual(I.parseAccounts({ providers: junk, autopilot: junk, now: NOW }), []);
       assert.deepEqual(I.parseRouterStrip(junk, junk), { breakers: null, providers: [], p95Ms: null, failingModels: [], paused: [] });
       assert.deepEqual(I.buildModelList(junk, new Set(["claude"])), []);
       assert.deepEqual(I.parseQuotas(junk), []);
@@ -325,7 +415,7 @@ try {
 
   check("a paused provider leads the Accounts headline", () => {
     const strip = I.parseRouterStrip({ ...body("/api/monitoring/health"), providerBreakers: [{ provider: "claude", state: "OPEN", retryAfterMs: 41200 }, { provider: "codex", state: "HALF_OPEN" }] }, null);
-    assert.deepEqual(strip.paused, [{ provider: "claude", retryAfterMs: 41200, lastError: null }], "only OPEN pauses traffic");
+    assert.deepEqual(strip.paused, [{ provider: "claude", retryAfterMs: 41200, lastError: null, canResume: false }], "only OPEN pauses traffic");
     strip.paused[0].lastError = I.lastCallError([{ status: 400, provider: "claude", error: "[400] messages.1.output_config: Extra inputs are not permitted" }]);
     const head = I.accountsHeadline(I.parseAccounts({ providers: body("/api/providers"), now: NOW }), hhmm, strip.paused);
     assert.deepEqual(head, { text: "Claude traffic paused by OmniRoute's circuit breaker (retrying in 42 s) — last error: [400] messages.1.output_config: Extra inputs are not permitted", tone: "danger" });
@@ -505,6 +595,7 @@ try {
     assert.deepEqual(a.trend.map((d) => [d.date, d.requests]), [["2026-09-17", 0], ["2026-09-18", 0], ["2026-09-19", 0], ["2026-09-20", 0], ["2026-09-21", 10], ["2026-09-22", 0], ["2026-09-23", 30]]);
     assert.equal(I.parseAnalytics(analytics, "30d", now).trend.length, 30);
     assert.equal(I.parseAnalytics(analytics, "1d", now).trend.length, 2);
+    assert.equal(I.parseAnalytics(analytics, { dates: ["2026-09-23"] }, now).trend.length, 1, "a window brings its own days");
     assert.deepEqual(a.providerTrend.providers, ["Claude", "Codex", "GLM", "Kimi", "xAI", "Other"], "five providers by tokens, the rest and unknown models folded into Other");
     assert.deepEqual(a.providerTrend.days.find((d) => d.date === "2026-09-23").values, [50000, 15000, 4000, 1000, 1, 8]);
     assert.deepEqual(a.providerTrend.days.find((d) => d.date === "2026-09-21").values, [20000, 10000, 0, 0, 0, 0]);

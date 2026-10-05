@@ -38,10 +38,10 @@ export function WhatIsCard({ theme, router, accounts }: { theme: Theme; router: 
   return (
     <Part theme={theme} title="What is AI Router?" icon="Route">
       <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>
-        {`AI Router is one connection that lets every chat in Paseo use all of your team's AI subscriptions (Claude, ChatGPT/Codex, Kimi and more) through one shared router called ${router}.`}
+        {`AI Router lets every chat in Paseo use your team's AI subscriptions (Claude, ChatGPT/Codex, Kimi and more) through one shared router, ${router}.`}
       </Text>
       <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>
-        You sign in to your AI accounts once, on the router, instead of on every computer. The router then shares the work between those accounts, so when one is busy another can answer.
+        You sign in to each AI account once, on the router, not on every computer. It shares the work between them, so when one is busy another answers.
       </Text>
       {accounts.length ? (
         <Row>

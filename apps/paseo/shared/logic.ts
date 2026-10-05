@@ -961,3 +961,107 @@ export function parseSessionLog(raw: string | null): SessionEntry[] {
     return [];
   }
 }
+
+// ------------------------------------------------------------ account resets
+
+/**
+ * The resets OmniRoute really offers per account, and only these:
+ * - cooldown: clear a temporary cooldown after rate limits (health autopilot);
+ * - error: clear a stale error left on a working account (health autopilot);
+ * - lockout: clear one model's lockout on the account (health autopilot);
+ * - codex-cooldown: release a Codex account's own quota cooldown;
+ * - credit: spend one of the provider's banked usage-limit reset credits (Codex, GLM).
+ * Provider circuit breakers ("breaker") are per provider, not per account.
+ */
+export const RESET_KINDS = ["cooldown", "error", "lockout", "codex-cooldown", "credit"] as const;
+export type ResetKind = (typeof RESET_KINDS)[number];
+
+const RESET_LABELS: Record<ResetKind | "breaker", string> = {
+  cooldown: "Clear cooldown",
+  error: "Clear old error",
+  lockout: "Unlock model",
+  "codex-cooldown": "Release cooldown",
+  credit: "Use a reset credit",
+  breaker: "Resume now",
+};
+
+export function resetLabel(kind: ResetKind | "breaker", model: string | null = null): string {
+  return kind === "lockout" && model ? `Unlock ${model}` : RESET_LABELS[kind];
+}
+
+/** What a reset does, said before it runs. One or two sentences; the button below it confirms. */
+export function resetQuestion(kind: ResetKind | "breaker", input: { name: string; provider: string; model?: string | null; credits?: number | null }): string {
+  const { name, provider } = input;
+  switch (kind) {
+    case "cooldown":
+      return `${name} goes back into rotation now, before its cooldown ends. If the provider is still limiting it, the next request fails and it cools down again.`;
+    case "error":
+      return `Clears the old error OmniRoute keeps on ${name}, so it is picked for requests again. Nothing about the sign-in changes.`;
+    case "lockout":
+      return `${input.model ?? "This model"} is used on ${name} again now. If the provider still refuses it, it is locked out again.`;
+    case "codex-cooldown":
+      return `${name} is used for Codex requests again now, before its quota cooldown ends. If its limit is still used up, Codex refuses and it cools down again.`;
+    case "credit": {
+      const left = input.credits ?? null;
+      const of = left === null ? "a reset credit" : left === 1 ? "its only reset credit" : `1 of its ${left} reset credits`;
+      return `Spends ${of} to reset ${name}'s used-up limit now. If no limit is used up, the provider says so.`;
+    }
+    case "breaker":
+      return `OmniRoute sends ${provider} requests again now, instead of waiting out the pause. If ${provider} still fails, it pauses again.`;
+  }
+}
+
+// ---------------------------------------------------------------- Codex row
+
+/**
+ * What the Providers tab says about Codex first, before any switch: whether
+ * OmniRoute has Codex accounts and where their models already are. The
+ * "Codex via OmniRoute" provider and the built-in re-route are extras on top.
+ * `accounts` is null when this key can't see OmniRoute's accounts.
+ */
+export function codexRowState(input: { accounts: number | null; models: number; synced: boolean }): { state: "connected" | "unsynced" | "none" | "models-only" | "unknown"; text: string; tone: "success" | "neutral" | "warning" } {
+  const { accounts, models, synced } = input;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  if (accounts !== null && accounts > 0) {
+    const where = synced && models > 0 ? `their ${plural(models, "model")} are in the AI Router provider.` : "sync the models (Models tab) to put them in the AI Router provider.";
+    return { state: synced && models > 0 ? "connected" : "unsynced", text: `${plural(accounts, "Codex account")} connected in OmniRoute; ${where}`, tone: synced && models > 0 ? "success" : "neutral" };
+  }
+  if (accounts === 0) return { state: "none", text: "OmniRoute has no Codex account yet. Add one in its dashboard, then sync.", tone: "warning" };
+  if (models > 0) return { state: "models-only", text: `Codex is in the AI Router provider: ${plural(models, "model")}.`, tone: "success" };
+  return { state: "unknown", text: "This key can't see OmniRoute's accounts. Codex models appear in the AI Router provider once synced, if OmniRoute has a Codex account.", tone: "neutral" };
+}
+
+/** Dollars for the panel: "<$0.01", "$12.34", and whole dollars with separators from $1,000 ("$7,200"). */
+export function formatUsd(n: number): string {
+  if (n > 0 && n < 0.01) return "<$0.01";
+  if (Math.abs(n) >= 1000) return `$${Math.round(n).toLocaleString("en-US")}`;
+  return `$${n.toFixed(2)}`;
+}
+
+// ------------------------------------------------------------- usage window
+
+/** A date as the viewer writes it, "2026-10-05", in their own time zone. */
+export const localYmd = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+/** "2026-10-05" → that day's start (or end) in the viewer's time zone, as ISO; null for anything that isn't a real date. */
+export function localDayIso(text: string, endOfDay = false): string | null {
+  const match = text.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = endOfDay ? new Date(+match[1], +match[2] - 1, +match[3], 23, 59, 59, 999) : new Date(+match[1], +match[2] - 1, +match[3]);
+  return Number.isNaN(date.getTime()) || localYmd(date) !== text.trim() ? null : date.toISOString();
+}
+
+/**
+ * What the Usage tab asks the daemon for. "today" starts at the viewer's own
+ * midnight (stable all day, so it caches); "custom" runs from the start of
+ * `from` to the end of `to`, both local days. Bad dates come back as words.
+ */
+export function usageRequest(range: "today" | "7d" | "30d" | "custom", custom: { from: string; to: string } | null, now: Date): { range: "today" | "7d" | "30d" | "custom"; start?: string; end?: string } | { error: string } {
+  if (range === "7d" || range === "30d") return { range };
+  if (range === "today") return { range, start: localDayIso(localYmd(now))! };
+  const start = localDayIso(custom?.from ?? "");
+  const end = localDayIso(custom?.to ?? "", true);
+  if (!start || !end) return { error: "Write both dates as YYYY-MM-DD." };
+  if (end < start) return { error: "The end date is before the start date." };
+  return { range, start, end };
+}

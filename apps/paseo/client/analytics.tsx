@@ -2,14 +2,16 @@ import React, { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
-import { useQuery } from "@tanstack/react-query";
-import { ANALYTICS_RANGES, usage, type AnalyticsRangeId, type Usage } from "../shared/contracts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ANALYTICS_RANGES, usage, usageKey, type AnalyticsRangeId, type Usage } from "../shared/contracts";
 import { compactNumber as compact, errorWords } from "../shared/routers/omniroute/parsers";
+import { localYmd, usageRequest } from "../shared/logic";
 import { Breakdown, Gate, Notes, money } from "./insights";
-import { Banner, Card, HostIcon, Meta, Note, TYPE, SPACE } from "./ui";
+import { Banner, Button, Card, Chip, Field, HostIcon, Link, Meta, Note, Row, TYPE, SPACE } from "./ui";
 
 type Theme = PluginTheme;
-const RANGE_WORDS: Record<AnalyticsRangeId, string> = { "1d": "24 hours", "7d": "7 days", "30d": "30 days" };
+const RANGE_WORDS: Record<AnalyticsRangeId, string> = { today: "Today", "7d": "7 days", "30d": "30 days", custom: "Custom" };
+type Request = { range: AnalyticsRangeId; start?: string; end?: string };
 
 /**
  * A categorical palette validated for colour-blind separation and contrast on
@@ -69,15 +71,32 @@ const plural = (n: number, word: string) => `${compact(n)} ${word}${n === 1 ? ""
 
 function RangePicker({ theme, range, onChange }: { theme: Theme; range: AnalyticsRangeId; onChange: (next: AnalyticsRangeId) => void }) {
   return (
-    <View accessibilityRole="radiogroup" style={{ flexDirection: "row", alignSelf: "flex-start", gap: SPACE.xs, padding: SPACE.hair, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1, marginBottom: SPACE.row }}>
+    <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", alignSelf: "flex-start", gap: SPACE.xs, padding: SPACE.hair, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 }}>
       {ANALYTICS_RANGES.map((id) => {
         const selected = id === range;
         return (
-          <Pressable key={id} accessibilityRole="radio" accessibilityLabel={`Last ${RANGE_WORDS[id]}`} accessibilityState={{ selected }} onPress={() => onChange(id)} style={{ paddingHorizontal: SPACE.row, paddingVertical: SPACE.sm, borderRadius: 8, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
+          <Pressable key={id} accessibilityRole="radio" accessibilityLabel={id === "today" || id === "custom" ? RANGE_WORDS[id] : `Last ${RANGE_WORDS[id]}`} accessibilityState={{ selected }} onPress={() => onChange(id)} style={{ paddingHorizontal: SPACE.row, paddingVertical: SPACE.sm, borderRadius: 8, backgroundColor: selected ? theme.colors.accent : "transparent" }}>
             <Text style={{ ...TYPE.secondary, color: selected ? theme.colors.accentForeground : theme.colors.foreground, fontWeight: "600" }}>{RANGE_WORDS[id]}</Text>
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/** From and To as local dates, applied together. */
+function CustomDates({ theme, initial, onApply }: { theme: Theme; initial: { from: string; to: string }; onApply: (next: { from: string; to: string }) => void }) {
+  const [from, setFrom] = useState(initial.from);
+  const [to, setTo] = useState(initial.to);
+  const checked = usageRequest("custom", { from, to }, new Date());
+  return (
+    <View style={{ gap: SPACE.sm }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", gap: SPACE.sm }}>
+        <View style={{ flexBasis: 150, flexGrow: 1, maxWidth: 220 }}><Field theme={theme} label="From" value={from} onChangeText={setFrom} placeholder="2026-10-01" /></View>
+        <View style={{ flexBasis: 150, flexGrow: 1, maxWidth: 220 }}><Field theme={theme} label="To" value={to} onChangeText={setTo} placeholder="2026-10-05" /></View>
+        <Button theme={theme} label="Show" primary disabled={"error" in checked} onPress={() => onApply({ from: from.trim(), to: to.trim() })} />
+      </View>
+      {"error" in checked && from.trim() && to.trim() ? <Meta theme={theme}>{checked.error}</Meta> : null}
     </View>
   );
 }
@@ -95,13 +114,13 @@ function Tile({ theme, icon, label, value, sub }: { theme: Theme; icon: string; 
   );
 }
 
-function Tiles({ theme, totals }: { theme: Theme; totals: NonNullable<Usage["totals"]> }) {
+function Tiles({ theme, totals, value }: { theme: Theme; totals: NonNullable<Usage["totals"]>; value: number | null }) {
   const inOut = totals.promptTokens !== null && totals.completionTokens !== null ? `${compact(totals.promptTokens)} in · ${compact(totals.completionTokens)} out` : null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACE.sm, marginBottom: SPACE.md }}>
       <Tile theme={theme} icon="ArrowLeftRight" label="Requests" value={compact(totals.requests)} sub={totals.successRatePct !== null ? `${totals.successRatePct}% succeeded` : null} />
       <Tile theme={theme} icon="Hash" label="Tokens" value={compact(totals.tokens)} sub={inOut} />
-      <Tile theme={theme} icon="Coins" label="Estimated cost" value={money(totals.cost) ?? "$0.00"} sub="as OmniRoute prices it" />
+      <Tile theme={theme} icon="Coins" label="Value" value={money(value) ?? money(totals.cost) ?? "$0.00"} sub={value !== null ? `at API prices · billed ${money(totals.cost) ?? "$0.00"}` : "billed, as OmniRoute prices it"} />
       <Tile theme={theme} icon="Timer" label="Average latency" value={seconds(totals.avgLatencyMs) ?? "—"} sub={totals.fallbackRatePct !== null ? `${totals.fallbackRatePct}% fell back to another model` : null} />
     </View>
   );
@@ -169,7 +188,7 @@ function RequestsPerDay({ theme, trend }: { theme: Theme; trend: Usage["trend"] 
           {[`${day(chosen.date)}: ${plural(chosen.requests, "request")}`, chosen.tokens ? `${compact(chosen.tokens)} tokens` : null, money(chosen.cost)].filter(Boolean).join(" · ")}
         </Text>
       ) : null}
-      <Meta theme={theme}>Tap a day for its numbers. Days run midnight to midnight UTC, as the router counts them.</Meta>
+      <Meta theme={theme}>Tap a day for its numbers. Days are UTC, as the router counts them.</Meta>
     </Card>
   );
 }
@@ -255,7 +274,7 @@ function TopModels({ theme, rows, colors }: { theme: Theme; rows: Usage["byModel
               <Swatch color={colors.get(row.provider ?? "") ?? theme.colors.foregroundMuted} />
               <Text style={{ ...TYPE.body, color: theme.colors.foreground, flexGrow: 1 }}>{row.label}</Text>
               <Text style={{ ...TYPE.secondary, color: failed >= 5 ? theme.colors.statusDanger : theme.colors.foregroundMuted }}>
-                {[plural(row.requests, "request"), row.tokens !== null ? `${compact(row.tokens)} tokens` : null, failed > 0 ? `${failed}% failed` : null, seconds(row.avgLatencyMs ?? null)].filter(Boolean).join(" · ")}
+                {[row.tokens !== null ? `${compact(row.tokens)} tokens` : null, row.value ? `worth ${money(row.value)}` : null, plural(row.requests, "request"), failed > 0 ? `${failed}% failed` : null, seconds(row.avgLatencyMs ?? null)].filter(Boolean).join(" · ")}
               </Text>
             </View>
             <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surface2, overflow: "hidden" }}>
@@ -264,7 +283,7 @@ function TopModels({ theme, rows, colors }: { theme: Theme; rows: Usage["byModel
           </View>
         );
       })}
-      <Meta theme={theme}>The swatch is the model's provider, as in the charts above.</Meta>
+      <Meta theme={theme}>Swatch colour = the model's provider.</Meta>
     </Card>
   );
 }
@@ -333,42 +352,130 @@ function Errors({ theme, errors }: { theme: Theme; errors: Usage["errors"] }) {
   );
 }
 
+type KeyRowData = Usage["byKey"][number];
+
+/** One API key: its share of tokens, what it was worth and was billed; open it for its models. */
+function KeyRow({ theme, row, top, request, open, onToggle }: { theme: Theme; row: KeyRowData; top: number; request: Request; open: boolean; onToggle: () => void }) {
+  const call = useRpc(usageKey);
+  const models = useQuery({ queryKey: ["ai-router", "usage-key", row.id, request], queryFn: () => call({ keyId: row.id!, ...request }), enabled: open && row.id !== null, staleTime: 5 * 60_000 });
+  const figures = [row.tokens !== null ? `${compact(row.tokens)} tokens` : null, row.value ? `worth ${money(row.value)}` : null, row.cost ? `billed ${money(row.cost)}` : null, plural(row.requests, "request")].filter(Boolean).join(" · ");
+  return (
+    <View style={{ gap: SPACE.xs }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${row.label}: ${figures}`} accessibilityState={{ expanded: open }} disabled={row.id === null} onPress={onToggle} style={{ gap: SPACE.xs }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: SPACE.sm, rowGap: SPACE.hair }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.xs, flexShrink: 1 }}>
+            {HostIcon && row.id !== null ? <HostIcon name={open ? "ChevronDown" : "ChevronRight"} size={14} color={theme.colors.foregroundMuted} /> : null}
+            <Text style={{ ...TYPE.body, color: theme.colors.foreground, fontWeight: row.thisDaemon ? "700" : "500", flexShrink: 1 }}>{row.label}</Text>
+            {row.thisDaemon ? <Chip theme={theme} label="this daemon" tone="success" /> : null}
+          </View>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>{figures}</Text>
+        </View>
+        <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surface2, overflow: "hidden" }}>
+          <View style={{ width: `${Math.max(2, ((row.tokens ?? 0) / top) * 100)}%`, height: 6, borderRadius: 3, backgroundColor: row.thisDaemon ? theme.colors.accent : theme.colors.foregroundMuted }} />
+        </View>
+      </Pressable>
+      {open ? (
+        <View style={{ gap: SPACE.xs, paddingLeft: SPACE.md }}>
+          {!models.data ? <Meta theme={theme}>{models.error ? String(models.error) : "Reading its models…"}</Meta> : null}
+          {models.data && models.data.state !== "ok" ? <Meta theme={theme}>{models.data.message}</Meta> : null}
+          {models.data?.state === "ok" && !models.data.models.length ? <Meta theme={theme}>No models in this window.</Meta> : null}
+          {models.data?.models.map((model) => (
+            <View key={`${model.provider}/${model.label}`} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", columnGap: SPACE.sm }}>
+              <Text style={{ ...TYPE.secondary, color: theme.colors.foreground, flexShrink: 1 }}>{model.provider ? `${model.label} · ${model.provider}` : model.label}</Text>
+              <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>{[model.tokens !== null ? `${compact(model.tokens)} tokens` : null, model.value ? `worth ${money(model.value)}` : null].filter(Boolean).join(" · ")}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Who in Paseo uses the router most: one row per API key, and each daemon has its own key. */
+function TopUsers({ theme, rows, request, words }: { theme: Theme; rows: Usage["byKey"]; request: Request; words: string }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  if (!rows.length) return null;
+  const top = Math.max(1, ...rows.map((row) => row.tokens ?? 0));
+  const shown = all ? rows : rows.slice(0, 8);
+  return (
+    <Card theme={theme} title="Who uses the most" icon="Trophy">
+      <Meta theme={theme}>{`One key per daemon, most tokens first, ${words}. Worth = at API prices; billed = what OmniRoute charges. Tap a row for its models.`}</Meta>
+      {shown.map((row) => (
+        <KeyRow key={row.id ?? row.label} theme={theme} row={row} top={top} request={request} open={open === (row.id ?? row.label)} onToggle={() => setOpen(open === (row.id ?? row.label) ? null : row.id ?? row.label)} />
+      ))}
+      {rows.length > 8 ? <Link theme={theme} label={all ? "Show fewer" : `Show all ${rows.length}`} onPress={() => setAll(!all)} /> : null}
+    </Card>
+  );
+}
+
+const shortDay = (iso: string) => new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+/** "today", "the last 7 days", "Oct 1 – Oct 3". */
+function windowWords(request: Request): string {
+  if (request.range === "today") return "today";
+  if (request.range === "custom" && request.start && request.end) return `${shortDay(request.start)} – ${shortDay(request.end)}`;
+  return `the last ${RANGE_WORDS[request.range]}`;
+}
+
 /**
  * Usage & analytics, after OmniRoute's own analytics page: headline numbers,
- * requests and tokens over time, the provider split, top models, daemons and
- * accounts, a year of activity, and what failed. One `/api/usage/analytics`
- * call per range, read with the read token.
+ * who uses the most (one API key per daemon), requests and tokens over time,
+ * the provider split, top models and accounts, a year of activity, and what
+ * failed. Two `/api/usage/analytics` reads per window (billed and at API
+ * prices), cached on the daemon for 5 minutes; a key's models only on tap.
  */
 export function UsageTab({ theme, compact: narrow, initialRange = "7d" }: { theme: Theme; compact: boolean; initialRange?: AnalyticsRangeId }) {
+  const queryClient = useQueryClient();
   const [range, setRange] = useState<AnalyticsRangeId>(initialRange);
+  const [custom, setCustom] = useState(() => {
+    const now = new Date();
+    return { from: localYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 13)), to: localYmd(now) };
+  });
   const call = useRpc(usage);
-  const query = useQuery({ queryKey: ["ai-router", "usage", range], queryFn: () => call({ range }), refetchInterval: 60_000 });
+  const asked = usageRequest(range, custom, new Date());
+  const request: Request = "error" in asked ? { range: "7d" } : asked;
+  const key = ["ai-router", "usage", request];
+  const query = useQuery({ queryKey: key, queryFn: () => call(request), refetchInterval: 5 * 60_000, enabled: !("error" in asked) });
+  const refresh = useMutation({ mutationFn: () => call({ ...request, refresh: true }), onSuccess: (next) => queryClient.setQueryData(key, next) });
   const data = query.data;
   const gate = <Gate theme={theme} title="Usage" data={data} error={query.error} loading={query.isLoading} refetch={() => void query.refetch()} />;
-  const picker = <RangePicker theme={theme} range={range} onChange={setRange} />;
+  const picker = (
+    <View style={{ gap: SPACE.row, marginBottom: SPACE.md }}>
+      <RangePicker theme={theme} range={range} onChange={setRange} />
+      {range === "custom" ? <CustomDates theme={theme} initial={custom} onApply={setCustom} /> : null}
+      {data?.state === "ok" && data.checkedAt ? (
+        <Row>
+          <Meta theme={theme}>{`Updated ${hhmm(data.checkedAt)} · every 5 minutes`}</Meta>
+          <Link theme={theme} label={refresh.isPending ? "Refreshing…" : "Refresh"} onPress={() => { if (!refresh.isPending) refresh.mutate(); }} />
+        </Row>
+      ) : null}
+    </View>
+  );
   if (!data || data.state !== "ok") return <>{picker}{gate}</>;
-  const words = RANGE_WORDS[range];
+  const words = windowWords(request);
   const names = [...data.providerTrend.providers, ...data.byProvider.map((row) => row.label), ...data.byModel.map((row) => row.provider ?? "")].filter((name, i, all) => name && all.indexOf(name) === i);
   const colors = seriesColors(theme, names);
   const empty = data.totals !== null && data.totals.requests === 0;
+  const daily = data.window.days > 2;
   return (
     <>
       {picker}
       {data.stale ? gate : null}
-      {data.totals ? <Tiles theme={theme} totals={data.totals} /> : <Note theme={theme}>The router did not report totals for this range.</Note>}
+      {data.totals ? <Tiles theme={theme} totals={data.totals} value={data.valueTotal} /> : <Note theme={theme}>The router reported no totals for this window.</Note>}
       {empty ? (
-        <Banner theme={theme} tone="neutral" title={`No requests in the last ${words}`}>
-          <Note theme={theme}>Nothing has gone through the router with any key in this range. Once an agent uses it, it shows here within a minute.</Note>
+        <Banner theme={theme} tone="neutral" title={`No requests ${words}`}>
+          <Meta theme={theme}>Nothing went through the router in this window. New use shows here within 5 minutes.</Meta>
         </Banner>
       ) : (
         <>
-          {range === "1d" ? <Note theme={theme}>Daily charts start at 7 days; the numbers above cover the last 24 hours.</Note> : null}
-          {range !== "1d" ? <RequestsPerDay key={`requests-${range}`} theme={theme} trend={data.trend} /> : null}
-          {range !== "1d" ? <TokensByProvider key={`tokens-${range}`} theme={theme} trend={data.providerTrend} colors={colors} /> : null}
+          <TopUsers theme={theme} rows={data.byKey} request={request} words={words} />
+          {daily ? <RequestsPerDay key={`requests-${JSON.stringify(request)}`} theme={theme} trend={data.trend} /> : null}
+          {daily ? <TokensByProvider key={`tokens-${JSON.stringify(request)}`} theme={theme} trend={data.providerTrend} colors={colors} /> : null}
           <ProviderSplit theme={theme} rows={data.byProvider} colors={colors} />
           <TopModels theme={theme} rows={data.byModel} colors={colors} />
-          <Breakdown theme={theme} icon="Server" title="By daemon" why={`One API key per daemon, so each row is one Paseo machine. Last ${words}.`} rows={data.byDaemon} />
-          <Breakdown theme={theme} icon="Users" title="By account" why={`Which subscription served the requests. Last ${words}.`} rows={data.byAccount} />
+          <Breakdown theme={theme} icon="Users" title="By account" why={`Which subscription served the requests, ${words}.`} rows={data.byAccount} />
           <Errors theme={theme} errors={data.errors} />
         </>
       )}

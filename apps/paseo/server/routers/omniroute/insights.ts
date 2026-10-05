@@ -1,4 +1,5 @@
-import type { Access, Accounts, AnalyticsRangeId, Compression, RouterSettings, Tunnels, Usage } from "../../../shared/contracts";
+import { randomUUID } from "node:crypto";
+import type { Access, Accounts, Compression, RouterSettings, Tunnels, Usage, UsageKey } from "../../../shared/contracts";
 import {
   activeTunnel,
   describeAccountTest,
@@ -24,7 +25,18 @@ import {
   findOwnKey,
   parseAccounts,
   parseByAccount,
-  parseByDaemon,
+  parseByKey,
+  parseKeyModels,
+  modelValues,
+  usageWindow,
+  analyticsPath,
+  parseAutopilot,
+  findAutopilotAction,
+  describeReset,
+  resetCreditPath,
+  AUTOPILOT_ACTIONS,
+  type UsageWindow,
+  type UsageWindowInput,
   parseRouterStrip,
   parseTopModels,
   parseTotals,
@@ -47,11 +59,15 @@ import { AUTO_COMBO_DEFAULT, AUTO_COMBO_KINDS, CUSTOM_COMBO_LOOK, RECOMMENDED_CO
 import { bearer, getJson, recentlyDown } from "./health";
 
 const TIMEOUT_MS = 10_000;
-/** The panel polls accounts every 30s and usage every 60s; answers younger than this are reused. */
+/**
+ * The panel polls accounts every 30 s; answers younger than this are reused.
+ * Usage reads `/api/usage/analytics`, which takes OmniRoute 1–3 s, so the
+ * panel asks every 5 minutes and answers are reused for as long.
+ */
 const ACCOUNTS_MAX_AGE_MS = 25_000;
-const USAGE_MAX_AGE_MS = 55_000;
+const USAGE_MAX_AGE_MS = 5 * 60_000;
 
-type Got = { ok: true; body: unknown } | { ok: false; error: string };
+type Got = { ok: true; body: unknown } | { ok: false; error: string; status: number | null; body: unknown };
 
 /**
  * One management call: a GET with the read token (or the manage key, which
@@ -66,10 +82,10 @@ async function read(connection: Connection, path: string, write?: { method: stri
     const init = write ? { method: write.method, ...(write.body !== undefined ? { body: JSON.stringify(write.body) } : {}) } : {};
     const { status, body, challenge } = await getJson(url, headers, timeoutMs, init);
     if (status === 200) return { ok: true, body };
-    if (status === 401 && isBasicAuthChallenge(challenge)) return { ok: false, error: describeConsoleLock(url, path) };
-    return { ok: false, error: describeManagementStatus(status, body, path, write || !connection.token ? "manage key" : "read token") };
+    if (status === 401 && isBasicAuthChallenge(challenge)) return { ok: false, error: describeConsoleLock(url, path), status, body: null };
+    return { ok: false, error: describeManagementStatus(status, body, path, write || !connection.token ? "manage key" : "read token"), status, body };
   } catch (error) {
-    return { ok: false, error: describeFetchError(error, url, timeoutMs) };
+    return { ok: false, error: describeFetchError(error, url, timeoutMs), status: null, body: null };
   }
 }
 
@@ -131,53 +147,98 @@ export async function getAccounts(connection: Connection, refresh: boolean): Pro
 
 async function loadAccounts(connection: Connection): Promise<Omit<Accounts, "canAct">> {
   {
-    const [providers, rateLimits, limits, health, stats, matrix, expiration] = await Promise.all(
-      ["/api/providers", "/api/rate-limits", "/api/usage/provider-limits", "/api/monitoring/health", "/api/provider-stats", "/api/providers/health-matrix", "/api/providers/expiration"].map((path) => read(connection, path)),
+    // health-autopilot is a light read (OmniRoute's own state, no provider calls): it says which resets apply now.
+    const [providers, rateLimits, limits, health, stats, matrix, expiration, autopilot] = await Promise.all(
+      ["/api/providers", "/api/rate-limits", "/api/usage/provider-limits", "/api/monitoring/health", "/api/provider-stats", "/api/providers/health-matrix", "/api/providers/expiration", "/api/providers/health-autopilot"].map((path) => read(connection, path)),
     );
     const notes: string[] = [];
     const note = (got: Got, what: string) => (got.ok ? got.body : (notes.push(`${what} unavailable: ${got.error}`), null));
     const router = health.ok || stats.ok ? parseRouterStrip(note(health, "Circuit breakers"), note(stats, "Provider stats")) : null;
+    // A 404 is an OmniRoute without the autopilot: no cooldown buttons, and nothing worth a note.
+    const actions = autopilot.ok ? parseAutopilot(autopilot.body) : (autopilot.status !== 404 && note(autopilot, "Reset buttons"), []);
+    for (const paused of router?.paused ?? []) paused.canResume = findAutopilotAction(actions, "breaker", { provider: paused.provider }) !== null;
     // A paused provider is the one thing worth an extra call: its newest error says why.
     for (const paused of router?.paused ?? []) {
       const logs = await read(connection, `/api/usage/call-logs?status=error&limit=1&provider=${encodeURIComponent(paused.provider)}`);
       paused.lastError = logs.ok ? lastCallError(logs.body) : `unavailable (${logs.error})`;
     }
     if (!providers.ok) return { ...base, state: "error", message: `Accounts: ${providers.error}`, checkedAt: new Date().toISOString(), notes, accounts: [], router };
-    const accountsList = parseAccounts({ providers: providers.body, rateLimits: note(rateLimits, "Cooldowns"), limits: note(limits, "Quota bars"), now: Date.now() });
+    const accountsList = parseAccounts({ providers: providers.body, rateLimits: note(rateLimits, "Cooldowns"), limits: note(limits, "Quota bars"), autopilot: autopilot.ok ? autopilot.body : null, now: Date.now() });
     const withHealth = withAccountHealth(accountsList, parseHealthMatrix(note(matrix, "24-hour health")), parseExpiration(note(expiration, "Expiry dates")));
     return { ...base, checkedAt: new Date().toISOString(), notes, accounts: withHealth, router };
   }
 }
 
-export async function getUsage(connection: Connection, refresh: boolean, range: AnalyticsRangeId = "7d"): Promise<Usage> {
-  const empty = { range, totals: null, trend: [], providerTrend: { providers: [], days: [] }, byModel: [], byProvider: [], byAccount: [], byDaemon: [], errors: [], activity: [], busiestWeekday: null, ownKey: null };
+const NO_USAGE = { totals: null, trend: [], providerTrend: { providers: [], days: [] }, byModel: [], byProvider: [], byAccount: [], byKey: [], valueTotal: null, errors: [], activity: [], busiestWeekday: null, ownKey: null };
+
+/** Usage for one window: OmniRoute's billed numbers and, beside them, the same window priced at API rates. */
+export async function getUsage(connection: Connection, refresh: boolean, input: UsageWindowInput = {}): Promise<Usage> {
+  const range = input.range ?? "7d";
+  const settled = usageWindow(input, Date.now());
+  const shape = (window: UsageWindow | null) => ({ range, window: { start: window?.start ?? null, end: window?.end ?? null, days: window?.dates.length ?? 0 }, ...NO_USAGE });
+  if (!settled.ok) return { ...base, state: "error", message: settled.error, checkedAt: new Date().toISOString(), ...shape(null) };
+  const { window } = settled;
+  const empty = shape(window);
   const stop = precheck(connection);
   if (stop) return { ...base, ...stop, ...empty };
-  const key = `usage\n${range}\n${connection.endpoint}\n${readKey(connection)}`;
+  // "today" moves with the clock only at the viewer's midnight, so the start makes a stable key.
+  const key = `usage\n${analyticsPath(window)}\n${connection.endpoint}\n${readKey(connection)}`;
   const down = whileDown<Usage>(connection, key, "Usage", empty);
   if (down) return down;
-  return cached(key, refresh ? 0 : USAGE_MAX_AGE_MS, async () => keepOrFallBack(key, await loadUsage(connection, range, empty)));
+  return cached(key, refresh ? 0 : USAGE_MAX_AGE_MS, async () => keepOrFallBack(key, await loadUsage(connection, window, empty)));
 }
 
-/** One `/api/usage/analytics` call for the range, plus `/api/keys` to find this daemon's row. */
-async function loadUsage(connection: Connection, range: AnalyticsRangeId, empty: Omit<Usage, keyof typeof base | "state">): Promise<Usage> {
-  const [analytics, keys] = await Promise.all([`/api/usage/analytics?range=${range}`, "/api/keys"].map((path) => read(connection, path)));
+/** Two `/api/usage/analytics` calls for the window (billed, and priced at API rates), plus the cached key list to mark this daemon's row. */
+async function loadUsage(connection: Connection, window: UsageWindow, empty: Omit<Usage, keyof typeof base | "state">): Promise<Usage> {
+  const [analytics, valued, own] = await Promise.all([read(connection, analyticsPath(window)), read(connection, analyticsPath(window, { value: true })), ownKeyOf(connection).catch(() => null)]);
   const checkedAt = new Date().toISOString();
   if (!analytics.ok) return { ...base, state: "error", message: `Usage: ${analytics.error}`, checkedAt, ...empty };
   const notes: string[] = [];
-  const own = keys.ok ? findOwnKey(keys.body, connection.apiKey) : null;
-  if (!keys.ok) notes.push(`Could not tell which key is this daemon's: ${keys.error}`);
-  else if (!own) notes.push("This daemon's API key is not in OmniRoute's key list, so its row is not highlighted.");
+  if (!valued.ok) notes.push(`Value at API prices unavailable: ${valued.error}`);
+  if (!own) notes.push("This daemon's API key is not in OmniRoute's key list, so its row is not highlighted.");
+  const parsed = parseAnalytics(analytics.body, window, Date.now());
+  const prices = valued.ok ? modelValues(valued.body) : new Map<string, number>();
+  const valueTotal = valued.ok ? ((valued.body as { summary?: { totalCost?: unknown } } | null)?.summary?.totalCost ?? null) : null;
   return {
     ...base,
+    ...empty,
     checkedAt,
     notes,
-    range,
-    ...parseAnalytics(analytics.body, range, Date.now()),
+    ...parsed,
+    byModel: parsed.byModel.map((row) => ({ ...row, value: prices.get(`${row.provider ?? ""}/${row.label}`) ?? null })),
     byAccount: parseByAccount(analytics.body),
-    byDaemon: parseByDaemon(analytics.body, own),
+    byKey: parseByKey(analytics.body, valued.ok ? valued.body : null, own),
+    valueTotal: typeof valueTotal === "number" ? valueTotal : null,
     ownKey: own?.name ?? null,
   };
+}
+
+/** One key's models in the window, priced at API rates: read only when someone opens that key's row. */
+export async function getUsageKey(connection: Connection, keyId: string, input: UsageWindowInput): Promise<UsageKey> {
+  const settled = usageWindow(input, Date.now());
+  if (!settled.ok) return { state: "error", message: settled.error, models: [] };
+  const stop = precheck(connection);
+  if (stop) return { ...stop, models: [] };
+  const down = recentlyDown(connection);
+  if (down) return { state: "error", message: `Usage: ${down}`, models: [] };
+  const path = analyticsPath(settled.window, { value: true, keyId });
+  return cached(`usage-key\n${path}\n${connection.endpoint}\n${readKey(connection)}`, USAGE_MAX_AGE_MS, async () => {
+    const got = await read(connection, path);
+    return got.ok ? { state: "ok" as const, message: null, models: parseKeyModels(got.body) } : { state: "error" as const, message: `Usage: ${got.error}`, models: [] };
+  });
+}
+
+const CODEX_COUNT_MAX_AGE_MS = 5 * 60_000;
+
+/** Active Codex accounts in OmniRoute, for the Providers tab; null without a read token or when the router won't say. */
+export async function countCodexAccounts(connection: Connection): Promise<number | null> {
+  if (precheck(connection) || recentlyDown(connection)) return null;
+  return cached(`codex-accounts\n${connection.endpoint}\n${readKey(connection)}`, CODEX_COUNT_MAX_AGE_MS, async () => {
+    const got = await read(connection, "/api/providers");
+    if (!got.ok) return null;
+    const connections = (got.body as { connections?: unknown } | null)?.connections;
+    return Array.isArray(connections) ? connections.filter((row) => (row as { provider?: unknown })?.provider === "codex" && (row as { isActive?: unknown })?.isActive !== false).length : null;
+  });
 }
 
 // ------------------------------------------------------------------ models
@@ -390,6 +451,38 @@ export async function checkAllAccounts(connection: Connection): Promise<{ ok: bo
   return { ok, message };
 }
 
+type ResetInput = { kind: "cooldown" | "error" | "lockout" | "codex-cooldown" | "credit" | "breaker"; provider: string; id?: string; model?: string | null; name: string };
+
+/**
+ * One reset, with the manage key, after the panel asked first. Autopilot
+ * resets are looked up fresh and sent with OmniRoute's own precondition
+ * hash, so a reset never lands on an account that changed in between.
+ */
+export async function resetAccount(connection: Connection, input: ResetInput): Promise<{ ok: boolean; message: string }> {
+  if (!connection.manageKey) return { ok: false, message: NEEDS_MANAGE };
+  const down = recentlyDown(connection);
+  if (down) return { ok: false, message: `${input.name}: ${down}.` };
+  let got: Got;
+  if (input.kind === "codex-cooldown") {
+    if (!input.id) return { ok: false, message: `${input.name}: no account given.` };
+    got = await read(connection, "/api/providers/codex-cooldown", { method: "POST", body: { connectionId: input.id } });
+  } else if (input.kind === "credit") {
+    const path = resetCreditPath(input.provider);
+    if (!path || !input.id) return { ok: false, message: `${input.name}: this provider has no reset credits.` };
+    // A fresh idempotency key per confirmed press: a retried request can't spend a second credit.
+    got = await read(connection, path, { method: "POST", body: { connectionId: input.id, idempotencyKey: randomUUID() }, timeoutMs: 60_000 });
+  } else {
+    const report = await read(connection, `/api/providers/health-autopilot?provider=${encodeURIComponent(input.provider)}&includeHealthy=true`, { method: "GET" });
+    if (!report.ok) return { ok: false, message: `${input.name}: ${report.error}` };
+    const action = findAutopilotAction(parseAutopilot(report.body), input.kind, { provider: input.provider, id: input.id ?? null, model: input.model ?? null });
+    cache.clear();
+    if (!action) return { ok: false, message: `${input.name} no longer needs this; OmniRoute has nothing to reset.` };
+    got = await read(connection, "/api/providers/health-autopilot/actions", { method: "POST", body: { type: AUTOPILOT_ACTIONS[input.kind], target: { provider: action.target.provider, ...(action.target.connectionId ? { connectionId: action.target.connectionId } : {}), ...(action.target.model ? { model: action.target.model } : {}) }, preconditionsHash: action.hash, confirm: true } });
+  }
+  cache.clear();
+  return describeReset(input.kind, got.ok, got.body, input.name);
+}
+
 // ---------------------------------------------------------------- tunnels
 
 const TUNNEL_IDS: TunnelId[] = ["cloudflared", "ngrok", "tailscale"];
@@ -405,7 +498,7 @@ export async function getTunnels(connection: Connection, refresh: boolean): Prom
   if (down) return { state: "error", message: `Tunnels: ${down}`, tunnels: tunnelsSeen?.key === key ? tunnelsSeen.tunnels : [] };
   return cached(key, refresh ? 0 : TUNNELS_MAX_AGE_MS, async () => {
     const got = await Promise.all(TUNNEL_IDS.map((id) => read(connection, `/api/tunnels/${id}`, { method: "GET" })));
-    const failed = got.find((answer): answer is { ok: false; error: string } => !answer.ok);
+    const failed = got.find((answer): answer is Extract<Got, { ok: false }> => !answer.ok);
     const tunnels = got.flatMap((answer, index) => (answer.ok ? [parseTunnel(TUNNEL_IDS[index], answer.body)] : []));
     tunnelsSeen = { key, at: Date.now(), tunnels };
     if (!tunnels.length && failed) return { state: "error" as const, message: `Tunnels: ${failed.error}`, tunnels };

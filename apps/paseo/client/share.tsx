@@ -19,7 +19,7 @@ export function ShareCard({ theme, data, say }: { theme: Theme; data: Status; sa
   if (!publicUrl) {
     return (
       <Card theme={theme} title="Share this router" icon="Share2">
-        <Note theme={theme}>Set a public address (custom domain) under Edit, and this card shows how others connect to the router from outside your network.</Note>
+        <Note theme={theme}>Set a public address (custom domain) under Edit to see how others connect from outside your network.</Note>
       </Card>
     );
   }
@@ -27,7 +27,7 @@ export function ShareCard({ theme, data, say }: { theme: Theme; data: Status; sa
   return (
     <Card theme={theme} title="Share this router" icon="Share2" subtitle="How other people and apps can use this router">
       <Fact theme={theme} label="Endpoint" value={publicUrl} />
-      <Fact theme={theme} label="API key" value="Ask your router admin for your own key, one per person or machine, so usage shows per key." />
+      <Fact theme={theme} label="API key" value="Your own, from the router admin: one per person or machine, so usage shows per key." />
       {check && check.state !== "ok" && check.state !== "checking" ? <Note theme={theme} tone="warning">{`The public address is not ready yet: ${check.label}. These work once it is.`}</Note> : null}
       {shareSnippets(publicUrl).map((snippet) => (
         <View key={snippet.id} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>

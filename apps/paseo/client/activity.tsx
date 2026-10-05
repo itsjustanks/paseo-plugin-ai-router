@@ -59,8 +59,8 @@ function Sessions({ theme, sessions, openAgent }: { theme: Theme; sessions: Acti
   const [all, setAll] = useState(false);
   const shown = all ? sessions : sessions.slice(0, 8);
   return (
-    <Card theme={theme} title="Agent sessions on this daemon" icon="Bot" subtitle="Every chat that started here, and whether it used the router">
-      <Note theme={theme}>Each time an agent starts or resumes here, AI Router decides whether it goes through the router. Kept for the last 200.</Note>
+    <Card theme={theme} title="Agent sessions on this daemon" icon="Bot">
+      <Meta theme={theme}>Every chat that started or resumed here, and whether it used the router. The last 200 are kept.</Meta>
       {!sessions.length ? <Note theme={theme}>No agent has started on this daemon since AI Router was installed.</Note> : null}
       {shown.map((s, i) => (
         <View key={`${s.at}-${s.agentId}-${i}`} style={{ gap: SPACE.xs, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
@@ -207,10 +207,10 @@ export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; d
         </Card>
       ) : (
         <Banner theme={theme} tone="neutral" title="More with a read token">
-          <Note theme={theme}>A read token adds every request the router served: the model and account it used, fallbacks, combos, errors, and the agent that sent it.</Note>
+          <Note theme={theme}>A read token adds every request the router served: model, account, fallbacks, errors and the agent that sent it.</Note>
         </Banner>
       )}
-      {data.plugins.installed.includes("activity") ? <Note theme={theme}>This is traffic through OmniRoute. For this daemon's own usage analytics (tools, agents, messages, models), open the Activity plugin.</Note> : null}
+      {data.plugins.installed.includes("activity") ? <Meta theme={theme}>For this daemon's own analytics (tools, agents, messages), open the Activity plugin.</Meta> : null}
     </>
   );
 }

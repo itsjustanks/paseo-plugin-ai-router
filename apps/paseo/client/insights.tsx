@@ -3,19 +3,20 @@ import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { accountAction, accounts, accountsCheckAll, routerSettings, settingApply, type Accounts, type Status, type Usage } from "../shared/contracts";
+import { accountAction, accountReset, accounts, accountsCheckAll, routerSettings, settingApply, type Accounts, type Status, type Usage } from "../shared/contracts";
 import { accountsHeadline, compactNumber as compact, healthLine, providerLabel, quotaName } from "../shared/routers/omniroute/parsers";
-import { CODEX_LOGIN_PORT, dashboardLink, formatUptime, providerDashboardPage } from "../shared/logic";
+import { CODEX_LOGIN_PORT, dashboardLink, formatUptime, formatUsd, providerDashboardPage, resetLabel, resetQuestion, type ResetKind } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
 import { dashboardTarget, useLinks } from "./dashboard";
 import { openInBrowser } from "./links";
 import type { Message } from "./setup";
-import { Banner, Button, Card, Chip, HostIcon, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone, SPACE } from "./ui";
+import { Banner, Button, Card, Chip, Disclosure, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-export const money = (n: number | null) => (n === null || n <= 0 ? null : n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
+/** A positive amount in dollars, or null when there is nothing to show. */
+export const money = (n: number | null) => (n === null || n <= 0 ? null : formatUsd(n));
 const tone = (pct: number): Tone => (pct <= 10 ? "danger" : pct <= 30 ? "warning" : "success");
 
 export function Bar({ theme, pct, color }: { theme: Theme; pct: number; color: string }) {
@@ -60,7 +61,7 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 function RouterHealth({ theme, router, version, uptime }: { theme: Theme; router: Accounts["router"]; version: string | null; uptime: number | null }) {
   if (!router && !version) return null;
   return (
-    <Card theme={theme} title="Router health" icon="HeartPulse" subtitle="How the router itself is doing">
+    <Card theme={theme} title="Router health" icon="HeartPulse">
       <Row>
         {router?.breakers ? <Chip theme={theme} label={router.breakers.text} tone={router.breakers.tone} /> : null}
         {version ? <Chip theme={theme} label={`version ${version}`} /> : null}
@@ -79,14 +80,22 @@ function RouterHealth({ theme, router, version, uptime }: { theme: Theme; router
   );
 }
 
-/** Paseo 0.11+ daemons put each account on Paseo's own Usage page too; say where. */
+/** Paseo 0.11+ daemons put each account on Paseo's own Usage page too; say where, once. */
 function NativeUsageNote({ theme }: { theme: Theme }) {
+  return <Meta theme={theme}>Also on Paseo's Usage page (Settings → Usage), where a limit can be pinned to the sidebar.</Meta>;
+}
+
+type ResetAsk = { kind: ResetKind | "breaker"; provider: string; id?: string; model: string | null; name: string; credits: number | null };
+
+/** The question a reset asks before it runs, with its confirm and cancel. */
+function ResetConfirm({ theme, ask, busy, onConfirm, onCancel }: { theme: Theme; ask: ResetAsk; busy: boolean; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.sm }}>
-      {HostIcon ? <View style={{ paddingTop: SPACE.hair }}><HostIcon name="Gauge" size={16} color={theme.colors.accent} /></View> : null}
-      <View style={{ flex: 1 }}>
-        <Note theme={theme}>These accounts and how much of their limits is left also show on Paseo's Usage page (Settings → Usage), where you can pin a limit to the sidebar.</Note>
-      </View>
+    <View style={{ gap: SPACE.sm }}>
+      <Note theme={theme} tone="warning">{resetQuestion(ask.kind, { name: ask.name, provider: providerLabel(ask.provider), model: ask.model, credits: ask.credits })}</Note>
+      <Row>
+        <Button theme={theme} label={resetLabel(ask.kind, ask.model)} primary busy={busy} onPress={onConfirm} />
+        <Button theme={theme} label="Cancel" onPress={onCancel} />
+      </Row>
     </View>
   );
 }
@@ -112,6 +121,14 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
   const fail = (error: unknown) => say({ text: errorText(error), tone: "danger" });
   const action = useMutation({ mutationFn: (input: { action: "test" | "refresh"; id: string; name: string }) => callAction(input), onSuccess: done, onError: fail });
   const all = useMutation({ mutationFn: () => callAll({}), onSuccess: done, onError: fail });
+  const callReset = useRpc(accountReset);
+  const [asking, setAsking] = React.useState<ResetAsk | null>(null);
+  const reset = useMutation({
+    mutationFn: (ask: ResetAsk) => callReset({ kind: ask.kind, provider: ask.provider, id: ask.id, model: ask.model, name: ask.name, confirm: true }),
+    onSuccess: (result) => { setAsking(null); done(result); },
+    onError: (error) => { setAsking(null); fail(error); },
+  });
+  const confirmFor = (match: (ask: ResetAsk) => boolean) => (asking && match(asking) ? <ResetConfirm theme={theme} ask={asking} busy={reset.isPending} onConfirm={() => reset.mutate(asking)} onCancel={() => setAsking(null)} /> : null);
   const data = query.data;
   const version = status.health?.version ?? null;
   const uptime = status.health?.uptimeSeconds ?? null;
@@ -126,21 +143,30 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
   return (
     <>
       {gate}
-      {paused.map((p) => (
-        <Banner key={p.provider} theme={theme} tone="danger" title={`${providerLabel(p.provider)} traffic paused by OmniRoute's circuit breaker`}>
-          <Note theme={theme}>{`Last error: ${p.lastError ?? "not recorded"}`}</Note>
-          <Note theme={theme}>{`${providerLabel(p.provider)} requests fail until OmniRoute tries again${p.retryAfterMs ? ` in ${Math.ceil(p.retryAfterMs / 1000)} s` : ""}. Other providers keep working.${data?.canAct ? " The Settings tab can reset it." : ""}`}</Note>
-        </Banner>
-      ))}
+      {paused.map((p) => {
+        const name = providerLabel(p.provider);
+        const ask: ResetAsk = { kind: "breaker", provider: p.provider, model: null, name, credits: null };
+        return (
+          <Banner key={p.provider} theme={theme} tone="danger" title={`${name} paused after errors`}>
+            <Note theme={theme}>{`${name} requests fail until OmniRoute retries${p.retryAfterMs ? ` in ${Math.ceil(p.retryAfterMs / 1000)} s` : ""}; other providers work. Last error: ${p.lastError ?? "not recorded"}`}</Note>
+            {data?.canAct && p.canResume && !(asking?.kind === "breaker" && asking.provider === p.provider) ? <Row><Button theme={theme} label={resetLabel("breaker")} icon="Play" onPress={() => setAsking(ask)} /></Row> : null}
+            {confirmFor((a) => a.kind === "breaker" && a.provider === p.provider)}
+          </Banner>
+        );
+      })}
       {data && head && !paused.length ? <Banner theme={theme} tone={head.tone === "success" ? "success" : head.tone === "neutral" ? "neutral" : "warning"} title={head.text} /> : null}
       {data && head ? (
-        <Card theme={theme} title="Accounts" icon="Users" subtitle="Each AI subscription signed in on the router">
+        <Card theme={theme} title="Accounts" icon="Users">
           {status.nativeUsage ? <NativeUsageNote theme={theme} /> : null}
           <Row>
             {data.canAct ? <Button theme={theme} label="Check all" icon="RefreshCw" busy={all.isPending} onPress={() => all.mutate()} /> : null}
             {addPage ? <Link theme={theme} label="Add account" onPress={() => void links.open(addPage)} /> : null}
           </Row>
-          {hasCodex ? <Meta theme={theme}>{`Codex sign-in in the dashboard calls back to port ${CODEX_LOGIN_PORT} on the computer with the browser. If the dashboard runs elsewhere, forward that port too: ssh -L ${CODEX_LOGIN_PORT}:127.0.0.1:${CODEX_LOGIN_PORT} <router-host>.`}</Meta> : null}
+          {hasCodex ? (
+            <Disclosure theme={theme} quiet label="Signing in Codex from another computer?">
+              <Meta theme={theme}>{`Codex sign-in calls back to port ${CODEX_LOGIN_PORT} on the computer with the browser. Forward it too: ssh -L ${CODEX_LOGIN_PORT}:127.0.0.1:${CODEX_LOGIN_PORT} <router-host>`}</Meta>
+            </Disclosure>
+          ) : null}
           {data.accounts.map((account, index) => {
             const isPaused = paused.some((p) => p.provider === account.provider);
             const relogin = providerDashboardPage(dashboard, account.provider);
@@ -164,13 +190,20 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
                   <Bar theme={theme} pct={quota.remainingPct} color={toneColor(theme, tone(quota.remainingPct))} />
                 </View>
               ))}
-              {account.quotas.length === 0 && account.state !== "disabled" ? <Note theme={theme}>No quota reported for this account yet.</Note> : null}
-              {account.health ? <Note theme={theme} tone={account.health.state === "healthy" ? "neutral" : "warning"}>{healthLine(account.health)}</Note> : null}
+              {account.quotas.length === 0 && account.state !== "disabled" ? <Meta theme={theme}>No quota reported yet.</Meta> : null}
+              {account.resetCredits ? <Meta theme={theme}>{`${account.resetCredits} usage-limit reset credit${account.resetCredits === 1 ? "" : "s"} banked`}</Meta> : null}
+              {account.health ? <Meta theme={theme}>{healthLine(account.health)}</Meta> : null}
               <Row>
                 {data.canAct ? <Button theme={theme} label="Check now" icon="Stethoscope" busy={busy(account.id, "test")} onPress={() => action.mutate({ action: "test", id: account.id, name: account.shortName })} /> : null}
                 {data.canAct && account.authType === "oauth" ? <Button theme={theme} label="Refresh token" busy={busy(account.id, "refresh")} onPress={() => action.mutate({ action: "refresh", id: account.id, name: account.shortName })} /> : null}
+                {data.canAct
+                  ? account.resets.map((r) => (
+                      <Button key={`${r.kind}/${r.model ?? ""}`} theme={theme} label={resetLabel(r.kind, r.model)} icon={r.kind === "credit" ? "RotateCcw" : "TimerReset"} disabled={reset.isPending} onPress={() => setAsking({ kind: r.kind, provider: account.provider, id: account.id, model: r.model, name: account.shortName, credits: account.resetCredits })} />
+                    ))
+                  : null}
                 {relogin && (account.problem === "re-login required" || account.expiry?.status === "expired" || account.expiry?.status === "expiring_soon") ? <Link theme={theme} label="Re-login in dashboard" onPress={() => void links.open(relogin)} /> : null}
               </Row>
+              {confirmFor((a) => a.kind !== "breaker" && a.id === account.id)}
             </View>
             );
           })}
@@ -188,7 +221,7 @@ export function Breakdown({ theme, title, why, rows, icon }: { theme: Theme; tit
   const top = Math.max(1, ...rows.map((row) => row.requests));
   return (
     <Card theme={theme} title={title} icon={icon}>
-      <Note theme={theme}>{why}</Note>
+      <Meta theme={theme}>{why}</Meta>
       {rows.map((row) => (
         <View key={row.label} style={{ gap: SPACE.hair }}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: SPACE.sm }}>

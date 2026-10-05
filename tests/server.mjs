@@ -54,6 +54,20 @@ const managed = {
 for (const path of ["/api/settings", "/api/context/combos/default", "/api/analytics/compression", "/api/resilience", "/api/resilience/model-cooldowns", "/api/combos/auto"]) managed[path] = settingsFixtures[path].body;
 const compressionSettings = { enabled: false, engines: { lite: { enabled: false }, caveman: { enabled: false, level: "full" } }, exclusions: [] };
 const writes = [];
+// /api/usage/analytics for any window: the week's capture, priced at API rates when asked (includeFlatRateEstimates).
+const analyticsQueries = [];
+const priced = (body) => ({ ...body, summary: { ...body.summary, totalCost: 42.5 }, byApiKey: (body.byApiKey ?? []).map((row) => ({ ...row, cost: row.apiKeyId === "k1" ? 30 : 12.5 })), byModel: (body.byModel ?? []).map((row) => ({ ...row, cost: 21.25 })) });
+function analyticsAnswer(params) {
+  analyticsQueries.push(Object.fromEntries(params));
+  const base = params.get("range") === "1d" ? fixtures["/api/usage/analytics?range=7d"].body : week;
+  return params.get("includeFlatRateEstimates") === "true" ? priced(base) : base;
+}
+// Health autopilot: Claude #1 is cooling down and its breaker is open; the actions carry OmniRoute's precondition hashes.
+const CLAUDE_1 = fixtures["/api/providers"].body.connections[0].id;
+const autopilotBody = { status: "warning", providers: [{ provider: "claude", issues: [
+  { kind: "connection_cooldown", target: { provider: "claude", connectionId: CLAUDE_1 }, actions: [{ type: "clear_connection_cooldown", label: "Clear connection cooldown", risk: "medium", requiresConfirmation: true, target: { provider: "claude", connectionId: CLAUDE_1 }, preconditionsHash: "hash-cooldown-1" }, { type: "deactivate_connection", target: { provider: "claude", connectionId: CLAUDE_1 }, preconditionsHash: "hash-off" }] },
+  { kind: "provider_circuit_open", target: { provider: "claude" }, actions: [{ type: "clear_provider_breaker", target: { provider: "claude" }, preconditionsHash: "hash-breaker" }] },
+] }] };
 // 0.5.0 reads: per-account health and expiry (read token), this key about itself (inference key), tunnels (manage key only).
 managed["/api/providers/health-matrix"] = { providers: [{ provider: "claude", accounts: [{ connectionId: fixtures["/api/providers"].body.connections[0].id, isSynthetic: false, state: "healthy", issueCount: 0, models: [{ model: "claude-sonnet-5", status: "healthy", requests: 10, successes: 10 }] }] }] };
 managed["/api/providers/expiration"] = { summary: { total: 0 }, list: [] };
@@ -146,6 +160,8 @@ const router = createServer((req, res) => {
       if (req.url === "/api/resilience/reset" && req.method === "POST") return send(200, { ok: true, resetCount: 2, message: "Reset 2 circuit breaker(s) and model lockouts" });
       if (/^\/api\/providers\/[^/]+\/test$/.test(req.url)) return send(200, { valid: true, latencyMs: 812, refreshed: false });
       if (/^\/api\/providers\/[^/]+\/refresh$/.test(req.url)) return send(200, { success: true, skipped: true, message: "Rotating-refresh provider: the token refreshes automatically on the next request." });
+      if (req.url === "/api/providers/health-autopilot/actions") return send(200, { success: true, dryRun: false, action: JSON.parse(raw).type, target: JSON.parse(raw).target, changed: {} });
+      if (req.url === "/api/usage/codex-reset-credit") return JSON.parse(raw).connectionId === "codex-2" ? send(409, { ok: false, code: "nothing_to_reset", error: "No exhausted Codex usage limit can be reset right now." }) : send(200, { ok: true, outcome: "reset" });
       if (req.url === "/api/providers/test-batch") return send(200, { mode: "all", results: [{ connectionId: "x", connectionName: "someone@example.com", valid: false, error: "401 token expired" }, { valid: true }], summary: { total: 2, passed: 1, failed: 1 } });
       if (req.url === "/api/tunnels/cloudflared") {
         tunnelStatus.cloudflared = { installed: true, running: true, publicUrl: "https://quiet-river-demo.trycloudflare.com", phase: "running", lastError: null };
@@ -163,6 +179,8 @@ const router = createServer((req, res) => {
     const found = decisions[decodeURIComponent(url.pathname.split("/").pop())];
     return found ? send(200, found) : send(404, { error: "Routing decision not found" });
   }
+  if (url.pathname === "/api/usage/analytics") return auth === `Bearer ${TOKEN}` || manage ? send(200, analyticsAnswer(url.searchParams)) : send(401, { error: "Invalid or expired access token" });
+  if (url.pathname === "/api/providers/health-autopilot") return auth === `Bearer ${TOKEN}` || manage ? send(200, autopilotBody) : send(401, { error: "Invalid or expired access token" });
   if (managed[req.url]) return auth === `Bearer ${TOKEN}` || manage ? send(200, managed[req.url]) : req.url === "/api/settings" && auth === `Bearer ${KEY}` ? refuse() : send(401, { error: "Invalid or expired access token" });
   send(404, { error: "not found" });
 });
@@ -295,17 +313,44 @@ try {
   assert.deepEqual(accounts.accounts.map((a) => [a.shortName, a.state]), [["Claude #1", "healthy"], ["Codex #1", "healthy"], ["Codex #2", "healthy"]]);
   assert.deepEqual(accounts.notes, ["Quota bars unavailable: 404 — /api/usage/provider-limits not found; is OmniRoute older than 3.8?"], "a missing part is named, the rest still shows");
   assert.equal(accounts.router.breakers.text, "No provider paused");
+  analyticsQueries.length = 0;
   const usage = await server.handleUsage({ refresh: true });
   assert.equal(usage.state, "ok");
   assert.equal(usage.range, "7d", "a week unless asked");
   assert.equal(usage.totals.requests, 4);
   assert.deepEqual(usage.providerTrend.providers, ["Claude", "Codex"]);
   assert.equal(usage.trend.length, 7);
-  const day = await server.handleUsage({ refresh: true, range: "1d" });
-  assert.deepEqual([day.range, day.trend.length], ["1d", 2], "each range is its own call and cache");
-  server.UsageSchema.parse(day);
+  assert.deepEqual(analyticsQueries, [{ range: "7d" }, { range: "7d", includeFlatRateEstimates: "true" }], "two reads per window: billed, and at API prices");
+  assert.equal(usage.valueTotal, 42.5);
   assert.equal(usage.ownKey, "daemon-a");
-  assert.deepEqual(usage.byDaemon.map((r) => [r.label, !!r.thisDaemon]), [["daemon-b", false], ["daemon-a", true]]);
+  assert.deepEqual(usage.byKey.map((r) => [r.id, r.label, r.tokens, r.cost, r.value, r.thisDaemon]), [["k1", "daemon-a", 64141, 0.00013, 30, true], ["k2", "daemon-b", 1200, 0, 12.5, false]], "most tokens first, with value and billed cost");
+  assert.ok(usage.byModel.every((row) => row.value === 21.25), "each model carries its value");
+  // The panel polls every 5 minutes; inside that, the same window is never asked again.
+  await server.handleUsage({});
+  assert.equal(analyticsQueries.length, 2, "cached for 5 minutes");
+  // Today: from the viewer's midnight, sent as OmniRoute's startDate.
+  const midnight = new Date(Date.now() - 3 * 3_600_000).toISOString();
+  const today = await server.handleUsage({ refresh: true, range: "today", start: midnight });
+  server.UsageSchema.parse(today);
+  assert.deepEqual([today.range, today.window.start, today.window.end], ["today", midnight, null]);
+  assert.deepEqual(analyticsQueries.slice(2).map((q) => q.startDate), [midnight, midnight]);
+  // Custom dates: start and end, each its own cache.
+  const custom = await server.handleUsage({ range: "custom", start: "2026-09-20T00:00:00.000Z", end: "2026-09-22T23:59:59.999Z" });
+  assert.deepEqual([custom.window.days, custom.trend.map((d) => d.date)], [3, ["2026-09-20", "2026-09-21", "2026-09-22"]]);
+  assert.deepEqual(analyticsQueries.at(-1), { startDate: "2026-09-20T00:00:00.000Z", endDate: "2026-09-22T23:59:59.999Z", includeFlatRateEstimates: "true" });
+  const before = analyticsQueries.length;
+  const backwards = await server.handleUsage({ range: "custom", start: "2026-09-22T00:00:00.000Z", end: "2026-09-20T00:00:00.000Z" });
+  assert.deepEqual([backwards.state, backwards.message], ["error", "The end date is before the start date."]);
+  server.UsageSchema.parse(backwards);
+  assert.equal(analyticsQueries.length, before, "a bad window never reaches the router");
+  // One key's models: only when asked, narrowed to that key, priced at API rates, cached.
+  const keyModels = await server.handleUsageKey({ keyId: "k1", range: "7d" });
+  server.UsageKeySchema.parse(keyModels);
+  assert.equal(keyModels.state, "ok");
+  assert.deepEqual(analyticsQueries.at(-1), { range: "7d", apiKeyIds: "k1", includeFlatRateEstimates: "true" });
+  assert.deepEqual(keyModels.models.map((m) => [m.label, m.value]), [["claude-sonnet-5", 21.25], ["gpt-5.6-terra", 21.25]]);
+  await server.handleUsageKey({ keyId: "k1", range: "7d" });
+  assert.equal(analyticsQueries.length, before + 1, "the drill-down is cached too");
   passed += 1;
 
   // The AI Router provider: models of active accounts only, the key never written, the old Codex entry removed.
@@ -368,7 +413,7 @@ try {
   managed["/api/monitoring/health"] = { ...fixtures["/api/monitoring/health"].body, circuitBreakers: { open: 1, halfOpen: 0, degraded: 0, closed: 1, total: 2 }, providerBreakers: [{ provider: "claude", state: "OPEN", failureCount: 8, retryAfterMs: 30000 }] };
   const pausedAccounts = await server.handleAccounts({ refresh: true });
   server.AccountsSchema.parse(pausedAccounts);
-  assert.deepEqual(pausedAccounts.router.paused, [{ provider: "claude", retryAfterMs: 30000, lastError: "[400] messages.1.output_config: Extra inputs are not permitted" }]);
+  assert.deepEqual(pausedAccounts.router.paused, [{ provider: "claude", retryAfterMs: 30000, lastError: "[400] messages.1.output_config: Extra inputs are not permitted", canResume: true }], "OmniRoute offers to clear this breaker, so Resume now shows");
   const pausedStatus = await server.handleStatus({ refresh: true }, { paseo });
   assert.deepEqual(pausedStatus.health.paused, ["claude"], "the status call carries the open breaker from its own health read");
   assert.equal(pausedAccounts.router.breakers.text, "Claude paused");
@@ -540,9 +585,11 @@ try {
     const tunnelsBasic = await t.mod.handleTunnels({ refresh: true });
     t.mod.TunnelsSchema.parse(tunnelsBasic);
     assert.equal(tunnelsBasic.state, "no-manage-key");
-    for (const answer of [await t.mod.handleAccountAction({ action: "test", id: "x", name: "Claude #1" }), await t.mod.handleAccountsCheckAll(), await t.mod.handleCompressionApply(), await t.mod.handleTunnelSet({ id: "cloudflared", on: true })]) {
+    const writesBefore = writes.length;
+    for (const answer of [await t.mod.handleAccountAction({ action: "test", id: "x", name: "Claude #1" }), await t.mod.handleAccountsCheckAll(), await t.mod.handleCompressionApply(), await t.mod.handleTunnelSet({ id: "cloudflared", on: true }), await t.mod.handleAccountReset({ kind: "credit", provider: "codex", id: "codex-1", name: "Codex #1", confirm: true }), await t.mod.handleAccountReset({ kind: "cooldown", provider: "claude", id: "x", name: "Claude #1", confirm: true })]) {
       assert.deepEqual(answer, { ok: false, message: "Needs a manage key (Connection → Manage key)." }, "admin actions refuse without a manage key");
     }
+    assert.equal(writes.length, writesBefore, "and nothing reached the router");
     noSecrets([status, mine]);
     passed += 1;
   }
@@ -558,6 +605,35 @@ try {
     assert.deepEqual(await t.mod.handleAccountAction({ action: "test", id: accountsAdmin.accounts[0].id, name: "Claude #1" }), { ok: true, message: "Claude #1 answered in 812 ms." });
     assert.match((await t.mod.handleAccountAction({ action: "refresh", id: "codex-1", name: "Codex #1" })).message, /^Codex #1: Rotating-refresh provider/);
     assert.deepEqual(await t.mod.handleAccountsCheckAll(), { ok: false, message: "1 of 2 accounts answered. Failed: so…@example.com (401 token expired)." });
+    // Resets: only what the autopilot offers, sent back with its own hash, and only after the panel asked (confirm).
+    const claude1 = accountsAdmin.accounts.find((a) => a.id === CLAUDE_1);
+    assert.deepEqual(claude1.resets, [{ kind: "cooldown", model: null }]);
+    assert.deepEqual(accountsAdmin.router.paused.map((p) => [p.provider, p.canResume]), [], "no breaker is open in this capture");
+    assert.throws(() => t.mod.accountReset.input.parse({ kind: "cooldown", provider: "claude", id: CLAUDE_1, name: "Claude #1" }), /confirm|true/i, "the RPC refuses without confirm: true");
+    assert.throws(() => t.mod.accountReset.input.parse({ kind: "cooldown", provider: "claude", id: CLAUDE_1, name: "Claude #1", confirm: false }));
+    let w = writes.length;
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "cooldown", provider: "claude", id: CLAUDE_1, name: "Claude #1" }), { ok: false, message: "Not reset: the panel asks first." }, "the handler checks too");
+    assert.equal(writes.length, w);
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "cooldown", provider: "claude", id: CLAUDE_1, name: "Claude #1", confirm: true }), { ok: true, message: "Claude #1 is back in rotation." });
+    assert.deepEqual(writes.slice(w), [{ method: "POST", url: "/api/providers/health-autopilot/actions", body: { type: "clear_connection_cooldown", target: { provider: "claude", connectionId: CLAUDE_1 }, preconditionsHash: "hash-cooldown-1", confirm: true } }]);
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "breaker", provider: "claude", name: "Claude", confirm: true }), { ok: true, message: "Claude resumed: OmniRoute sends its requests again." });
+    assert.deepEqual(writes.at(-1).body, { type: "clear_provider_breaker", target: { provider: "claude" }, preconditionsHash: "hash-breaker", confirm: true });
+    w = writes.length;
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "error", provider: "claude", id: CLAUDE_1, name: "Claude #1", confirm: true }), { ok: false, message: "Claude #1 no longer needs this; OmniRoute has nothing to reset." });
+    assert.equal(writes.length, w, "nothing is sent when OmniRoute doesn't offer it");
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "codex-cooldown", provider: "codex", id: "codex-1", name: "Codex #1", confirm: true }), { ok: true, message: "Codex #1 is back in rotation." });
+    assert.deepEqual(writes.at(-1), { method: "POST", url: "/api/providers/codex-cooldown", body: { connectionId: "codex-1" } });
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "credit", provider: "codex", id: "codex-1", name: "Codex #1", confirm: true }), { ok: true, message: "Codex #1: limit reset with a reset credit." });
+    const credit = writes.at(-1);
+    assert.equal(credit.url, "/api/usage/codex-reset-credit");
+    assert.deepEqual(Object.keys(credit.body).sort(), ["connectionId", "idempotencyKey"]);
+    assert.match(credit.body.idempotencyKey, /^[0-9a-f-]{36}$/, "a fresh idempotency key per press");
+    await t.mod.handleAccountReset({ kind: "credit", provider: "codex", id: "codex-1", name: "Codex #1", confirm: true });
+    assert.notEqual(writes.at(-1).body.idempotencyKey, credit.body.idempotencyKey);
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "credit", provider: "codex", id: "codex-2", name: "Codex #2", confirm: true }), { ok: false, message: "Codex #2: nothing to reset, no limit is used up right now." });
+    w = writes.length;
+    assert.deepEqual(await t.mod.handleAccountReset({ kind: "credit", provider: "claude", id: CLAUDE_1, name: "Claude #1", confirm: true }), { ok: false, message: "Claude #1: this provider has no reset credits." });
+    assert.equal(writes.length, w, "no credit route for a provider OmniRoute can't redeem for");
     const tunnelsAdmin = await t.mod.handleTunnels({ refresh: true });
     t.mod.TunnelsSchema.parse(tunnelsAdmin);
     assert.deepEqual(tunnelsAdmin.tunnels.map((x) => [x.id, x.installed, x.running]), [["cloudflared", true, false], ["ngrok", false, false], ["tailscale", true, false]]);
@@ -663,6 +739,7 @@ try {
     t.api.providers = { refresh: async () => ({}), snapshot: async () => ({ entries }), waitForReady: async () => ({ entries }) };
     const list = await t.mod.handleProvidersList({}, { paseo: t.api });
     t.mod.ProvidersSchema.parse(list);
+    assert.equal(list.codexAccounts, fixtures["/api/providers"].body.connections.filter((c) => c.provider === "codex" && c.isActive !== false).length, "how many Codex accounts OmniRoute has, for the Codex row");
     assert.deepEqual(list.rows.map((r) => r.id), ["claude", "codex", "ai-router", "gemini", "copilot", "opencode", "pi"], "Paseo's two, then ours, then the rest by label");
     assert.deepEqual(list.rows.filter((r) => r.tidy).map((r) => [r.id, r.tidy]), [["copilot", "never finished loading"], ["opencode", "not installed on this daemon"]]);
     assert.deepEqual(list.rows.map((r) => [r.id, r.owner]).filter(([, owner]) => owner !== "paseo"), [["ai-router", "ai-router"], ["gemini", "user"]]);
@@ -867,7 +944,7 @@ try {
     const locked = await t.mod.handleAiProvider({ enabled: true }, { paseo: t.api });
     consoleLocked.clear();
     assert.equal(locked.ok, false);
-    assert.match(locked.message, /^Couldn't read OmniRoute's combo list \(401 from the console lock \(basic auth\) in front of OmniRoute at 127\.0\.0\.1:\d+, not from OmniRoute: \/api\/combos is not let through it, so the token never reached the router\); kept the current models and profiles\. Will retry\.$/);
+    assert.match(locked.message, /^Couldn't read OmniRoute's combo list \(401 from a web server login \(basic auth\) in front of OmniRoute at 127\.0\.0\.1:\d+, not from OmniRoute: it doesn't let \/api\/combos through, so the token never reached the router\); kept the current models and profiles\. Will retry\.$/);
     assert.deepEqual(t.box.profiles.map((p) => p.id), idsBefore, "still nothing written");
     assert.equal(requested.includes("/api/combos/auto"), false, "the sync never asks for /api/combos/auto: it scores every pool on each call and can take minutes");
 
@@ -1451,6 +1528,60 @@ try {
     }
     assert.equal(refused.mod.usageSourceRegistered(), false);
     assert.match(warnings.join("\n"), /Usage page refused the AI Router source: Duplicate usage source: ai-router/);
+    passed += 1;
+  }
+
+  {
+    // Release checks: GitHub's public API from the daemon, cached 6 hours (on disk too), quiet when offline.
+    const t = await fresh("updates", full);
+    const realFetch = globalThis.fetch;
+    const github = [];
+    let offline = false;
+    const BIG = `## Highlights\n\n- **Routing**: better.\n- **Codex**: reset credits.\n\n${"x".repeat(100_000)}`;
+    globalThis.fetch = async (url, init) => {
+      if (!String(url).startsWith("https://api.github.com/")) return realFetch(url, init);
+      github.push(String(url));
+      if (offline) throw new TypeError("fetch failed");
+      const omni = String(url).includes("diegosouzapw/OmniRoute");
+      const body = omni
+        ? [{ tag_name: "radar-export-latest" }, { tag_name: "v3.8.52", published_at: "2026-10-04T00:00:00Z", html_url: "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.52", body: BIG }, { tag_name: "v3.8.51", body: "" }]
+        : [{ tag_name: "v0.15.1", published_at: "2026-10-05T01:47:40Z", html_url: "u", body: "- **Hotfix.** Chip." }];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    try {
+      const first = await t.mod.handleUpdates({});
+      t.mod.UpdatesSchema.parse(first);
+      assert.deepEqual([first.router.running, first.router.latest.version, first.router.state, first.router.latest.highlights], ["3.8.50", "3.8.52", "behind", ["Routing: better.", "Codex: reset credits."]], "the running version comes from the read-token health check");
+      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.16.0", "0.15.1", "ahead"]);
+      assert.deepEqual(github.map((u) => u.replace(/^https:\/\/api\.github\.com\/repos\//, "")).sort(), ["diegosouzapw/OmniRoute/releases?per_page=10", "itsjustanks/paseo-plugin-ai-router/releases?per_page=10"]);
+      await t.mod.handleUpdates({});
+      assert.equal(github.length, 2, "6 hours between checks");
+      const saved = readFileSync(join(t.dir, "plugin-settings", "ai-router", "releases.json"), "utf8");
+      assert.ok(saved.length < 2_000 && !saved.includes("xxxxxxxx"), "only versions and highlights are kept, never the release body");
+      // A restart reads the saved answer instead of asking GitHub again.
+      const again = await fresh("updates", full);
+      writeFileSync(join(again.dir, "plugin-settings", "ai-router", "releases.json"), saved);
+      offline = true;
+      const restarted = await again.mod.handleUpdates({});
+      assert.deepEqual([restarted.router.latest.version, restarted.router.error, github.length], ["3.8.52", null, 2]);
+      // Offline with nothing saved: quiet, and the panel still answers.
+      const cold = await fresh("updates-offline", full);
+      const quiet = await cold.mod.handleUpdates({});
+      cold.mod.UpdatesSchema.parse(quiet);
+      assert.deepEqual([quiet.router.latest, quiet.router.state, quiet.plugin.state], [null, "unknown", "unknown"]);
+      assert.match(quiet.router.error, /fetch failed/);
+      cold.restore();
+      again.restore();
+      // A key-only daemon can't see the router's version; the release is still shown.
+      const basic = await fresh("updates-basic", { router: "omniroute", endpoint: LIVE, apiKey: KEY });
+      offline = false;
+      const keyOnly = await basic.mod.handleUpdates({});
+      assert.deepEqual([keyOnly.router.running, keyOnly.router.state, keyOnly.router.latest.version], [null, "unknown", "3.8.52"]);
+      basic.restore();
+    } finally {
+      globalThis.fetch = realFetch;
+      t.restore();
+    }
     passed += 1;
   }
 

@@ -54,7 +54,7 @@ export function AdvancedBanner({ theme, data, say }: { theme: Theme; data: Statu
   const { url } = dashboardTarget(data);
   return (
     <QuietLine theme={theme} icon="SlidersHorizontal" links={url ? [{ label: "Open dashboard", accessibilityLabel: `Open the ${name} dashboard`, onPress: () => void links.open(url) }] : []}>
-      {`Combos (named groups of models), fallbacks and per-provider rules are set in the ${name} dashboard; its login comes from your router admin.`}
+      {`Combos (named groups of models), fallbacks and per-provider rules live in the ${name} dashboard.`}
     </QuietLine>
   );
 }

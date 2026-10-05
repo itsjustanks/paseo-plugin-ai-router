@@ -73,7 +73,7 @@ function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say
       {now?.state === "ok" && now.canEdit ? (
         confirming ? (
           <>
-            <Note theme={theme} tone="warning">Turns every engine off except Lite, and excludes Codex models where this OmniRoute supports it. It changes the router for every key and daemon using it.</Note>
+            <Note theme={theme} tone="warning">Turns every engine off except Lite, and excludes Codex models where this OmniRoute can. This changes the router for every daemon using it.</Note>
             <Row>
               <Button theme={theme} label="Confirm: Lite only" primary busy={apply.isPending} onPress={() => apply.mutate()} />
               <Button theme={theme} label="Cancel" onPress={() => setConfirming(false)} />
@@ -111,14 +111,14 @@ function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }
   const copy = ROUTERS[data.connection.router];
   return (
     <Card theme={theme} title={`More in ${copy.label}`} icon="Compass">
-      <Note theme={theme}>These live in the dashboard, which asks for its own login (ask your router admin).</Note>
+      <Meta theme={theme}>In the dashboard, which has its own login (ask your router admin).</Meta>
       {copy.more.map((item) => {
         const link = dashboardLink(url, item.path);
         return (
           <View key={item.title} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: SPACE.sm, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.sm }}>
             <View style={{ flex: 1, minWidth: 200, gap: SPACE.hair }}>
               <ItemTitle theme={theme}>{item.title}</ItemTitle>
-              <Note theme={theme}>{item.detail}</Note>
+              <Meta theme={theme}>{item.detail}</Meta>
             </View>
             {link ? <Link theme={theme} label="Open" accessibilityLabel={`Open ${item.title}`} onPress={() => void links.open(link)} /> : null}
           </View>
@@ -142,9 +142,9 @@ function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
   const badge = ready ? settings.values.contextBadge !== false : true;
   const mcp = ready ? settings.values.mcpCard !== false : true;
   return (
-    <Card theme={theme} title="In Paseo" icon="ToggleRight" subtitle="What AI Router adds to Paseo's own screens, on this computer">
+    <Card theme={theme} title="In Paseo" icon="ToggleRight">
       <ToggleRow theme={theme} label="Context breakdown chip on each chat" text="Context breakdown chip on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Breakdown chip on." : "Breakdown chip off.")} />
-      <Note theme={theme}>A "Breakdown" chip beside Paseo's own context meter: tap it to see what is filling the chat. It turns red with the reason when OmniRoute is down or has paused a routed chat's provider. Needs no read token: the parts are worked out on this daemon.</Note>
+      <Meta theme={theme}>Beside Paseo's context meter: tap it to see what fills the chat. It turns red when OmniRoute is down or has paused the chat's provider.</Meta>
       <ToggleRow theme={theme} label="MCP plugin line on Overview" text="MCP plugin line on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP line back on Overview." : "MCP line hidden.")} />
       {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
       {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
@@ -166,7 +166,7 @@ export function SettingsTab({ theme, data, configured, go, say }: { theme: Theme
         </>
       ) : (
         <Card theme={theme} title="Router settings" icon="Settings2">
-          <Note theme={theme}>{configured ? "A read token shows how the router compresses prompts, and a few of its settings worth knowing." : "Connect a router to see its settings."}</Note>
+          <Note theme={theme}>{configured ? "A read token shows how the router compresses prompts, and a few key settings." : "Connect a router to see its settings."}</Note>
           <Link theme={theme} label={configured ? "Add a read token on Connection" : "Open Connection"} onPress={() => go("connection")} />
         </Card>
       )}

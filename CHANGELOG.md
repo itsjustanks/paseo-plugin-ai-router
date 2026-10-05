@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.16.0 — 2026-10-05
+
+Answers five points of feedback: updates on the Overview, less wordy tabs, a Codex row that says what is
+true, inline account resets, and usage by daemon for any dates. `requirements.paseo` stays `>=0.8.0`;
+`ROUTING_SETTINGS_VERSION` stays 1.
+
+- **Overview shows versions and what's new.** A fourth status row, **Versions**, compares the connected
+  OmniRoute's version (from its health read, so a read token is needed) and this plugin's with each
+  project's newest GitHub release (`diegosouzapw/OmniRoute`, `itsjustanks/paseo-plugin-ai-router`).
+  **What's new** opens up to three highlight lines per release and a link to the full changelog. The
+  daemon asks GitHub's public API at most every 6 hours per project (every 30 minutes after a failure),
+  keeps only the version and highlight lines on disk (`releases.json`) so a restart doesn't ask again,
+  and stays quiet offline. A custom OmniRoute build reports the release it is built from, and the panel
+  says so; a plugin newer than its latest release reads as "a preview or custom build".
+- **Less wordy.** Every tab's intro, and most cards, say less and say it once: shorter sentences,
+  secondary lines muted, repeated subtitles gone, the Codex sign-in port tip folded away. Wording
+  about a "console lock" in front of OmniRoute is now "a web server login (basic auth)", since the
+  public domain's extra login is gone and OmniRoute's own login protects `/api`. No option was removed.
+- **The Codex row says what OmniRoute has.** Providers now leads with "4 Codex accounts connected in
+  OmniRoute; their 30 models are in the AI Router provider" (or that there's no Codex account yet, with
+  a link to add one). Re-routing built-in Codex and the separate "Codex via OmniRoute" provider sit
+  under **Optional extras**, folded unless one is on, so an unticked box no longer reads as "Codex isn't
+  set up". The extra provider is not added on its own: the AI Router provider already carries Codex's
+  models, and a second Codex entry on every daemon would only crowd the menu.
+- **Inline resets on Accounts (manage key only, each asks first).** Only what OmniRoute really offers:
+  **Clear cooldown**, **Clear old error** and **Unlock** a model (OmniRoute's health autopilot, sent back
+  with its own precondition hash so a reset never lands on an account that changed in between),
+  **Release cooldown** for a Codex account's quota scope, and **Use a reset credit** for providers that
+  bank usage-limit reset credits (Codex over OAuth, GLM), with a fresh idempotency key per press. A
+  paused provider gets **Resume now** (its breaker only). Accounts show how many reset credits they have.
+  The RPC refuses without `confirm: true`; without a manage key nothing reaches the router.
+- **Usage by daemon, for any dates.** **Today** (from your own midnight), **7 days**, **30 days** or
+  **Custom** dates. **Who uses the most**: one row per API key, and each daemon has its own, with tokens,
+  value at API prices and what OmniRoute bills, most tokens first; tap a row for that key's models.
+  Value also shows on the totals and on each top model. The tab reads OmniRoute's analytics every
+  5 minutes instead of every minute (two reads per window, billed and priced, cached on the daemon for
+  5 minutes), with a **Refresh** link; a key's models are read only when its row is opened.
+
+Update: `paseo plugin update ai-router`.
+
 ## 0.15.1 — 2026-10-05
 
 A hotfix: the context **Breakdown** chip shows again on current Paseo apps. `requirements.paseo` stays

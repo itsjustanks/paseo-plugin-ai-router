@@ -1,7 +1,7 @@
-import type { Access, Accounts, Activity, AnalyticsRangeId, Compression, RouteExplanationView, RouterSettings, Tunnels, Usage } from "../../shared/contracts";
+import type { Access, Accounts, Activity, Compression, RouteExplanationView, RouterSettings, Tunnels, Usage, UsageKey } from "../../shared/contracts";
 import type { Connection, HealthProbe, RouterId } from "../../shared/logic";
 import { omniroute } from "./omniroute";
-import type { ActivityFilter, CatalogModel, ComboInfo, RequestRow, Tunnel } from "../../shared/routers/omniroute/parsers";
+import type { ActivityFilter, CatalogModel, ComboInfo, RequestRow, Tunnel, UsageWindowInput } from "../../shared/routers/omniroute/parsers";
 
 type Result = { ok: boolean; message: string };
 export type Health = {
@@ -38,13 +38,19 @@ export interface RouterAdapter {
   /** What this key itself may see about itself: name, spend and limit, account quotas. */
   access(connection: Connection, refresh: boolean): Promise<Access>;
   accounts(connection: Connection, refresh: boolean): Promise<Accounts>;
-  usage(connection: Connection, refresh: boolean, range?: AnalyticsRangeId): Promise<Usage>;
+  usage(connection: Connection, refresh: boolean, window?: UsageWindowInput): Promise<Usage>;
+  /** One API key's models in a window, read on demand. */
+  usageKey(connection: Connection, keyId: string, window: UsageWindowInput): Promise<UsageKey>;
+  /** Active Codex accounts on the router; null when this key can't see them. */
+  codexAccounts(connection: Connection): Promise<number | null>;
   settings(connection: Connection, refresh: boolean): Promise<RouterSettings>;
   applySetting(connection: Connection, id: string, on: boolean | undefined): Promise<Result>;
   compression(connection: Connection, refresh: boolean): Promise<Compression>;
   applyRecommendedCompression(connection: Connection): Promise<Result>;
   accountAction(connection: Connection, action: "test" | "refresh", id: string, name: string): Promise<Result>;
   checkAllAccounts(connection: Connection): Promise<Result>;
+  /** A reset the router offers for an account (or a provider's breaker), with the manage key. */
+  resetAccount(connection: Connection, input: { kind: "cooldown" | "error" | "lockout" | "codex-cooldown" | "credit" | "breaker"; provider: string; id?: string; model?: string | null; name: string }): Promise<Result>;
   tunnels(connection: Connection, refresh: boolean): Promise<Tunnels>;
   setTunnel(connection: Connection, id: "cloudflared" | "ngrok" | "tailscale", on: boolean): Promise<Result>;
   /** Recent requests from the router's own log, filtered there; routing metadata only. */

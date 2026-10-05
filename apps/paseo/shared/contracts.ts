@@ -1,6 +1,6 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
-import { ROUTER_IDS } from "./logic";
+import { RESET_KINDS, ROUTER_IDS } from "./logic";
 
 // Every RPC lives under `ai-router.*`. Secrets never cross this boundary: the
 // key and token are reported as `present` + `last4` only.
@@ -165,6 +165,10 @@ export const AccountsSchema = z.object({
         .object({ state: z.string(), successRatePct: z.number().nullable(), requests: z.number(), issueCount: z.number(), lastErrorAt: z.string().nullable(), failingModels: z.array(z.string()) })
         .nullable(),
       expiry: z.object({ status: z.enum(["active", "expiring_soon", "expired", "unknown"]), expiresAt: z.string().nullable(), note: z.string().nullable() }).nullable(),
+      /** The resets OmniRoute offers for this account right now (see RESET_KINDS); empty when there are none. */
+      resets: z.array(z.object({ kind: z.enum(RESET_KINDS), model: z.string().nullable() })).default([]),
+      /** Banked usage-limit reset credits the provider reports (Codex, GLM); null when it reports none. */
+      resetCredits: z.number().nullable().default(null),
     }),
   ),
   /** A manage key is saved, so Check now, Check all and Refresh token are offered. */
@@ -175,7 +179,7 @@ export const AccountsSchema = z.object({
       providers: z.array(z.object({ name: z.string(), requests: z.number(), errorPct: z.number().nullable(), avgLatencyMs: z.number().nullable() })),
       p95Ms: z.number().nullable(),
       failingModels: z.array(z.object({ model: z.string(), provider: z.string(), failed: z.number(), requests: z.number() })),
-      paused: z.array(z.object({ provider: z.string(), retryAfterMs: z.number().nullable(), lastError: z.string().nullable() })),
+      paused: z.array(z.object({ provider: z.string(), retryAfterMs: z.number().nullable(), lastError: z.string().nullable(), canResume: z.boolean().default(false) })),
     })
     .nullable(),
 });
@@ -193,16 +197,46 @@ const Rows = z.array(
     successRatePct: z.number().nullable().optional(),
     avgLatencyMs: z.number().nullable().optional(),
     sharePct: z.number().nullable().optional(),
+    /** At the providers' API prices, subscriptions included. */
+    value: z.number().nullable().optional(),
   }),
 );
 
-export const ANALYTICS_RANGES = ["1d", "7d", "30d"] as const;
+export const ANALYTICS_RANGES = ["today", "7d", "30d", "custom"] as const;
 export type AnalyticsRangeId = (typeof ANALYTICS_RANGES)[number];
 
-/** Usage & analytics for one range, from OmniRoute's `/api/usage/analytics` (read token). */
+/**
+ * Which stretch of time a Usage read covers. "today" and "custom" carry their
+ * own start (and end), worked out on the app so "today" is the viewer's day.
+ */
+const WindowInput = {
+  range: z.enum(ANALYTICS_RANGES).optional(),
+  /** ISO timestamps; required for "today" (start) and "custom" (start and end). */
+  start: z.string().max(40).optional(),
+  end: z.string().max(40).optional(),
+};
+
+const KeyRows = z.array(
+  z.object({
+    /** OmniRoute's key id, for the per-key drill-down; null for rows it could not name. */
+    id: z.string().nullable(),
+    label: z.string(),
+    requests: z.number(),
+    tokens: z.number().nullable(),
+    /** What OmniRoute bills for it: only pay-as-you-go providers count. */
+    cost: z.number().nullable(),
+    /** What it would cost at the providers' API prices, subscriptions included. */
+    value: z.number().nullable(),
+    thisDaemon: z.boolean(),
+  }),
+);
+
+/** Usage & analytics for one window, from OmniRoute's `/api/usage/analytics` (read token). */
 export const UsageSchema = z.object({
   ...Insight,
   range: z.enum(ANALYTICS_RANGES),
+  /** The window read, as OmniRoute was asked: ISO start (null = OmniRoute's range) and end (null = now). */
+  window: z.object({ start: z.string().nullable(), end: z.string().nullable(), days: z.number() }),
   totals: z
     .object({
       requests: z.number(),
@@ -223,7 +257,10 @@ export const UsageSchema = z.object({
   byModel: Rows,
   byProvider: Rows,
   byAccount: Rows,
-  byDaemon: Rows,
+  /** One row per API key (on this fleet, one per daemon): most tokens first, with what they were worth. */
+  byKey: KeyRows,
+  /** What all of it would cost at API prices; null when the router did not say. */
+  valueTotal: z.number().nullable(),
   errors: z.array(z.object({ type: z.string(), count: z.number() })),
   /** Tokens per UTC day over the last year, days with traffic only. */
   activity: z.array(z.object({ date: z.string(), tokens: z.number() })),
@@ -234,7 +271,16 @@ export const UsageSchema = z.object({
 export type Usage = z.infer<typeof UsageSchema>;
 
 export const accounts = defineRpc({ name: "ai-router.accounts", input: z.object({ refresh: z.boolean().optional() }), output: AccountsSchema });
-export const usage = defineRpc({ name: "ai-router.usage", input: z.object({ refresh: z.boolean().optional(), range: z.enum(ANALYTICS_RANGES).optional() }), output: UsageSchema });
+export const usage = defineRpc({ name: "ai-router.usage", input: z.object({ refresh: z.boolean().optional(), ...WindowInput }), output: UsageSchema });
+
+/** One key's models in the same window, read only when someone opens that key's row. */
+export const UsageKeySchema = z.object({
+  state: z.enum(["ok", "no-token", "error"]),
+  message: z.string().nullable(),
+  models: z.array(z.object({ label: z.string(), provider: z.string().nullable(), requests: z.number(), tokens: z.number().nullable(), value: z.number().nullable() })),
+});
+export type UsageKey = z.infer<typeof UsageKeySchema>;
+export const usageKey = defineRpc({ name: "ai-router.usage.key", input: z.object({ keyId: z.string().min(1).max(200), ...WindowInput }), output: UsageKeySchema });
 
 export const RouterSettingsSchema = z.object({
   ...Insight,
@@ -289,6 +335,8 @@ export const ProvidersSchema = z.object({
   message: z.string().nullable(),
   checkedAt: z.string(),
   rows: z.array(ProviderRowSchema),
+  /** Active Codex accounts in OmniRoute (read token); null when this key can't see them. */
+  codexAccounts: z.number().nullable().default(null),
 });
 export type Providers = z.infer<typeof ProvidersSchema>;
 /** Every Paseo provider on this daemon, with status, enabled, and what OmniRoute can do for it. */
@@ -346,6 +394,23 @@ export const accountAction = defineRpc({
   output: Result,
 });
 export const accountsCheckAll = defineRpc({ name: "ai-router.accounts.check-all", input: z.object({}), output: Result });
+
+/**
+ * A reset OmniRoute offers, with the manage key, after the panel asked first
+ * (`confirm` must be true). `breaker` is per provider; the rest per account.
+ */
+export const accountReset = defineRpc({
+  name: "ai-router.accounts.reset",
+  input: z.object({
+    kind: z.enum([...RESET_KINDS, "breaker"]),
+    provider: z.string().min(1).max(100),
+    id: z.string().max(200).optional(),
+    model: z.string().max(200).nullable().optional(),
+    name: z.string().max(200),
+    confirm: z.literal(true),
+  }),
+  output: Result,
+});
 
 export const TunnelsSchema = z.object({
   state: z.enum(["ok", "no-manage-key", "error"]),
@@ -537,3 +602,18 @@ export const ContextSchema = z.object({
 export type ContextView = z.infer<typeof ContextSchema>;
 /** What is filling one chat's context window. Reads the timeline on the daemon; only this summary crosses to the app. */
 export const context = defineRpc({ name: "ai-router.context", input: z.object({ agentId: z.string().min(1).max(200), refresh: z.boolean().optional() }), output: ContextSchema });
+
+// ----------------------------------------------------------------- updates
+
+const ProductUpdateSchema = z.object({
+  label: z.string(),
+  running: z.string().nullable(),
+  latest: z.object({ version: z.string(), tag: z.string(), publishedAt: z.string().nullable(), url: z.string(), highlights: z.array(z.string()) }).nullable(),
+  state: z.enum(["current", "behind", "ahead", "unknown"]),
+  changelogUrl: z.string(),
+  error: z.string().nullable(),
+});
+/** The router's version and this plugin's, against each project's newest GitHub release (checked on the daemon, every 6 hours). */
+export const UpdatesSchema = z.object({ router: ProductUpdateSchema, plugin: ProductUpdateSchema, checkedAt: z.string().nullable() });
+export type Updates = z.infer<typeof UpdatesSchema>;
+export const updates = defineRpc({ name: "ai-router.updates", input: z.object({ refresh: z.boolean().optional() }), output: UpdatesSchema });

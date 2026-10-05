@@ -20,7 +20,8 @@ export function TipsTab({ theme, data, say }: { theme: PluginTheme; data: Status
   const count = installable.filter((plugin) => installed.has(plugin.id)).length;
   return (
     <Card theme={theme} title="Recommended plugins" icon="Puzzle">
-      <Note theme={theme}>{`${count} of ${installable.length} installed on this daemon. Install one in Paseo's Settings → Plugins by pasting its source (the part after "paseo plugin add"; a --ref pin needs the command), or run the command on the daemon's machine (inside the container for a Docker daemon). Plugins run with the daemon's own access, so add the ones you trust.`}</Note>
+      <Note theme={theme}>{`${count} of ${installable.length} installed here.`}</Note>
+      <Meta theme={theme}>Install one in Paseo's Settings → Plugins by pasting its source (the part after "paseo plugin add"), or run the command on the daemon's machine. Plugins run with the daemon's access: add the ones you trust.</Meta>
       {RECOMMENDED_PLUGINS.map((plugin) => {
         const here = installed.has(plugin.id);
         const blocked = !here && plugin.blocked ? plugin.blocked : null;

@@ -59,7 +59,7 @@ export function ConnectionForm({ theme, data, onDone }: { theme: Theme; data: St
   return (
     <>
       {data?.connection.source === "env" ? (
-        <Note theme={theme}>Pre-filled from the AI_ROUTER_* variables on this daemon. That works without saving; saving here makes the panel's copy win from now on.</Note>
+        <Note theme={theme}>Pre-filled from this daemon's AI_ROUTER_* variables, which work without saving. Saving here takes over from them.</Note>
       ) : null}
       <Step theme={theme} title="1. Choose your router" why="AI Router drives one router on your network. Pick the kind you run." />
       <Row>

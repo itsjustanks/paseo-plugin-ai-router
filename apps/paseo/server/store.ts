@@ -165,6 +165,21 @@ export function writeLastSeen(value: { endpoint: string; at: string }): void {
   writeFileSync(lastSeenPath(), `${JSON.stringify(value)}\n`, { mode: 0o600 });
 }
 
+/** The last release check per project (versions and a few highlight lines only), so a restart doesn't ask GitHub again. */
+const releasesPath = () => join(settingsDir(), "releases.json");
+export function readReleases(): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(readFileSync(releasesPath(), "utf8")) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+export function writeReleases(value: Record<string, unknown>): void {
+  mkdirSync(settingsDir(), { recursive: true, mode: 0o700 });
+  writeFileSync(releasesPath(), `${JSON.stringify(value)}\n`, { mode: 0o600 });
+}
+
 // ------------------------------------------------------ Paseo's config.json
 //
 // Without a Paseo handle (no RPC or hook yet) the only way to put a provider

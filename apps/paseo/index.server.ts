@@ -5,6 +5,7 @@ import {
   activity,
   activityDetail,
   accountsCheckAll,
+  accountReset,
   badge,
   context,
   aiProvider,
@@ -28,7 +29,9 @@ import {
   status,
   tunnelSet,
   tunnels,
+  updates,
   usage,
+  usageKey,
 } from "./shared/contracts";
 import { routingSettings } from "./shared/settings";
 import {
@@ -37,6 +40,7 @@ import {
   handleActivityDetail,
   handleAccounts,
   handleAccountsCheckAll,
+  handleAccountReset,
   handleAiProvider,
   handleCodexRouter,
   handleCodexReroute,
@@ -59,7 +63,9 @@ import {
   handleTunnelSet,
   handleTunnels,
   handleUsage,
+  handleUsageKey,
 } from "./server/handlers";
+import { handleUpdates } from "./server/updates";
 import { handleBadge, handleContext } from "./server/context";
 import { registerRoutingHooks } from "./server/hooks";
 import { noteActivity, recheckSoon, startAutoSync } from "./server/provider";
@@ -87,6 +93,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(modelTest, active(handleModelTest));
   server.handle(accounts, active(handleAccounts));
   server.handle(usage, active(handleUsage));
+  server.handle(usageKey, active(handleUsageKey));
+  // Release checks talk to GitHub, not the router, so they don't run the model sync.
+  server.handle(updates, handleUpdates);
   server.handle(routerSettings, active(handleSettings));
   server.handle(settingApply, active(handleSettingApply));
   server.handle(ensure, handleEnsure);
@@ -99,6 +108,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(cliUpdate, handleCliUpdate);
   server.handle(accountAction, active(handleAccountAction));
   server.handle(accountsCheckAll, active(handleAccountsCheckAll));
+  server.handle(accountReset, active(handleAccountReset));
   server.handle(tunnels, active(handleTunnels));
   server.handle(tunnelSet, active(handleTunnelSet));
   server.handle(access, active(handleAccess));
