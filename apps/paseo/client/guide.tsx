@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { Text, View, type LayoutChangeEvent } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { TabId } from "./navigation";
+import type { GoTarget } from "../shared/tabs";
 import { Card, Chip, Disclosure, Divider, HostIcon, IconBadge, Link, RADIUS, Row, SectionTitle, TYPE, tint, SPACE } from "./ui";
 
 type Theme = PluginTheme;
-type Go = (tab: TabId) => void;
+type Go = (target: GoTarget) => void;
 
 /** Below this width the "How it works" steps stack top to bottom instead of left to right. */
 const FLOW_STACK_WIDTH = 640;
@@ -138,8 +138,8 @@ export function HowToUseCard({ theme, go, synced }: { theme: Theme; go: Go; sync
       </Step>
       <View style={{ gap: SPACE.xs, padding: SPACE.row, borderRadius: RADIUS.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }}>
         <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>Rather keep the built-in Claude or Codex provider?</Text>
-        <Text style={body}>Re-route it in the Providers tab, and its chats go through the router too. It asks before changing anything.</Text>
-        <Link theme={theme} label="Open Providers" accessibilityLabel="Open the Providers tab" onPress={() => go("providers")} />
+        <Text style={body}>Send it through the router on the Models tab, and its chats use the router too. It asks before changing anything.</Text>
+        <Link theme={theme} label="Open Models" accessibilityLabel="Open the Models tab" onPress={() => go("models")} />
       </View>
     </Part>
   );
@@ -154,7 +154,7 @@ const WORDS = [
   { icon: "Route", term: "Router (OmniRoute)", text: "The shared service your team runs. It holds everyone's AI accounts and sends each request to one of them." },
   { icon: "Users", term: "Account", text: "One AI subscription, such as a Claude or ChatGPT plan, signed in once on the router." },
   { icon: "KeyRound", term: "Key and access tier", text: "Works like a password for this computer. An API key is enough to chat; a read token also shows accounts and usage; a manage key can change router settings." },
-  { icon: "Waypoints", term: "Routing", text: "Choosing which account and model answer a request. Re-routing a built-in provider sends its chats through the router instead of its own sign-in." },
+  { icon: "Waypoints", term: "Routing", text: "Choosing which account and model answer a request. Sending a built-in provider through the router means its chats use the router instead of its own sign-in." },
   { icon: "Server", term: "Daemon", text: "The Paseo program that runs your chats, on a computer or a server. Each one uses its own key, so its usage shows separately." },
 ] as const;
 
@@ -177,6 +177,21 @@ export function GlossaryCard({ theme }: { theme: Theme }) {
   );
 }
 
+/** The whole guide in one card: what it is, how it works, how to use it, and the words. Overview folds it; Help shows it under its questions. */
+export function GuideCard({ theme, compact, go, router, accounts, synced }: { theme: Theme; compact: boolean; go: Go; router: string; accounts: readonly string[]; synced: boolean }) {
+  return (
+    <Card theme={theme} flush>
+      <WhatIsCard theme={theme} router={router} accounts={accounts} />
+      <Divider theme={theme} />
+      <HowItWorksCard theme={theme} compact={compact} router={router} />
+      <Divider theme={theme} />
+      <HowToUseCard theme={theme} go={go} synced={synced} />
+      <Divider theme={theme} />
+      <GlossaryCard theme={theme} />
+    </Card>
+  );
+}
+
 /**
  * Everything Overview teaches, in one card behind "New to AI Router? How it
  * works": what it is, how it works, how to use it, and the words. Open while
@@ -186,15 +201,7 @@ export function OverviewGuide({ theme, compact, go, router, accounts, synced, op
   return (
     <View style={{ marginBottom: SPACE.section }}>
       <Disclosure key={open ? "open" : "closed"} theme={theme} label="New to AI Router? How it works" openLabel="Hide how AI Router works" initiallyOpen={open}>
-        <Card theme={theme} flush>
-          <WhatIsCard theme={theme} router={router} accounts={accounts} />
-          <Divider theme={theme} />
-          <HowItWorksCard theme={theme} compact={compact} router={router} />
-          <Divider theme={theme} />
-          <HowToUseCard theme={theme} go={go} synced={synced} />
-          <Divider theme={theme} />
-          <GlossaryCard theme={theme} />
-        </Card>
+        <GuideCard theme={theme} compact={compact} go={go} router={router} accounts={accounts} synced={synced} />
       </Disclosure>
     </View>
   );

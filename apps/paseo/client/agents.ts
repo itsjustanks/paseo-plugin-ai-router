@@ -6,7 +6,7 @@ import { canObserveAgents } from "../shared/host-features";
  *
  * Paseo 0.8: `agents.subscribe()` hears the app's own agent subscription.
  * Paseo 0.9 and later: it hears only an observation the plugin opened itself,
- * so without one the Breakdown chip and the context panel never heard of a
+ * so without one the chat chips (0.18.0: router alerts only) never heard of a
  * chat. There the plugin keeps one open for its lifetime: the snapshot
  * replaces what is known (first, and after every reconnect), updates apply in
  * between, and an observation the app drops is reopened with backoff. On 0.8

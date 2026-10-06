@@ -4,9 +4,9 @@ Routes the agents a Paseo daemon launches through one OmniRoute endpoint. It kee
 provider in Paseo with every model of your connected accounts (Claude and GPT), can add a "Codex via
 OmniRoute" provider, and shows the router's accounts, usage and settings to whoever holds the keys for
 them. It only reads what OmniRoute already counts: no pricing tables, no local usage store. Advanced
-routing (combos, fallbacks, per-provider rules) stays in OmniRoute's dashboard. It also puts a
-**Breakdown** chip on every chat, beside Paseo's own context meter: what fills the context window,
-and a red warning when a router problem reaches that chat. Where Paseo already does something
+routing (combos, fallbacks, per-provider rules) stays in OmniRoute's dashboard. A chat gets a chip
+from AI Router only while the router can't serve it ("Router down", "Claude paused"). Where Paseo
+already does something
 (the context meter, provider switches, installing plugins, agent profiles), AI Router builds on it
 instead of repeating it.
 
@@ -35,24 +35,29 @@ AI_ROUTER_CONSOLE_URL=https://ai-router.example.com         # optional: the publ
 
 ## The panel
 
-Nine tabs in one row; whenever the names do not fit (a phone, a half-width window) each shows its icon
-and the active one its name too. Tabs
-that need more access than the daemon has are not shown, and one small line says what a read token or
-manage key would add. Each tab opens with its icon, a title, one or two plain sentences on what it is
-for, and **What you can do here** (behind **Learn more** on a phone), written for someone new to
-routers and API keys.
+Four tabs (0.18.0), by what a person comes to do. Whenever the names do not fit (a phone, a narrow
+window) each shows its icon and the active one its name too. There is no intro block under the bar:
+each tab starts with its own content, status first. Everything technical or less used sits in
+**fold-outs**: a card of rows (an icon, a title, a one-line summary and a chevron), each opening in
+place. Nothing was removed; it was folded.
 
 | Tab | What it holds |
 | --- | --- |
-| **Overview** | A status card that says the state in words (working, one step left, paused, or unreachable since when), with the router up, down or paused; the AI Router provider (the way to use OmniRoute) and its models; built-in Claude on its own sign-in or re-routed (**Re-route providers →**); **Versions**: the OmniRoute version and this plugin's against each project's newest GitHub release, with **What's new** (a few highlight lines and the full changelog; checked by the daemon at most every 6 hours, quiet offline; a custom OmniRoute build reports the release it is built from); the last agent; open dashboard, sync models. When the router is unreachable: when it was last seen, the error, and **Open Connection**. Then a short guide, also shown before a router is connected: **What is AI Router?**, **How it works** (four steps, and what happens when an account is busy), **How to use it** (the provider, models and combos, and re-routing built-in Claude instead) and **Words you'll see**. At the bottom, **Check out MCP** (the sister plugin; "Installed" when this daemon has it; **Hide**). |
-| **Traffic** | What went through the router (not the Activity plugin, which is this daemon's own usage analytics; Traffic points there when it is installed). **Agent sessions on this daemon** (every tier): each start or resume, routed or not and why, with Paseo's agent title. **Requests through the router** (read token): each request with its time, status, requested → served model, provider and account, latency, tokens, combo or fallback, daemon and the Paseo agent that sent it (**Open** jumps to that agent, as it does on each session); filters for this daemon or all, errors only, a model or a provider; tap a row for why OmniRoute routed it there. Refreshes every 10 seconds while open. See [Activity](#activity). |
-| **Models** | **Your access** (this key's name, its spend against its limit, the quota of the accounts it may use); **Combos as agent profiles** (a switch, on by default, and the profiles kept in Paseo); the synced models by provider, OmniRoute's combos first, with a **Test** on each; and a test for any other model id. |
-| **Providers** | **Re-route providers**: the AI Router provider (always through OmniRoute), built-in Claude's switch between its own sign-in and OmniRoute (off unless turned on; either way it asks first and says what changes), and Codex: first how many Codex accounts OmniRoute has and that their models are already in the AI Router provider, then two **optional extras** (re-route built-in Codex, and the separate **Codex via OmniRoute** provider), folded unless one is on. **Tidy up** turns off, in one go, enabled providers that cannot run here. Each provider's own on/off switch is Paseo's (Settings → Providers). **Tidy up** turns off Paseo's own providers that cannot run here, after showing the list. |
-| **Accounts** | Each OmniRoute account: health, quota, cooldowns, the last 24 hours, sign-in expiry, and the router's health strip. With a manage key: **Check now**, **Check all**, **Refresh token**, and the resets OmniRoute offers for that account right now, each asking first: **Clear cooldown**, **Clear old error**, **Unlock** a locked-out model, **Release cooldown** (Codex) and **Use a reset credit** (Codex and GLM banked credits). A paused provider gets **Resume now**. **Re-login** and **Add account** open the dashboard. On a Paseo 0.11 daemon, one line says the accounts are also on Paseo's Usage page. |
-| **Usage** | **Usage & value** for today, 7 days, 30 days or your own dates: requests, tokens, value at API prices beside the billed cost, and latency; **who uses the most** (one row per API key, so per daemon, most tokens first; tap a row for its models); requests per day; tokens per day stacked by provider; the provider split; top models; by account; failed requests by kind; a year of activity. Read every 5 minutes, cached on the daemon. |
-| **Settings** | Every tier: **In Paseo**, the Breakdown chip and MCP card switches. With a read token: context compression in plain words, with the setting to use for coding agents; circuit breakers, bare-name routing and the routing strategy; **More in OmniRoute**. |
-| **Connection** | Router, endpoint, **public address** and whether it answers, key, where they come from; **Share this router** (how others connect through the public address, never with a key); the read token and manage key; the dashboard address with the SSH help; with a manage key, OmniRoute's tunnels. The setup lives here, and the panel opens on it until a router is set up. |
-| **Tips** | **Recommended plugins** from [Paseo Cafe](https://paseo.cafe/plugins/): Paseo MCP, Activity, Remote Editor and Tell Agent, each with its Cafe page and the install command Cafe publishes, or "Installed". Installing is Paseo's own (Settings → Plugins, or the CLI); Paseo has no catalogue, so this is the list. A plugin that does not build on the running Paseo says so instead of offering a command (Tell Agent on Paseo 0.9.1). |
+| **Overview** | The status card: the state in words (working, one step left, paused, or unreachable since when), with rows for the router, the models in Paseo, what goes **through the router** (**Change →** opens Models), and **Versions** with **What's new**; the last chat (**Recent traffic →**); open the dashboard, sync models. When the router is unreachable: when it was last seen, the error, **Check the connection** and **Check again**. Then **New to AI Router? How it works** (open until setup is done), and one fold-out, **Recent traffic**: the chats started here, routed or not and why, and with a read token every request the router served (filters, **Open** on each agent, and why it went where it did). At the bottom, the MCP plugin line. Before a router is set up, Overview holds the four-step setup instead of the status card. |
+| **Accounts** | Each OmniRoute account: health, quota, cooldowns, sign-in expiry, and with a manage key **Check now**, **Check all**, **Refresh token** and the resets OmniRoute offers (each asks first); a paused provider gets **Resume now**. Then **Usage** for today, 7 days, 30 days or your own dates: the totals and **Who uses the most** (one row per daemon's key). Folded: **Day by day**, **Which providers and models**, **Which account answered**, **What failed**, **The last year**, **Is the router healthy?** and **This key's spending**. Without a read token: what one adds, and this key's own spending. |
+| **Models** | **Sync models to Paseo** (in step or not, and why OmniRoute lists more), then **Send chats through the router**: the AI Router provider, built-in Claude's switch (asks first) and what OmniRoute has for Codex. Folded: **Models in Paseo's picker** (each with **Test**, and a test for any model id), **Combos as agent profiles**, **Codex extras** (built-in Codex through the router; a separate "Codex via OmniRoute" provider; open when one is on), **Tidy up Paseo's provider menu**, and **Claude Code and Codex versions** (with updates). |
+| **Help** | **Common questions**, each folded: *How is this computer connected?* (endpoint, public address, key, Check now / Edit / Disconnect; the setup before connecting), *How do I see accounts and usage?* (read token and manage key), *How do other people use this router?* (sharing through the public address), *How do I open the router's dashboard?* (address, private-network help, OmniRoute's tunnels for admins), *What does AI Router add to Paseo?* (the warning chip, the commands, the MCP line switch), *Why are long prompts shortened?* (compression), *Which router settings matter?*, *What else can OmniRoute do?*, and *Which plugins work well with AI Router?* (Paseo MCP, Remote Editor, Tell Agent). Then **How AI Router works**: the guide. |
+
+**Old tab names still work.** A screen opened with `params.tab` (or a link inside the panel) may name
+any of the nine tabs before 0.18.0; each lands on its new tab with its fold-outs open: Traffic →
+Overview's **Recent traffic**; Providers → Models with **Codex extras**, **Tidy up** and the versions
+open; Usage → Accounts with the usage fold-outs open; Settings, Connection and Tips → Help with their
+questions open. `params.open` (a comma list of fold-out ids) opens more. Unknown names land on Overview.
+
+**Commands** (0.18.0): the Command Center has **Sync AI Router models to Paseo** and **Check the AI
+Router connection**; in a chat, `/ai-router sync` and `/ai-router check` (on apps with plugin slash
+commands). Each runs, then opens AI Router with the answer at the top. No sidebar footer item: the
+sidebar row's status dot already says whether the router works, and its popover has the same actions.
 
 The plugin never stores, shows or asks for OmniRoute's admin password. The panel says "Dashboard
 login: ask your router admin" where it matters.
@@ -76,12 +81,12 @@ got before.
 - **A chat's own accounts on its context-window card** (daemon 0.11.0-beta.5+): hovering a chat's
   context meter shows the limits of the router accounts that chat runs on. Claude models (`cc/…`) show
   the Claude accounts, Codex models (`cx/…`) the Codex ones, Kimi (`kmc/…`) Kimi's, a combo its members'
-  accounts (an auto combo: any of them). When OmniRoute's call log, already read for Traffic or the
-  Breakdown panel, names the account that served the chat, only that one shows. A chat that doesn't go
+  accounts (an auto combo: any of them). When OmniRoute's call log, already read for Recent traffic,
+  names the account that served the chat, only that one shows. A chat that doesn't go
   through this router shows none. Hovers reuse the Usage page's read and never ask the router anything
   of their own. Earlier 0.11 betas show the Usage page only.
 - **Closed chats are let go at once** (daemon 0.11.0-beta.4+): when Paseo closes or archives a chat, its
-  kept breakdown and its chip alerts are dropped straight away instead of waiting to expire.
+  chip alerts are dropped straight away instead of waiting to expire.
 - **A screen and the app's own sidebar row** (app 0.11+): the panel opens as a screen titled "AI Router"
   (an older app titled it by its id when opened from the command menu), and the sidebar entry is
   Paseo's row, highlighted while the screen is open.
@@ -108,7 +113,7 @@ this daemon holds, and a key never sees another key's data.
 | Model list for the AI Router provider | `GET /v1/models?configuredOnly=true` (OmniRoute limits it to active accounts and the key's allowed models) | `GET /v1/models` filtered by active accounts in `GET /api/providers` | same |
 | Test a model | `POST /v1/messages` | same | same |
 | Your access (this key only) | `GET /v1/me/status` (needs the key's `self:usage` scope, which OmniRoute gives new keys) | same | same |
-| Providers tab, Codex via OmniRoute, Tidy up | yes (Paseo's own API; models from the list above) | yes | yes |
+| Send chats through the router, Codex via OmniRoute, Tidy up | yes (Paseo's own API; models from the list above) | yes | yes |
 | Accounts: health, quota, cooldowns, expiry | — | `GET /api/providers`, `/api/rate-limits`, `/api/usage/provider-limits`, `/api/providers/health-matrix`, `/api/providers/expiration`, `/api/provider-stats`, `/api/monitoring/health` | same |
 | Usage & analytics, all keys | — | `GET /api/usage/analytics?range=1d`, `7d` or `30d`, `GET /api/keys` | same |
 | Combo descriptions for profiles | `GET /v1/models` (custom combos' own descriptions) | `GET /v1/models`, `GET /api/combos` (never `/api/combos/auto`) | same |
@@ -117,8 +122,7 @@ this daemon holds, and a key never sees another key's data.
 | Apply recommended compression | — | — | `GET` then `PUT /api/settings/compression` |
 | Account actions | — | — | `POST /api/providers/{id}/test`, `/api/providers/{id}/refresh`, `/api/providers/test-batch` |
 | Tunnels | — | — | `GET /api/tunnels/{cloudflared,ngrok,tailscale}`, `POST /api/tunnels/{cloudflared,ngrok}`, `POST /api/tunnels/tailscale/{enable,disable}` |
-| Breakdown chip and its estimates | yes (Paseo's own agent updates and the chat's timeline, read on this daemon; no router call) | yes | yes |
-| Breakdown: what OmniRoute measured for the chat | — | `GET /api/usage/call-logs?limit=201&excludeTests=1&apiKey=<this key>`, rows matched by session tag | same |
+| Router-alert chip on a chat | yes (the health check the panel shares, at most once a minute) | yes, plus paused providers | same |
 | Tips and the MCP card: "Installed" | yes (`$PASEO_HOME/plugins/sources.json`) | yes | yes |
 
 A manage key can also read, so an admin needs no separate read token. OmniRoute refuses read tokens
@@ -203,7 +207,7 @@ orchestrating agents. Profiles sync through the same channels as the provider: a
   `persisted-config.js`: `agentProfiles` is a field of the strict `daemon` object). The config API
   shows the same list as a top-level `agentProfiles`. The plugin writes the file path, never a
   top-level key, which the strict schema would reject.
-- **Show combos as agent profiles** on the Models tab (host-wide, on by default) turns them off and on.
+- **Show combos as agent profiles** on the Models tab (folded under **Combos as agent profiles**) (host-wide, on by default) turns them off and on.
 
 ## Routing
 
@@ -211,7 +215,7 @@ The `agent.session_open` hook only edits the launch environment.
 
 | Session | Rewritten when | Environment added |
 | --- | --- | --- |
-| Built-in `claude` provider | re-routed on Providers (off by default; turning it on asks first) | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, `CLAUDE_CODE_DISABLE_FAST_MODE=1`, and `x-omniroute-session-id: paseo-<agent id>` added to `ANTHROPIC_CUSTOM_HEADERS` |
+| Built-in `claude` provider | sent through the router on Models (off by default; turning it on asks first) | `ANTHROPIC_BASE_URL=<endpoint>` (no `/v1`), `ANTHROPIC_AUTH_TOKEN=<key>`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, `CLAUDE_CODE_DISABLE_FAST_MODE=1`, and `x-omniroute-session-id: paseo-<agent id>` added to `ANTHROPIC_CUSTOM_HEADERS` |
 | `ai-router` provider | always (choosing it is the opt-in) | the same |
 | `codex-ai-router` ("Codex via OmniRoute") | always, while its entry points at the endpoint | `OPENAI_API_KEY=<key>` |
 | `ai-router-codex` (0.1.0, legacy; syncing removes it) | the same | `OPENAI_API_KEY=<key>` |
@@ -233,7 +237,7 @@ refused with 400 "messages.1.output_config: Extra inputs are not permitted".
 OmniRoute (3.8.51) neither sends that beta nor forwards the client's, so Anthropic answers 400
 "speed: Extra inputs are not permitted". With this, Claude Code leaves `speed` out even when Paseo's
 Fast switch is on, including one flipped mid-chat; the switch has no effect on routed chats, and the
-Providers tab says so. Paseo shows no Fast switch for the AI Router provider's `cc/…` models anyway.
+Models tab says so. Paseo shows no Fast switch for the AI Router provider's `cc/…` models anyway.
 
 `ANTHROPIC_CUSTOM_HEADERS` holds newline-separated `Name: value` lines that Claude Code sends with
 every request. The hook keeps any lines already there and adds `x-omniroute-session-id`, unless one is
@@ -241,7 +245,7 @@ already set; OmniRoute records it as the request's `sessionTag`, which is how Tr
 behind each request exactly. It carries only the Paseo agent id.
 
 **Codex via OmniRoute.** Built-in Codex builds its model provider from config, not from launch env,
-and most daemons have no Codex login. The Providers tab adds `codex-ai-router`:
+and most daemons have no Codex login. Models → **Codex extras** adds `codex-ai-router`:
 `extends: "codex"`, `env.OPENAI_BASE_URL = <endpoint>/v1` and a placeholder `OPENAI_API_KEY`, with the
 Codex accounts' models (`cx/…`). Paseo turns such an entry into a Codex `model_provider` with
 `wire_api = "responses"` that reads its key from `OPENAI_API_KEY` instead of a ChatGPT login; the hook
@@ -249,11 +253,11 @@ puts the real key there at launch. The auto-sync keeps it pointed at the endpoin
 
 **Model names.** Paseo passes Claude Code bare ids such as `claude-sonnet-5` on the built-in `claude`
 provider. OmniRoute resolves a bare id to the first active provider that serves it; if both `cc/` and
-`claude/` are connected, turn on **Prefer Claude Code for unprefixed Claude models** (Settings tab).
+`claude/` are connected, turn on **Prefer Claude Code for unprefixed Claude models** (Help → *Which router settings matter?*).
 
 ## Context compression
 
-The Settings tab explains each OmniRoute engine in plain words, flags the ones that are on and can
+Help → *Why are long prompts shortened?* explains each OmniRoute engine in plain words, flags the ones that are on and can
 hurt agents, and recommends, for Claude Code and Codex agents, **Lite only, with Codex models
 excluded**:
 
@@ -269,9 +273,9 @@ and `bodyAdapter.ts`. **Apply recommended…** (manage key, after a confirmation
 other engine off, and adds the exclusions when the router's compression settings support them. It is
 never applied on its own.
 
-## Traffic
+## Recent traffic
 
-**Agent sessions on this daemon**, for every tier: each time an agent starts or resumes, the hook
+On Overview, folded (the Traffic tab before 0.18.0). **Agent sessions on this daemon**, for every tier: each time an agent starts or resumes, the hook
 records the agent id, the provider, whether it was routed, and if not, why. The last 200 are kept in
 `$PASEO_HOME/plugin-settings/ai-router/sessions.json` (mode 0600; no keys, no content), so they
 survive a restart. Titles come from Paseo's `agents.list`.
@@ -302,66 +306,32 @@ Codex via OmniRoute cannot carry a header (Paseo builds its model provider), so 
 as **likely**: this daemon's key, the agent whose model matches, and the most recent routed session
 that opened before the request. Other daemons' requests are never matched.
 
-## Context breakdown
+## Router alerts on a chat
 
-Paseo already shows how full a chat's context window is: a meter in the message box, with the tokens
-and the session's cost on hover. AI Router does not repeat that number. Every chat that has reported
-its window gets a **Breakdown** chip beside it; tap it for the **Context** panel (the command palette's
-"What fills this chat's context" opens it too). **Settings → In Paseo** turns the chip off and on for
-the daemon (on by default, every tier).
+Paseo already shows how full a chat's context window is (the meter in the message box, and its hover
+card, where 0.17.0 adds the router accounts that chat runs on). AI Router adds nothing there. Until
+0.18.0 it put a **Breakdown** chip on every chat with a **Context** panel of estimates; that is gone.
 
-What it can honestly say:
+What stays is a chip **only while the router can't serve a chat**: "Router down" for every open chat
+whose latest start went through OmniRoute, "Claude paused" (or Codex) when OmniRoute's circuit breaker
+holds that chat's provider open (read token). An AI Router chat, which can use either, is told "if its
+model runs there". The chip goes away by itself once the problem clears. Pressing it opens AI Router,
+whose status card says what is wrong and what to do. There is no switch: it only ever appears when
+something needs attention.
 
-- **The total is exact.** It is `lastUsage.contextWindowUsedTokens` / `contextWindowMaxTokens`, which
-  the agent's own CLI reports after each turn and Paseo keeps on the agent.
-- **The parts are estimates (≈).** The panel asks the daemon (`ai-router.context`), which reads the
-  chat's timeline newest first and counts about 4 characters per token, grouped as files read, command
-  output, MCP tool results (by server), web pages and searches, code searches, edits and new files,
-  sub-agent reports, other tool calls, your messages and agent replies, each with its biggest few
-  names. Names are file paths, program names (`npm`, never a command's arguments), tool names, MCP
-  server names, sites' hosts and sub-agent types: never a command line, a query, a URL's path or a
-  description, which can carry a key or a prompt. It stops at the last compaction: what came before
-  was summarised away. Thinking, Paseo's own worktree setup and plugin items are not counted. If the
-  timeline changes while it is read (the agent reloaded), the count starts over once.
-- **The rest** is the exact total minus those estimates: what never shows in the timeline, i.e. the
-  system prompt, tool definitions (including every MCP server's tools), CLAUDE.md or AGENTS.md, and
-  after a compaction its summary.
-- **With a read token**, for chats whose requests carry the session tag, OmniRoute's call log gives the
-  chat's first and latest request sizes (`tokens.in` counts cached input too). While no compaction has
-  replaced the start (and the count reached it), the first request, less its first message (already
-  counted under your messages), is shown as the start, **measured**, and whatever is still
-  unexplained gets its own line, "Not in the chat's history" (images, attachments, tool output Paseo
-  keeps shorter than the agent saw). Only this daemon's latest 200 requests are read, so on a busy
-  daemon a long chat's first request may be out of reach; the panel says so.
-- One tip for the biggest part, e.g. "turn off MCP servers this chat doesn't use" or "compact the chat
-  (/compact)", and a warning once the window is nearly full.
-
-**Router alerts.** The same chip turns red with the reason when a router problem reaches a routed
-chat: "Router down" for every chat whose latest open went through OmniRoute, "Claude paused" (or
-Codex) when OmniRoute's circuit breaker holds that chat's provider open (read token). An AI Router
-chat, which can use either, is told "if its model runs there". Its panel opens with what that means
-for the chat: its requests fail until the router is back, a reopened Claude chat uses its own
-sign-in, an AI Router chat cannot reopen yet, and **Open AI Router**. A chat that has not reported a
-context size yet still gets the chip while it is affected.
-
-What it costs: the chip makes no call at all; it reads the agent updates the app already receives.
-The switch is read once a minute while a chat is open (backing off to 15 minutes if the daemon does not
-answer); the same read carries the alerts, from the health check the panel shares, at most one ping a
-minute and never more than 1.5 s of waiting. The breakdown is worked out only when the panel is open, on the daemon (at most 10 pages of
-200 timeline entries; only a small summary crosses to the app, never the chat's text), and reused
-while the chat's total is unchanged (up to 5 minutes). A failed read backs off from 30 seconds to 10
-minutes unless **Refresh** is pressed; an answer whose router read failed is reused for 30 seconds
-only. At most one switch read is ever out at a time.
+What it costs: one small read (`ai-router.alerts`) once a minute while a chat is open (backing off to
+15 minutes if the daemon does not answer), from the health check the panel shares: at most one ping a
+minute and never more than 1.5 s of waiting. At most one read is ever out at a time.
 
 ## Public address and dashboard access
 
 OmniRoute can have a **public address** (custom domain), such as `https://ai-router.example.com`.
 The daemons keep using the private endpoint; people and browsers outside the network use the public
-address. It is set on the Connection tab (**Public address (custom domain)**) or with
+address. It is set in Help → *How is this computer connected?* (**Public address (custom domain)**) or with
 `AI_ROUTER_CONSOLE_URL`, under the same precedence as the rest of the connection, and stored without
 a trailing `/dashboard`.
 
-The Connection tab checks it with `GET <public address>/api/health/ping` (4 s, no credentials,
+The panel checks it with `GET <public address>/api/health/ping` (4 s, no credentials,
 re-checked after a minute or on **Check now**) and says what it found: "HTTPS OK · host", or
 "DNS not pointing here yet", "Certificate not issued yet", "Certificate is for another name",
 "Certificate expired", "Not serving HTTPS on this address", "HTTPS works, but OmniRoute behind it is
@@ -379,7 +349,7 @@ not answering (502)", "Answers, but not as OmniRoute" or "Unreachable".
 "Open dashboard" uses, in order: the public address when its check passed ("via custom domain"), a
 running OmniRoute tunnel an admin's manage key can see, then `<endpoint>/dashboard`. A tunnel host
 (`*.trycloudflare.com`, `*.ngrok-free.app`, `*.ts.net`) shows "via Cloudflare tunnel" and similar.
-Admins can start and stop OmniRoute's Cloudflare, ngrok and Tailscale tunnels on the Connection tab
+Admins can start and stop OmniRoute's Cloudflare, ngrok and Tailscale tunnels in Help → *How do I open the router's dashboard?*
 ("makes the dashboard reachable from the internet; its login is still required") and save a running
 tunnel's address as this daemon's public address. For every daemon to use it, set it as
 `AI_ROUTER_CONSOLE_URL` there.
@@ -398,10 +368,10 @@ forward** (router host, remote port 20128).
 
 The panel opens at once whatever the router does. The status call waits at most 1.5 s for a health
 check, then answers with the previous result marked "checking"; every router request has a timeout
-(4 s for health, 10 s for reads). Once a check has found the router down, the Traffic, Accounts, Usage and
-Settings tabs answer immediately with their last good answer, marked "Router unreachable — showing its
+(4 s for health, 10 s for reads). Once a check has found the router down, recent traffic, accounts, usage and
+router settings answer immediately with their last good answer, marked "Router unreachable — showing its
 answer as of HH:MM", or with the error if there is none. The Overview says when the router was last
-seen (kept across restarts) and offers **Open Connection**, where the health check, editing the
+seen (kept across restarts) and offers **Check the connection**, which opens Help at the connection, where the health check, editing the
 endpoint and keys, Test & save and Disconnect all work without the router.
 
 ## Configuration and precedence
@@ -433,14 +403,15 @@ apps/paseo/
   index.client.tsx, index.server.ts   entry points
   assets/ai-router.svg                the AI Router card icon on Paseo's Usage page
   client/                             the panel (tabs, cards)
-  server/                             hooks, the provider sync, Paseo's config, the Providers tab
+  server/                             hooks, the provider sync, Paseo's config, providers and agent apps
   server/usage.ts                     the Usage page cards (Paseo 0.11+) and a chat's own accounts
   shared/usage-scope.ts               which router accounts a chat runs on (pure)
   server/routers/index.ts             the router registry and the adapter interface
   server/routers/omniroute/           OmniRoute: adapter and HTTP reads
   shared/                             contracts and pure logic, the only code the client imports
-  shared/context.ts                   the context breakdown's counting (pure; the server runs it)
-  shared/plugins.ts                   the Tips tab's recommended plugins
+  shared/alerts.ts                    which chats a router problem reaches (pure)
+  shared/tabs.ts                      the four tabs and where each old tab id goes (pure)
+  shared/plugins.ts                   Help's recommended plugins
   shared/routers/                     each router's UI copy and response parsers
 ```
 

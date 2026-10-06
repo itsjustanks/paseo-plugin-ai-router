@@ -307,7 +307,7 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
   const list = buildModelList(models.body, active, custom ? [...listedAutoCombos(models.body), ...(custom.names ?? [])] : null);
   if (!list.length) return { ok: false, error: active ? `OmniRoute lists no models for the active accounts (${[...active].join(", ") || "none"}).` : "OmniRoute lists no models this key can use on connected accounts." };
   if (!active && list.length > UNFILTERED_MODELS) {
-    return { ok: false, error: `OmniRoute listed ${list.length} models without narrowing them to connected accounts; this version may not support that for a plain key. Add a read token on the Connection tab, or update OmniRoute.` };
+    return { ok: false, error: `OmniRoute listed ${list.length} models without narrowing them to connected accounts; this version may not support that for a plain key. Add a read token (Help → "How do I see accounts and usage?"), or update OmniRoute.` };
   }
   const comboIds = list.filter((model) => model.provider === "combo").map((model) => model.id);
   const combos = describeCombos(comboIds, models.body, custom?.body ?? null, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK });
@@ -626,7 +626,7 @@ export async function getRequests(connection: Connection, filter: ActivityFilter
 
 /**
  * The account that served this session tag's latest request, from call-log
- * reads already in memory (Traffic, the Breakdown panel). Never asks the
+ * reads already in memory (Recent traffic). Never asks the
  * router: null when no read in memory has seen the tag.
  */
 export function servingAccountFromMemory(connection: Connection, tag: string): string | null {

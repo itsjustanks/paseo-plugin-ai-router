@@ -7,7 +7,7 @@ import { ANALYTICS_RANGES, usage, usageKey, type AnalyticsRangeId, type Usage } 
 import { compactNumber as compact, errorWords } from "../shared/routers/omniroute/parsers";
 import { localYmd, usageRequest } from "../shared/logic";
 import { Breakdown, Gate, Notes, money } from "./insights";
-import { Banner, Button, Card, Chip, Field, HostIcon, Link, Meta, Note, Row, TYPE, SPACE } from "./ui";
+import { Accordion, AccordionItem, Banner, Button, Card, Chip, Field, HostIcon, Link, Meta, Note, Row, TYPE, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 const RANGE_WORDS: Record<AnalyticsRangeId, string> = { today: "Today", "7d": "7 days", "30d": "30 days", custom: "Custom" };
@@ -469,17 +469,37 @@ export function UsageTab({ theme, compact: narrow, initialRange = "7d" }: { them
           <Meta theme={theme}>Nothing went through the router in this window. New use shows here within 5 minutes.</Meta>
         </Banner>
       ) : (
-        <>
-          <TopUsers theme={theme} rows={data.byKey} request={request} words={words} />
-          {daily ? <RequestsPerDay key={`requests-${JSON.stringify(request)}`} theme={theme} trend={data.trend} /> : null}
-          {daily ? <TokensByProvider key={`tokens-${JSON.stringify(request)}`} theme={theme} trend={data.providerTrend} colors={colors} /> : null}
-          <ProviderSplit theme={theme} rows={data.byProvider} colors={colors} />
-          <TopModels theme={theme} rows={data.byModel} colors={colors} />
-          <Breakdown theme={theme} icon="Users" title="By account" why={`Which subscription served the requests, ${words}.`} rows={data.byAccount} />
-          <Errors theme={theme} errors={data.errors} />
-        </>
+        <TopUsers theme={theme} rows={data.byKey} request={request} words={words} />
       )}
-      {data.activity.length ? <Activity theme={theme} activity={data.activity} weeks={narrow ? 17 : 52} streak={data.totals?.streak ?? null} busiest={data.busiestWeekday} /> : null}
+      <Accordion theme={theme}>
+        {!empty && daily ? (
+          <AccordionItem theme={theme} id="usage-days" icon="ChartColumn" title="Day by day" summary={`Requests and tokens each day, ${words}`}>
+            <RequestsPerDay key={`requests-${JSON.stringify(request)}`} theme={theme} trend={data.trend} />
+            <TokensByProvider key={`tokens-${JSON.stringify(request)}`} theme={theme} trend={data.providerTrend} colors={colors} />
+          </AccordionItem>
+        ) : null}
+        {!empty && (data.byProvider.length || data.byModel.length) ? (
+          <AccordionItem theme={theme} id="usage-split" icon="ChartPie" title="Which providers and models" summary={data.byModel[0] ? `Most used: ${data.byModel[0].label}` : "The share each provider and model served"}>
+            <ProviderSplit theme={theme} rows={data.byProvider} colors={colors} />
+            <TopModels theme={theme} rows={data.byModel} colors={colors} />
+          </AccordionItem>
+        ) : null}
+        {!empty && data.byAccount.length ? (
+          <AccordionItem theme={theme} id="usage-accounts" icon="Users" title="Which account answered" summary={`${plural(data.byAccount.length, "account")} served requests ${words}`}>
+            <Breakdown theme={theme} title="By account" why={`Which subscription served the requests, ${words}.`} rows={data.byAccount} />
+          </AccordionItem>
+        ) : null}
+        {!empty && data.errors.length ? (
+          <AccordionItem theme={theme} id="usage-errors" icon="CircleX" title="What failed" summary={`${plural(data.errors.reduce((sum, e) => sum + e.count, 0), "failed request")}, by kind`} tone="warning">
+            <Errors theme={theme} errors={data.errors} />
+          </AccordionItem>
+        ) : null}
+        {data.activity.length ? (
+          <AccordionItem theme={theme} id="usage-year" icon="CalendarDays" title="The last year" summary="Which days had traffic, as a calendar">
+            <Activity theme={theme} activity={data.activity} weeks={narrow ? 17 : 52} streak={data.totals?.streak ?? null} busiest={data.busiestWeekday} />
+          </AccordionItem>
+        ) : null}
+      </Accordion>
       <Notes theme={theme} notes={data.notes} />
     </>
   );

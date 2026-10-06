@@ -1,5 +1,5 @@
 // Primitives adapted from the 9Router Agent Link plugin's client/ui.tsx (MIT); see THIRD-PARTY-NOTICES.md.
-import React, { useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import type { PluginTheme } from "@getpaseo/plugin";
 import * as HostRN from "@getpaseo/plugin/client/react-native";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
@@ -77,8 +77,28 @@ export function IconBadge({ theme, name, tone = "accent", size = 32 }: { theme: 
   );
 }
 
+/**
+ * Inside an AccordionItem the item is the box, so a Card there draws no box of
+ * its own (no border, padding or gap below): its title becomes a small heading.
+ */
+const BareCard = createContext(false);
+
 /** A box for one topic. `flush` drops the space below it, for a card that is the last thing in a group. */
 export function Card({ theme, title, icon, tone = "accent", subtitle, flush, children }: { theme: Theme; title?: string; icon?: string; tone?: Tone | "accent"; subtitle?: string; flush?: boolean; children: React.ReactNode }) {
+  const bare = useContext(BareCard);
+  if (bare) {
+    return (
+      <View style={{ gap: SPACE.row }}>
+        {title ? (
+          <View style={{ gap: SPACE.hair }}>
+            <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>{title}</Text>
+            {subtitle ? <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>{subtitle}</Text> : null}
+          </View>
+        ) : null}
+        {children}
+      </View>
+    );
+  }
   return (
     <View style={{ backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: RADIUS.card, padding: SPACE.card, gap: SPACE.row, marginBottom: flush ? 0 : SPACE.section }}>
       {title ? (
@@ -91,6 +111,73 @@ export function Card({ theme, title, icon, tone = "accent", subtitle, flush, chi
         </View>
       ) : null}
       {children}
+    </View>
+  );
+}
+
+/**
+ * Which fold-outs to open, set by the surface when it is sent somewhere (a
+ * deep link, an old tab id, a "→" link). `visit` changes on every trip, so a
+ * fold-out the person closed opens again when they are sent to it again.
+ */
+export type Folds = { open: ReadonlySet<string>; visit: number };
+export const FoldsContext = createContext<Folds>({ open: new Set(), visit: 0 });
+
+/**
+ * A card of fold-out rows (0.18.0, the same pattern as paseo-mcp 0.19.0): the
+ * technical or less-used parts of a tab sit here, each one press away, so the
+ * tab itself stays plain. Children are AccordionItems; the card draws the rule
+ * between them.
+ */
+export function Accordion({ theme, children }: { theme: Theme; children: React.ReactNode }) {
+  const items = React.Children.toArray(children).filter(Boolean);
+  if (items.length === 0) return null;
+  return (
+    <View style={{ backgroundColor: theme.colors.surface1, borderRadius: RADIUS.card, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden", marginBottom: SPACE.section }}>
+      {items.map((child, index) => (
+        <View key={index} style={index > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+          {child}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * One row of an Accordion: an icon, a title, a one-line summary and a chevron;
+ * its content opens below it. `id` lets a deep link or an old tab id open it.
+ */
+export function AccordionItem({ theme, id, icon, title, summary, tone, open: initial = false, children }: { theme: Theme; id?: string; icon?: string; title: string; summary?: string | null; tone?: Tone; open?: boolean; children: React.ReactNode }) {
+  const folds = useContext(FoldsContext);
+  const forced = !!id && folds.open.has(id);
+  const [open, setOpen] = useState(initial || forced);
+  useEffect(() => {
+    if (forced) setOpen(true);
+  }, [forced, folds.visit]);
+  const danger = tone === "danger";
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        accessibilityState={{ expanded: open }}
+        // react-native-web 0.21 ignores accessibilityState; say it the web way too.
+        aria-expanded={open}
+        onPress={() => setOpen((value) => !value)}
+        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: SPACE.row, paddingHorizontal: SPACE.card, paddingVertical: SPACE.row + SPACE.hair, minHeight: 56, opacity: pressed ? 0.7 : 1 })}
+      >
+        {icon ? <IconBadge theme={theme} name={icon} tone={tone && tone !== "neutral" ? tone : "accent"} size={32} /> : null}
+        <View style={{ flex: 1, gap: SPACE.hair, minWidth: 0 }}>
+          <Text style={{ ...TYPE.item, color: danger ? toneColor(theme, "danger") : theme.colors.foreground }}>{title}</Text>
+          {summary ? <Text numberOfLines={2} style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted }}>{summary}</Text> : null}
+        </View>
+        {HostIcon ? <HostIcon name={open ? "ChevronUp" : "ChevronDown"} size={18} color={theme.colors.foregroundMuted} /> : <Text style={{ ...TYPE.body, color: theme.colors.foregroundMuted }}>{open ? "▴" : "▾"}</Text>}
+      </Pressable>
+      {open ? (
+        <BareCard.Provider value>
+          <View style={{ paddingHorizontal: SPACE.card, paddingBottom: SPACE.card, gap: SPACE.card }}>{children}</View>
+        </BareCard.Provider>
+      ) : null}
     </View>
   );
 }
@@ -185,9 +272,10 @@ const BANNER_ICON: Record<Tone, string> = { success: "CircleCheck", warning: "Tr
 
 /** The one line that says what state things are in, above everything else. Neutral banners use the accent. */
 export function Banner({ theme, tone, title, children }: { theme: Theme; tone: Tone; title: string; children?: React.ReactNode }) {
+  const bare = useContext(BareCard);
   const color = tone === "neutral" ? theme.colors.accent : toneColor(theme, tone);
   return (
-    <View style={{ backgroundColor: tint(color, 0.07) ?? theme.colors.surface1, borderColor: tint(color, 0.35) ?? theme.colors.border, borderWidth: 1, borderLeftWidth: 4, borderLeftColor: color, borderRadius: RADIUS.card, padding: SPACE.card, gap: SPACE.row, marginBottom: SPACE.section }}>
+    <View style={{ backgroundColor: tint(color, 0.07) ?? theme.colors.surface1, borderColor: tint(color, 0.35) ?? theme.colors.border, borderWidth: 1, borderLeftWidth: 4, borderLeftColor: color, borderRadius: RADIUS.card, padding: SPACE.card, gap: SPACE.row, marginBottom: bare ? 0 : SPACE.section }}>
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.sm + SPACE.hair }}>
         {HostIcon ? <View style={{ paddingTop: SPACE.hair }}><HostIcon name={BANNER_ICON[tone]} size={20} color={color} /></View> : null}
         <Text style={{ ...TYPE.section, fontWeight: "700", color: tone === "neutral" ? theme.colors.foreground : color, flex: 1 }}>{title}</Text>

@@ -276,22 +276,23 @@ export function mergeConnection(
 // --------------------------------------------------------------- settings
 
 /**
- * `comboProfiles`: keep one Paseo agent profile per OmniRoute combo. `contextBadge`: the
- * context badge on each chat. `mcpCard`: the "Check out MCP" card on Overview. All three
- * are on unless a person turns them off. New switches get a default and keep the
- * version: a new version would read as "newer" everywhere and turn routing off.
+ * `comboProfiles`: keep one Paseo agent profile per OmniRoute combo. `mcpCard`: the
+ * "Check out MCP" line on Overview. Both are on unless a person turns them off. New
+ * switches get a default and keep the version: a new version would read as "newer"
+ * everywhere and turn routing off. (0.18.0 dropped `contextBadge` with the Breakdown
+ * chip; a saved value for it is ignored.)
  */
-export type RoutingSettingsShape = { routeAgents: boolean; comboProfiles: boolean; contextBadge: boolean; mcpCard: boolean };
-export const ROUTING_DEFAULTS: RoutingSettingsShape = { routeAgents: false, comboProfiles: true, contextBadge: true, mcpCard: true };
+export type RoutingSettingsShape = { routeAgents: boolean; comboProfiles: boolean; mcpCard: boolean };
+export const ROUTING_DEFAULTS: RoutingSettingsShape = { routeAgents: false, comboProfiles: true, mcpCard: true };
 
 /** Decode the daemon's `{ version, values }` envelope. Missing, malformed or newer = routing off, the rest on. */
 export function parseRoutingEnvelope(raw: string | null): RoutingSettingsShape {
   if (raw === null) return ROUTING_DEFAULTS;
   try {
-    const envelope = JSON.parse(raw) as { version?: unknown; values?: { routeAgents?: unknown; comboProfiles?: unknown; contextBadge?: unknown; mcpCard?: unknown } };
+    const envelope = JSON.parse(raw) as { version?: unknown; values?: { routeAgents?: unknown; comboProfiles?: unknown; mcpCard?: unknown } };
     if (envelope.version !== ROUTING_SETTINGS_VERSION) return ROUTING_DEFAULTS;
     const values = envelope.values;
-    return { routeAgents: values?.routeAgents === true, comboProfiles: values?.comboProfiles !== false, contextBadge: values?.contextBadge !== false, mcpCard: values?.mcpCard !== false };
+    return { routeAgents: values?.routeAgents === true, comboProfiles: values?.comboProfiles !== false, mcpCard: values?.mcpCard !== false };
   } catch {
     return ROUTING_DEFAULTS;
   }
@@ -396,7 +397,7 @@ export function shareSnippets(publicUrl: string): Array<{ id: "claude" | "codex"
     {
       id: "paseo",
       title: "Another Paseo daemon",
-      why: "Install AI Router there, then enter this address as the endpoint and your key on its Connection tab (or set the two variables before the daemon starts).",
+      why: "Install AI Router there, then enter this address as the endpoint and your key in its Help → “How is this computer connected?” (or set the two variables before the daemon starts).",
       text: [`paseo plugin install ${PLUGIN_GIT_SOURCE}`, `export AI_ROUTER_URL=${base}`, "export AI_ROUTER_KEY=<your key>"].join("\n"),
     },
   ];
@@ -559,7 +560,7 @@ export function routeSession(input: RouteInput): RouteDecision {
   const expected = codexBaseUrl(endpoint);
   if (input.codexBaseUrl !== expected) {
     const which = input.provider === CODEX_PROVIDER_ID ? "the old AI Router Codex provider" : "the Codex via OmniRoute provider";
-    return { action: "skip", kind, reason: `${which} points at ${input.codexBaseUrl ?? "nothing"}, not ${expected}; turn it on again in the Providers tab` };
+    return { action: "skip", kind, reason: `${which} points at ${input.codexBaseUrl ?? "nothing"}, not ${expected}; turn it on again on the Models tab, under Codex extras` };
   }
   return { action: "route", kind, env: { OPENAI_API_KEY: apiKey } };
 }

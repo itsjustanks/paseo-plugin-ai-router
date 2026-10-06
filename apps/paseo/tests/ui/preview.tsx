@@ -2,13 +2,13 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiRouterSurface } from "../../client/surface";
-import { createBadgeStore, makeContextChip, makeContextPanel } from "../../client/context";
-import type { TabId } from "../../client/navigation";
+import { createAlertStore, makeAlertChip } from "../../client/alerts";
+import type { GoTarget } from "../../shared/tabs";
 import type { AnalyticsRangeId } from "../../shared/contracts";
 import { setPreview } from "./plugin";
 
 /** Every state the screenshots cover: `?state=<name>&theme=light|dark`. Tiers: basic = key only, operator = read token, admin = manage key. */
-export const STATES: Record<string, { status: string; tab?: TabId; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: AnalyticsRangeId; context?: string; apps?: string; usage_?: { used: number; max: number }; alert?: boolean; updates?: string; news?: boolean; codexAccounts?: number | null }> = {
+export const STATES: Record<string, { status: string; tab?: GoTarget; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: AnalyticsRangeId; chip?: boolean; apps?: string; alert?: boolean; updates?: string; news?: boolean; codexAccounts?: number | null }> = {
   setup: { status: "not connected" },
   overview: { status: "routing on", settings: "calm" },
   "overview-basic": { status: "basic" },
@@ -53,11 +53,14 @@ export const STATES: Record<string, { status: string; tab?: TabId; accounts?: st
   "settings-basic": { status: "basic", tab: "settings" },
   tips: { status: "routing on", tab: "tips" },
   "tips-admin": { status: "admin", tab: "tips" },
-  // The context badge's panel, as the chip opens it (the chip itself sits at the top).
-  context: { status: "routing on", context: "ok", usage_: { used: 186_204, max: 1_000_000 } },
-  "context-full": { status: "routing on", context: "full", usage_: { used: 172_000, max: 200_000 } },
-  "context-basic": { status: "basic", context: "basic", usage_: { used: 58_400, max: 200_000 } },
-  "context-router-down": { status: "routing on", context: "ok", usage_: { used: 186_204, max: 1_000_000 }, alert: true },
+  // The four tabs by their own ids (0.18.0).
+  help: { status: "routing on", tab: "help" },
+  "help-admin": { status: "admin", tab: "help" },
+  "help-basic": { status: "basic", tab: "help" },
+  "accounts-basic": { status: "basic", tab: "accounts" },
+  // The chip on a chat's composer: only while the router can't serve it.
+  "chip-router-down": { status: "routing on", chip: true, alert: true },
+  "chip-calm": { status: "routing on", chip: true },
 };
 
 const params = new URLSearchParams(location.search);
@@ -82,22 +85,21 @@ function Preview() {
     return () => removeEventListener("resize", resize);
   }, []);
   const props = { theme: { colors }, host: { id: "preview", label: "daemon-b" }, layout: { compact, platform: "web" as const }, navigation: { openAgent() {}, openWorkspace() {} } } as any;
-  if (state.context) {
-    const store = createBadgeStore();
-    store.set("agent-7", "ws-1", state.usage_ ?? null);
-    if (state.alert) store.setAlerts([{ agentId: "agent-7", text: "Router down", detail: "OmniRoute isn't answering (connection refused at http://10.0.0.5:20128/api/health/ping). This chat's requests go through it, so they fail until it's back. Reopened, it uses its own sign-in until the router is back." }]);
-    const Panel = makeContextPanel(store, () => {});
-    const Chip = makeContextChip(store);
+  if (state.chip) {
+    const store = createAlertStore();
+    store.set("agent-7", "ws-1");
+    if (state.alert) store.setAlerts([{ agentId: "agent-7", text: "Router down", detail: "" }]);
+    const Chip = makeAlertChip(store);
     return (
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchInterval: false } } })}>
-        <div style={{ display: "flex", flexDirection: "column", height: "100vh", maxWidth: 520, background: colors.surface0 }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", alignSelf: "flex-start", margin: 12, padding: "4px 10px", border: `1px solid ${colors.border}`, borderRadius: 999, fontSize: 12, fontFamily: "system-ui" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 16, maxWidth: 520, background: colors.surface0, fontFamily: "system-ui" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 12, border: `1px solid ${colors.border}`, borderRadius: 12, background: colors.surface1, color: colors.foregroundMuted, fontSize: 14 }}>
+          <span style={{ flex: 1 }}>Message the agent…</span>
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: "4px 10px", border: `1px solid ${colors.border}`, borderRadius: 999, fontSize: 12 }}>
             <Chip {...props} workspaceId="ws-1" agentId="agent-7" />
-          </div>
-          <Panel {...props} context="agent" workspaceId="ws-1" agentId="agent-7" />
-          <span style={{ color: colors.foregroundMuted, fontSize: 11, fontFamily: "system-ui", padding: 12 }}>AI Router · context panel preview</span>
+          </span>
         </div>
-      </QueryClientProvider>
+        <span style={{ color: colors.foregroundMuted, fontSize: 11 }}>AI Router · composer chip preview ({state.alert ? "router down" : "calm: no chip"})</span>
+      </div>
     );
   }
   return (

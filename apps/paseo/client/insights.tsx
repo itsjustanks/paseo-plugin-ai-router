@@ -3,14 +3,14 @@ import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { accountAction, accountReset, accounts, accountsCheckAll, routerSettings, settingApply, type Accounts, type Status, type Usage } from "../shared/contracts";
+import { access, accountAction, accountReset, accounts, accountsCheckAll, routerSettings, settingApply, type Accounts, type Status, type Usage } from "../shared/contracts";
 import { accountsHeadline, compactNumber as compact, healthLine, providerLabel, quotaName } from "../shared/routers/omniroute/parsers";
 import { CODEX_LOGIN_PORT, dashboardLink, formatUptime, formatUsd, providerDashboardPage, resetLabel, resetQuestion, type ResetKind } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
 import { dashboardTarget, useLinks } from "./dashboard";
 import { openInBrowser } from "./links";
 import type { Message } from "./setup";
-import { Banner, Button, Card, Chip, Disclosure, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone, SPACE } from "./ui";
+import { Accordion, AccordionItem, Banner, Button, Card, Chip, Disclosure, Fact, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -38,7 +38,7 @@ export function Gate({ theme, title, data, error, loading, refetch }: { theme: T
     return (
       <Banner theme={theme} tone="neutral" title={`${title}: read token needed`}>
         <Note theme={theme}>{data.message}</Note>
-        <Note theme={theme}>Add it on the Connection tab, under More access. It is read-only and cannot change anything.</Note>
+        <Note theme={theme}>Add it in Help, under "How do I see accounts and usage?". It is read-only and cannot change anything.</Note>
       </Banner>
     );
   }
@@ -55,13 +55,44 @@ export function Notes({ theme, notes }: { theme: Theme; notes: string[] }) {
   return notes.length ? <View style={{ gap: SPACE.xs, marginTop: SPACE.xs }}>{notes.map((note) => <Note key={note} theme={theme}>{note}</Note>)}</View> : null;
 }
 
+/** What this key itself may see: its name, spend against its limit, the accounts' quota. Nothing about other keys. */
+export function YourAccess({ theme, data }: { theme: Theme; data: Status }) {
+  const call = useRpc(access);
+  const query = useQuery({ queryKey: ["ai-router", "access"], queryFn: () => call({}), refetchInterval: 60_000 });
+  const mine = query.data;
+  const models = data.aiProvider.present ? `${data.aiProvider.modelCount} models on connected accounts` : null;
+  if (!mine) return <Note theme={theme}>{query.error ? errorText(query.error) : "Asking the router…"}</Note>;
+  if (mine.state !== "ok") {
+    return (
+      <>
+        {models ? <Fact theme={theme} label="Models" value={models} /> : null}
+        <Note theme={theme} tone={mine.state === "error" ? "warning" : "neutral"}>{mine.message}</Note>
+      </>
+    );
+  }
+  return (
+    <>
+      {mine.keyName ? <Fact theme={theme} label="This key" value={mine.keyName} /> : null}
+      {models ? <Fact theme={theme} label="Models" value={models} /> : null}
+      {mine.spend ? (
+        <Fact
+          theme={theme}
+          label={`Spend (${mine.spend.period})`}
+          value={mine.spend.limitUsd !== null ? `${formatUsd(mine.spend.usedUsd)} of ${formatUsd(mine.spend.limitUsd)}${mine.spend.resetAt ? ` · resets ${mine.spend.resetAt.slice(0, 10)}` : ""}` : `${formatUsd(mine.spend.usedUsd)} · no limit set`}
+        />
+      ) : null}
+      {mine.tokens !== null ? <Fact theme={theme} label="Tokens" value={`${Math.round(mine.tokens).toLocaleString()} this period`} /> : null}
+      {mine.quotas.map((quota) => <Fact key={quota.provider + quota.text} theme={theme} label={`${quota.provider} quota`} value={quota.text} />)}
+    </>
+  );
+}
+
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
 /** Version and uptime from the status poll, the rest from `/api/monitoring/health` and `/api/provider-stats`. */
 function RouterHealth({ theme, router, version, uptime }: { theme: Theme; router: Accounts["router"]; version: string | null; uptime: number | null }) {
-  if (!router && !version) return null;
   return (
-    <Card theme={theme} title="Router health" icon="HeartPulse">
+    <>
       <Row>
         {router?.breakers ? <Chip theme={theme} label={router.breakers.text} tone={router.breakers.tone} /> : null}
         {version ? <Chip theme={theme} label={`version ${version}`} /> : null}
@@ -76,7 +107,7 @@ function RouterHealth({ theme, router, version, uptime }: { theme: Theme; router
       {router?.failingModels.map((m) => (
         <Note key={`${m.provider}/${m.model}`} theme={theme} tone="danger">{`${m.model} (${providerLabel(m.provider)}): ${m.failed} of ${m.requests} requests failed`}</Note>
       ))}
-    </Card>
+    </>
   );
 }
 
@@ -107,7 +138,7 @@ const EXPIRY_WORDS = { expired: "Sign-in expired", expiring_soon: "Sign-in expir
  * all and Refresh token. Re-login and Add account are the dashboard's pages,
  * which ask for their own login.
  */
-export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: Status; say: (message: Message) => void }) {
+export function AccountsTab({ theme, data: status, say, children, folds }: { theme: Theme; data: Status; say: (message: Message) => void; children?: React.ReactNode; folds?: React.ReactNode }) {
   const queryClient = useQueryClient();
   const call = useRpc(accounts);
   const callAction = useRpc(accountAction);
@@ -210,7 +241,15 @@ export function AccountsTab({ theme, data: status, say }: { theme: Theme; data: 
           <Notes theme={theme} notes={data.notes} />
         </Card>
       ) : null}
-      <RouterHealth theme={theme} router={data?.router ?? null} version={version} uptime={uptime} />
+      {children}
+      <Accordion theme={theme}>
+        {data?.router || version ? (
+          <AccordionItem theme={theme} id="router-health" icon="HeartPulse" title="Is the router healthy?" summary={[data?.router?.breakers?.text, version ? `version ${version}` : null, uptime !== null ? `running ${formatUptime(uptime)}` : null].filter(Boolean).join(" · ")} tone={data?.router?.failingModels.length ? "warning" : undefined}>
+            <RouterHealth theme={theme} router={data?.router ?? null} version={version} uptime={uptime} />
+          </AccordionItem>
+        ) : null}
+        {folds}
+      </Accordion>
     </>
   );
 }

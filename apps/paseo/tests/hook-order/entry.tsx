@@ -12,14 +12,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiRouterSurface } from "../../client/surface";
 import { RouterSettingsCard } from "../../client/insights";
 import { UsageTab } from "../../client/analytics";
-import { TabBar, type TabId } from "../../client/navigation";
-import { createBadgeStore, makeContextChip, makeContextPanel, recheckBadges, registerContextBadges } from "../../client/context";
+import { TabBar } from "../../client/navigation";
+import type { GoTarget } from "../../shared/tabs";
+import { createAlertStore, makeAlertChip, registerRouterAlerts } from "../../client/alerts";
+import { peekPendingMessage, registerRouterCommands, slashJob, takePendingMessage } from "../../client/commands";
 import { followAgents } from "../../client/agents";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
 import contributeClient from "../../index.client";
 import { hostOpener } from "../../client/links";
 import { makeQuickActions, makeStatusTrailing } from "../../client/quick";
-import { releaseRpc, setHostExports, setAccessFixture, setActivityFixture, setClisFixture, setCompressionFixture, setContextFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import { releaseRpc, setHostExports, setAccessFixture, setActivityFixture, setClisFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -32,7 +34,7 @@ const ROUTER_DOWN = { agentId: "agent-7", text: "Router down", detail: "OmniRout
 
 const wide = { compact: false, platform: "web" } as const;
 const narrow = { compact: true, platform: "ios" } as const;
-type Pick = { tab?: TabId; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string; profiles?: string; activity?: string; apps?: string };
+type Pick = { tab?: GoTarget; params?: Record<string, string>; accounts?: string; settings?: string; usage?: string; access?: string; compression?: string; profiles?: string; activity?: string; apps?: string };
 const surface = (status: string, layout: { compact: boolean; platform: "web" | "ios" }, pick: Pick = {}) => () => {
   setStatusFixture(status, pick.accounts);
   setUsageFixture(pick.usage ?? "ok");
@@ -42,25 +44,16 @@ const surface = (status: string, layout: { compact: boolean; platform: "web" | "
   if (pick.profiles) setProfilesFixture(pick.profiles);
   if (pick.activity) setActivityFixture(pick.activity);
   if (pick.apps) setClisFixture(pick.apps);
-  return <AiRouterSurface {...base} layout={layout} initialTab={pick.tab} />;
+  return <AiRouterSurface {...base} layout={layout} initialTab={pick.tab} params={pick.params} />;
 };
 
-/** The agent panel the chip opens, for one fixture; the store holds that chat's reported total. */
-const contextPanel = (fixture: string, usage: { used: number; max: number } | null, layout: { compact: boolean; platform: "web" | "ios" } = wide, alert = false) => () => {
+/** The router-alert chip on the old component shape, for one chat; `alert` puts a problem on it. */
+const alertChip = (alert: boolean) => () => {
   setStatusFixture("routing on");
-  setContextFixture(fixture);
-  const store = createBadgeStore();
-  store.set("agent-7", "ws-1", usage);
+  const store = createAlertStore();
+  store.set("agent-7", "ws-1");
   if (alert) store.setAlerts([ROUTER_DOWN]);
-  const Panel = makeContextPanel(store, () => {});
-  return <Panel {...base} layout={layout} context="agent" workspaceId="ws-1" agentId="agent-7" />;
-};
-const contextChip = (used: number, max: number, alert = false) => () => {
-  setStatusFixture("routing on");
-  const store = createBadgeStore();
-  store.set("agent-7", "ws-1", used ? { used, max } : null);
-  if (alert) store.setAlerts([ROUTER_DOWN]);
-  const Chip = makeContextChip(store);
+  const Chip = makeAlertChip(store);
   return <Chip {...base} layout={wide} workspaceId="ws-1" agentId="agent-7" />;
 };
 
@@ -111,7 +104,8 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "providers tab (agent apps updating)": surface("routing on", wide, { tab: "providers", apps: "updating" }),
   // Models
   "models tab": surface("connected", wide, { tab: "models" }),
-  "models tab (basic, key hides its spend)": surface("basic", narrow, { tab: "models", access: "hidden" }),
+  "models tab (basic, key hides its spend)": surface("basic", narrow, { tab: "accounts", access: "hidden", params: { open: "your-access" } }),
+  "accounts tab (your access)": surface("connected", wide, { tab: "accounts", params: { open: "your-access" } }),
   "models tab (testing one)": surface("routing on", narrow, { tab: "models" }),
   "models tab (not synced)": surface("routing off", wide, { tab: "models" }),
   // Providers
@@ -149,25 +143,26 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "tips tab (not connected)": surface("not connected", wide, { tab: "tips" }),
   "settings tab (basic)": surface("basic", wide, { tab: "settings" }),
   "settings tab (not connected)": surface("not connected", narrow, { tab: "settings" }),
-  "settings tab (badge off)": surface("routing on", wide, { tab: "settings", settings: "calm" }),
-  // The context badge and its panel
-  "context chip": contextChip(186_204, 1_000_000),
-  "context chip (nearly full)": contextChip(190_000, 200_000),
-  "context chip (router down)": contextChip(186_204, 1_000_000, true),
-  "context chip (router down, no turn yet)": contextChip(0, 0, true),
-  "context panel (router down)": contextPanel("ok", { used: 186_204, max: 1_000_000 }, narrow, true),
+  "settings tab (MCP line off)": surface("routing on", wide, { tab: "settings", settings: "calm" }),
+  // The chip on a chat: only while the router can't serve it
+  "alert chip (router down)": alertChip(true),
   "activity (open an agent)": surface("routing on", wide, { tab: "activity" }),
-  // Each tab's intro: "What you can do here" folds away on a phone; the guide's link opens Providers
-  "providers tab (narrow, learn more)": surface("basic", narrow, { tab: "providers" }),
-  "overview (guide opens Providers)": surface("routing on", wide),
+  // The guide's link opens Models; the setup's link opens the guide
+  "overview (guide opens Models)": surface("routing on", wide),
   "overview (not connected)": surface("not connected", wide, { tab: "overview" }),
-  "setup (link opens the guide)": surface("not connected", narrow),
-  "context panel (operator)": contextPanel("ok", { used: 186_204, max: 1_000_000 }),
-  "context panel (compacted, nearly full, narrow)": contextPanel("full", { used: 172_000, max: 200_000 }, narrow),
-  "context panel (basic)": contextPanel("basic", { used: 58_400, max: 200_000 }),
-  "context panel (no turn yet)": contextPanel("no-usage", null),
-  "context panel (timeline error, refresh)": contextPanel("error", { used: 1, max: 2 }),
-  "context panel (hide the badge)": contextPanel("ok", { used: 186_204, max: 1_000_000 }),
+  "setup (link opens the guide)": surface("not connected", narrow, { tab: "connection" }),
+  // The four tabs by their own ids, and deep links (Paseo 0.11 screen params), old ids included
+  "help tab (operator)": surface("routing on", wide, { tab: "help" }),
+  "help tab (basic, narrow)": surface("basic", narrow, { tab: "help" }),
+  "help tab (not connected)": surface("not connected", wide, { tab: "help" }),
+  "accounts tab (basic)": surface("basic", wide, { tab: "accounts" }),
+  "accounts tab (not connected)": surface("not connected", narrow, { tab: "accounts" }),
+  "models tab (not connected)": surface("not connected", wide, { tab: "models" }),
+  "deep link (tab=connection)": surface("routing on", wide, { params: { tab: "connection" } }),
+  "deep link (tab=usage)": surface("routing on", wide, { accounts: "healthy", params: { tab: "usage" } }),
+  "deep link (tab=help, open=tips)": surface("routing on", narrow, { params: { tab: "help", open: "tips" } }),
+  "deep link (unknown tab)": surface("routing on", wide, { params: { tab: "nowhere" } }),
+  "help tab (press a question)": surface("routing on", wide, { tab: "help" }),
   // Every visible tab in one mounted surface, pressed in turn
   "tab walk (basic)": surface("basic", narrow),
   "tab walk (operator)": surface("routing on", narrow, { accounts: "healthy" }),
@@ -188,10 +183,10 @@ export const presses: Record<string, string[]> = {
   "connection tab (editing)": ["Edit"],
   "models tab (testing one)": ["Test Opus 5.5"],
   "providers tab (tidy up preview)": ["Tidy up…"],
-  "providers tab (re-route Claude asks first)": ["Re-route Claude through OmniRoute"],
-  "providers tab (re-route Claude confirmed)": ["Re-route Claude through OmniRoute", "Re-route Claude"],
-  "providers tab (own sign-in asks first)": ["Re-route Claude through OmniRoute"],
-  "providers tab (own sign-in asks first, cancel)": ["Re-route Claude through OmniRoute", "Cancel"],
+  "providers tab (re-route Claude asks first)": ["Send Claude through the router"],
+  "providers tab (re-route Claude confirmed)": ["Send Claude through the router", "Yes, send Claude through the router"],
+  "providers tab (own sign-in asks first)": ["Send Claude through the router"],
+  "providers tab (own sign-in asks first, cancel)": ["Send Claude through the router", "Cancel"],
   "settings tab (admin, apply recommended)": ["Apply recommended…", "What each engine does"],
   "usage tab (30 days, narrow)": ["Last 30 days"],
   "usage tab (24 hours)": ["Today"],
@@ -202,20 +197,18 @@ export const presses: Record<string, string[]> = {
   "activity (all daemons, a model)": ["All daemons", "Only claude-haiku-4-5"],
   "activity (why this route)": ["Request r-300, succeeded; show why"],
   "activity (show older)": ["Show older"],
-  "overview (last agent links to Activity)": ["See every agent session in Traffic"],
+  "overview (last agent links to Activity)": ["See every chat in Recent traffic"],
   "overview (hide the MCP card)": ["Hide the MCP line"],
   "overview (guide opened)": ["New to AI Router? How it works"],
-  "providers tab (re-route Codex asks first)": ["Optional extras", "Re-route built-in Codex through OmniRoute"],
-  "providers tab (re-route Codex confirmed)": ["Optional extras", "Re-route built-in Codex through OmniRoute", "Re-route Codex"],
-  "providers tab (Codex back on own sign-in asks first)": ["Re-route built-in Codex through OmniRoute"],
+  "providers tab (re-route Codex asks first)": ["Send built-in Codex through the router"],
+  "providers tab (re-route Codex confirmed)": ["Send built-in Codex through the router", "Yes, send Codex through the router"],
+  "providers tab (Codex back on own sign-in asks first)": ["Send built-in Codex through the router"],
   "providers tab (agent apps asks first)": ["Update to 0.160.0"],
-  "tips tab (admin, two installed, copy one)": ["Copy the Activity install command"],
-  "settings tab (badge off)": ["Context breakdown chip on each chat"],
-  "context panel (timeline error, refresh)": ["Refresh"],
-  "context panel (hide the badge)": ["Hide the Breakdown chip"],
+  "tips tab (admin, two installed, copy one)": ["Copy the Tell Agent install command"],
+  "settings tab (MCP line off)": ["MCP plugin line on Overview"],
+  "help tab (press a question)": ["Which plugins work well with AI Router?"],
   "activity (open an agent)": ["Open Fix the login bug", "Open Draft release notes"],
-  "providers tab (narrow, learn more)": ["What you can do here"],
-  "overview (guide opens Providers)": ["New to AI Router? How it works", "Open the Providers tab"],
+  "overview (guide opens Models)": ["New to AI Router? How it works", "Open the Models tab"],
   "setup (link opens the guide)": ["New to AI Router? Overview explains what it is and how it works"],
 };
 
@@ -273,106 +266,85 @@ function describe(tree: any): { nodes: number; text: string } {
 }
 
 /**
- * The chip registry against a stand-in Paseo client: a chip only for chats that
- * reported a window, none for archived ones, all gone when the switch is off,
- * and back when it is on again. Returns what happened, for the runner to check.
+ * The router-alert chips on the old component shape (0.8.0-beta.1): a chip
+ * only on a chat a router problem reaches, gone once it clears; reads are
+ * one at a time.
  */
-export async function badgeRegistryCheck(): Promise<Record<string, unknown>> {
+export async function alertRegistryCheck(): Promise<Record<string, unknown>> {
   const added: string[] = [];
   const removed: string[] = [];
-  const opened: unknown[] = [];
+  let opened = 0;
   let emit: (update: any) => void = () => {};
-  let enabled = true;
   let alertsNext: unknown[] = [];
   let rpcCalls = 0;
+  let slow = false;
+  let release: () => void = () => {};
   const client = {
     addComposerPill(pill: any) {
       added.push(pill.agentId);
       pill.onPress();
       return () => removed.push(pill.agentId);
     },
-    openPanel(id: string, options: unknown) { opened.push([id, options]); },
-    rpc: async () => { rpcCalls += 1; return { enabled, alerts: alertsNext }; },
+    rpc: () => {
+      rpcCalls += 1;
+      if (slow) return new Promise((resolve) => { release = () => resolve({ alerts: [] }); });
+      return Promise.resolve({ alerts: alertsNext });
+    },
     paseo: { agents: { subscribe(handler: any) { emit = handler; return () => { emit = () => {}; }; } } },
   } as any;
-  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-  const stop = registerContextBadges(client, createBadgeStore());
-  const agent = (id: string, used?: number, over: Record<string, unknown> = {}) => ({ kind: "upsert", agent: { id, workspaceId: "ws-1", archivedAt: null, lastUsage: used ? { contextWindowUsedTokens: used, contextWindowMaxTokens: 200_000 } : undefined, ...over } });
-  emit(agent("a", 40_000));
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const stop = registerRouterAlerts(client, createAlertStore(), () => { opened += 1; }, { pollMs: 5, capMs: 20 });
+  const agent = (id: string, over: Record<string, unknown> = {}) => ({ kind: "upsert", agent: { id, workspaceId: "ws-1", archivedAt: null, lastUsage: { contextWindowUsedTokens: 40_000, contextWindowMaxTokens: 200_000 }, ...over } });
+  emit(agent("a"));
   emit(agent("b"));
-  emit(agent("c", 90_000, { archivedAt: "2026-09-23T00:00:00Z" }));
-  await flush();
-  const first = { added: [...added], opened: opened.length };
-  emit(agent("a", 41_000));
-  emit(agent("b", 12_000));
-  await flush();
-  const afterTurn = [...added];
-  enabled = false;
-  recheckBadges();
-  await flush();
-  const offRemoved = [...removed].sort();
-  enabled = true;
-  recheckBadges();
-  await flush();
-  const backOn = added.length;
-  emit({ kind: "remove", agentId: "a" });
-  await flush();
-  // A router problem reaches chat "d", which has not reported a window yet: it gets a chip, until the problem clears.
-  emit(agent("d"));
-  alertsNext = [{ agentId: "d", text: "Router down", detail: "x" }];
-  recheckBadges();
-  await flush();
-  const alerted = added.includes("d");
+  emit(agent("c", { archivedAt: "2026-09-23T00:00:00Z" }));
+  await wait(30);
+  const calm = [...added];
+  // The router goes down: a and c are routed, but c is archived; b is not reached.
+  alertsNext = [{ agentId: "a", text: "Router down", detail: "x" }, { agentId: "c", text: "Router down", detail: "x" }];
+  await wait(30);
+  const down = [...added];
   alertsNext = [];
-  recheckBadges();
-  await flush();
-  const cleared = removed.includes("d");
-  // A slow daemon: switch presses while a read is out queue one more read, never a second loop.
-  let release: () => void = () => {};
-  client.rpc = () => { rpcCalls += 1; return new Promise((resolve) => { release = () => resolve({ enabled: true, alerts: [] }); }); };
+  await wait(30);
+  const cleared = removed.includes("a");
+  // A slow daemon: the next read stays out; no second read starts meanwhile.
+  slow = true;
   const beforeSlow = rpcCalls;
-  recheckBadges();
-  recheckBadges();
-  recheckBadges();
-  await flush();
+  await wait(30);
   const whileOut = rpcCalls - beforeSlow;
   release();
-  await flush();
-  release();
-  await flush();
-  const slowReads = rpcCalls - beforeSlow;
   stop();
-  recheckBadges();
-  await flush();
-  const afterStop = rpcCalls - beforeSlow;
-  return { first, afterTurn, offRemoved, backOn, removedAll: [...removed].filter((id) => id !== "d").sort(), rpcCalls: beforeSlow, whileOut, slowReads, afterStop, alerted, cleared };
+  const afterStop = rpcCalls;
+  await wait(30);
+  return { calm, down, cleared, opened, whileOut, stoppedReads: rpcCalls - afterStop };
 }
 
 /**
- * The same registry on Paseo 0.8.0 stable and later (0.15.1): chips are buttons the app validates, the
- * label is pushed with update(), and agents come from the plugin's own observation (0.9+).
+ * The same chips on Paseo 0.8.0 stable and later (0.15.1): chips are buttons
+ * the app validates, the label is pushed with update(), and agents come from
+ * the plugin's own observation (0.9+).
  */
-export async function badgeButtonsCheck(): Promise<Record<string, unknown>> {
+export async function alertButtonsCheck(): Promise<Record<string, unknown>> {
   const added: Array<{ agentId: string; label?: string; icon: string }> = [];
   const updates: Array<[string, unknown]> = [];
   const removed: string[] = [];
-  const opened: unknown[] = [];
   const invalid: string[] = [];
   const presses = new Map<string, () => void>();
+  let opened = 0;
   let refuseNext = 0;
-  let alertsNext: unknown[] = [];
   let observer: any = null;
   let released = 0;
   let listCalls = 0;
   let oldSubscribeCalls = 0;
-  const agentOf = (id: string, used?: number, over: Record<string, unknown> = {}) => ({ id, workspaceId: "ws-1", archivedAt: null, lastUsage: used ? { contextWindowUsedTokens: used, contextWindowMaxTokens: 200_000 } : undefined, ...over });
+  let alertsNext: unknown[] = [{ agentId: "a", text: "Router down", detail: "x" }];
+  const agentOf = (id: string, over: Record<string, unknown> = {}) => ({ id, workspaceId: "ws-1", archivedAt: null, ...over });
   // What the 0.11 app's validateButton and requireButtonId check, so a wrong shape fails here as it does there.
   const validate = (pill: any) => {
     const b = pill.button;
     if (typeof pill.id !== "string" || !/^[a-z][a-z0-9-]*$/.test(pill.id)) return "id";
     if (!b || typeof b.title !== "string" || !b.title.trim()) return "title";
     if (b.label !== undefined && (typeof b.label !== "string" || !b.label.trim())) return "label";
-    if (typeof b.icon !== "string" || !["ChartPie", "TriangleAlert"].includes(b.icon)) return "icon";
+    if (typeof b.icon !== "string" || b.icon !== "TriangleAlert") return "icon";
     if (b.behavior?.kind !== "action" || typeof b.behavior.onPress !== "function") return "behavior";
     if ("Component" in pill || "onPress" in pill) return "old shape";
     return null;
@@ -400,8 +372,7 @@ export async function badgeButtonsCheck(): Promise<Record<string, unknown>> {
         remove: () => removed.push(pill.agentId),
       };
     },
-    openPanel(id: string, options: unknown) { opened.push([id, options]); },
-    rpc: async () => ({ enabled: true, alerts: alertsNext }),
+    rpc: async () => ({ alerts: alertsNext }),
     paseo: {
       observeEvents() {},
       agents: {
@@ -410,7 +381,7 @@ export async function badgeButtonsCheck(): Promise<Record<string, unknown>> {
           listCalls += 1;
           if (!options?.subscribe) throw new Error("no subscribe");
           return {
-            entries: [{ agent: agentOf("a", 40_000) }, { agent: agentOf("b") }, { agent: agentOf("c", 90_000, { archivedAt: "2026-09-23T00:00:00Z" }) }],
+            entries: [{ agent: agentOf("a") }, { agent: agentOf("b") }, { agent: agentOf("c", { archivedAt: "2026-09-23T00:00:00Z" }) }],
             subscription: { subscribe(next: any) { observer = next; return () => {}; }, release: async () => { released += 1; } },
           };
         },
@@ -418,42 +389,34 @@ export async function badgeButtonsCheck(): Promise<Record<string, unknown>> {
     },
   } as any;
   const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-  const store = createBadgeStore();
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   // The first add is refused (the app doesn't know the workspace yet): the loop carries on and retries.
   refuseNext = 1;
-  const stop = registerContextBadges(client, store);
+  const stop = registerRouterAlerts(client, createAlertStore(), () => { opened += 1; }, { pollMs: 5, capMs: 20 });
   await flush();
   await flush();
   const afterRefusal = { refusedLeft: refuseNext, added: added.map((pill) => pill.agentId) };
-  recheckBadges();
-  await flush();
+  await wait(30);
   const first = added.map((pill) => ({ ...pill }));
-  observer.update({ type: "agent_update", payload: { kind: "upsert", agent: agentOf("b", 12_000) } });
-  observer.update({ type: "something_else", payload: { kind: "upsert", agent: agentOf("z", 1) } });
-  await flush();
-  const afterTurn = added.map((pill) => pill.agentId);
-  alertsNext = [{ agentId: "a", text: "Router down", detail: "x" }];
-  recheckBadges();
-  await flush();
-  const alertUpdate = updates.filter(([id]) => id === "a").at(-1)?.[1];
-  alertsNext = [];
-  recheckBadges();
-  await flush();
-  const clearedUpdate = updates.filter(([id]) => id === "a").at(-1)?.[1];
-  const updatesBefore = updates.length;
-  recheckBadges();
-  await flush();
-  const quietReads = updates.length - updatesBefore;
   presses.get("a")?.();
-  // A fresh snapshot (a reconnect) replaces the list: a is gone, d is new.
-  observer.snapshot({ entries: [{ agent: agentOf("b", 12_000) }, { agent: agentOf("d", 5_000) }] });
-  await flush();
-  const afterSnapshot = { added: added.map((pill) => pill.agentId), removed: [...removed] };
-  observer.update({ type: "agent_update", payload: { kind: "remove", agentId: "b" } });
-  await flush();
+  // Claude paused instead: the label is pushed, not a second chip.
+  alertsNext = [{ agentId: "a", text: "Claude paused", detail: "x" }];
+  await wait(30);
+  const pausedUpdate = updates.filter(([id]) => id === "a").at(-1)?.[1];
+  const updatesBefore = updates.length;
+  await wait(30);
+  const quietUpdates = updates.length - updatesBefore;
+  alertsNext = [];
+  await wait(30);
+  const afterClear = { added: added.map((pill) => pill.agentId), removed: [...removed] };
+  // A fresh snapshot (a reconnect) replaces the list: b is gone, d is new and alerted.
+  alertsNext = [{ agentId: "d", text: "Router down", detail: "x" }];
+  observer.snapshot({ entries: [{ agent: agentOf("d") }] });
+  await wait(30);
+  const afterSnapshot = added.map((pill) => pill.agentId);
   stop();
   await flush();
-  return { afterRefusal, first, afterTurn, alertUpdate, clearedUpdate, quietReads, opened, afterSnapshot, removedAll: [...removed].sort(), released, listCalls, oldSubscribeCalls, invalid };
+  return { afterRefusal, first, opened, pausedUpdate, quietUpdates, afterClear, afterSnapshot, removedAll: [...removed].sort(), released, listCalls, oldSubscribeCalls, invalid };
 }
 
 /** The agent follower: no observation on 0.8; on 0.9+ one, reopened with backoff when dropped or refused, released on stop. */
@@ -499,20 +462,60 @@ export async function followAgentsCheck(): Promise<Record<string, unknown>> {
   return { onOld, opened, reopened, released, callsAfterStop: calls };
 }
 
-/** The tab bar measured at a half-width window: labels give way to icons, the active tab keeps its name. */
+/** The tab bar measured at a narrow window: labels give way to icons, the active tab keeps its name. */
 export async function tabBarWidthCheck(): Promise<{ wide: string; tight: string; tightIcons: number }> {
-  const all: TabId[] = ["overview", "activity", "models", "providers", "accounts", "usage", "settings", "connection", "tips"];
   let renderer!: ReturnType<typeof create>;
-  await act(async () => { renderer = create(<TabBar theme={base.theme} compact={false} tabs={all} active="usage" onSelect={() => {}} />); });
+  await act(async () => { renderer = create(<TabBar theme={base.theme} compact={false} active="accounts" onSelect={() => {}} />); });
   const text = () => describe(renderer.toJSON()).text;
   const bar = () => renderer.root.findAll((node) => node.props.accessibilityRole === "tablist")[0];
-  await act(async () => { bar().props.onLayout({ nativeEvent: { layout: { width: 1100 } } }); });
+  await act(async () => { bar().props.onLayout({ nativeEvent: { layout: { width: 900 } } }); });
   const wide = text();
-  await act(async () => { bar().props.onLayout({ nativeEvent: { layout: { width: 772 } } }); });
+  await act(async () => { bar().props.onLayout({ nativeEvent: { layout: { width: 360 } } }); });
   const tight = text();
   const tightIcons = renderer.root.findAll((node) => node.type === "Icon").length;
   await act(async () => { renderer.unmount(); });
   return { wide, tight, tightIcons };
+}
+
+/** The "Sync models" and "Check router" commands and /ai-router: each runs, leaves its reply for the screen, and opens it. */
+export async function commandsCheck(): Promise<Record<string, unknown>> {
+  const items: any[] = [];
+  const slashes: any[] = [];
+  const opened: unknown[] = [];
+  const calls: string[] = [];
+  const rpc = async (contract: any, input: any) => {
+    calls.push(`${contract.name}:${JSON.stringify(input)}`);
+    if (contract.name === "ai-router.provider") return { ok: true, message: "12 models synced to Paseo." };
+    return { problem: null, checking: false, connection: { router: "omniroute" }, health: { up: false, error: "connection refused", latencyMs: null } };
+  };
+  const client: any = {
+    addCommandCenterItem: (item: any) => { items.push(item); return () => {}; },
+    addSlashCommand: (command: any) => { slashes.push(command); return () => {}; },
+  };
+  const cleanups = registerRouterCommands(client, (capabilities) => opened.push(capabilities ? "opened" : "none"));
+  await items.find((item) => item.id === "ai-router-sync").onSelect({ context: "global", rpc });
+  const synced = takePendingMessage();
+  await items.find((item) => item.id === "ai-router-check").onSelect({ context: "global", rpc });
+  const checked = takePendingMessage();
+  await slashes[0].onSubmit({ context: "agent", rpc, args: " check now" });
+  const slashChecked = takePendingMessage();
+  await slashes[0].onSubmit({ context: "agent", rpc, args: "" });
+  const slashOpened = peekPendingMessage();
+  const noSlash: any[] = [];
+  const older = registerRouterCommands({ addCommandCenterItem: (item: any) => { noSlash.push(item.id); return () => {}; } } as any, () => {});
+  return {
+    ids: items.map((item) => item.id),
+    slash: slashes.map((command) => ({ name: command.name, hint: command.argumentHint, context: command.context })),
+    cleanups: cleanups.length,
+    synced,
+    checked,
+    slashChecked,
+    slashOpened,
+    opened: opened.length,
+    calls,
+    words: [slashJob("sync"), slashJob("Models"), slashJob("health"), slashJob("what")],
+    older: { ids: noSlash, cleanups: older.length },
+  };
 }
 
 /**

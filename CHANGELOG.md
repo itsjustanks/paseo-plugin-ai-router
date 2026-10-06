@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.18.0 — 2026-10-06
+
+The user, on the MCP plugin's redesign: "the nesting… feels a bit weird. It needs better panels and
+accordions… too technical… it just needs to work for dummies", and "get rid of the breakdown thing
+because that one is a little bit pointless". AI Router now follows the same rules as paseo-mcp 0.19.0.
+`requirements.paseo` stays `>=0.8.0`; `ROUTING_SETTINGS_VERSION` stays 1; no new dependencies.
+
+- **Four tabs instead of nine**, by what a person comes to do:
+  - **Overview**: the status card as before, the guide, and **Recent traffic** (was Traffic) folded.
+  - **Accounts**: accounts and resets, then usage over a date range (was Usage), then the router's
+    health and this key's own spending (was "Your access" on Models), folded.
+  - **Models**: the model sync, then **Send chats through the router** (was Re-route providers on
+    Providers); folded: the model list with Test, combos as agent profiles, the Codex extras, Tidy up,
+    and the Claude Code and Codex versions.
+  - **Help**: the old Connection, Settings and Tips tabs as plain questions, each folded ("How is this
+    computer connected?", "How do I see accounts and usage?", "Why are long prompts shortened?" …),
+    then the guide.
+- **No intro block under the tab bar.** Each tab starts with its own content, status first.
+- **Fold-outs** (`Accordion` / `AccordionItem`, the paseo-mcp pattern): a card of rows with an icon, a
+  title, a one-line summary and a chevron. A card inside one draws no second box.
+- **Plain names**: "Send Claude through the router" for "Re-route Claude through OmniRoute", "Check the
+  connection" for "Open Connection", "Through the router" for "Re-routed".
+- **Nothing removed, only folded.** Every switch, button and card is still there.
+- **Old tab names still work.** A screen opened with `params.tab` set to an old name, and every link
+  inside the panel, lands on the new tab with the right fold-outs open (for example "connection" opens
+  Help with the connection, keys, sharing and dashboard questions open). `params.open` opens more.
+- **The Breakdown chip and the Context panel are gone.** Paseo's own context meter and its hover card
+  already show how full a chat is, and 0.17.0 put the chat's router accounts on that card. The chip,
+  its panel ("What fills this chat's context"), the `ai-router.context` RPC that counted a chat's
+  timeline, and the "Context breakdown chip" switch are removed. A settings file that still holds the
+  old switch loads fine; the value is ignored.
+- **A chip only when a chat needs attention.** A chat gets a chip from AI Router only while the
+  router can't serve it ("Router down", "Claude paused"), and it goes away once that clears. Pressing it
+  opens AI Router. One small read a minute while a chat is open (`ai-router.alerts`).
+- **Commands.** The Command Center has "Sync AI Router models to Paseo" and "Check the AI Router
+  connection"; in a chat, `/ai-router sync` and `/ai-router check` where the app offers plugin slash
+  commands. Each runs, then opens AI Router with the answer. No sidebar footer item: the sidebar row's
+  status dot and its popover already cover it.
+- **Activity is no longer recommended.** `@koinzhang/paseo-plugin-activity` hung a daemon with a large
+  chat history and is turned off on every daemon we run, so Help's plugin list drops it.
+
 ## 0.17.0 — 2026-10-06
 
 Uses what Paseo 0.11.0-beta.4 and beta.5 add for plugins, where it gives people something real.

@@ -6,8 +6,7 @@ import {
   activityDetail,
   accountsCheckAll,
   accountReset,
-  badge,
-  context,
+  alerts,
   aiProvider,
   codexRouter,
   codexReroute,
@@ -66,7 +65,7 @@ import {
   handleUsageKey,
 } from "./server/handlers";
 import { handleUpdates } from "./server/updates";
-import { handleBadge, handleContext } from "./server/context";
+import { handleAlerts } from "./server/alerts";
 import { registerRoutingHooks } from "./server/hooks";
 import { noteActivity, recheckSoon, startAutoSync } from "./server/provider";
 import { registerUsage } from "./server/usage";
@@ -117,9 +116,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(activityDetail, active(handleActivityDetail));
   server.handle(compression, active(handleCompression));
   server.handle(compressionApply, active(handleCompressionApply));
-  // The context badge: neither runs the model sync, so a chat's chip never adds work beyond its own read.
-  server.handle(badge, handleBadge);
-  server.handle(context, handleContext);
+  // Chat alerts: no model sync, so a chat's chip never adds work beyond its own read.
+  server.handle(alerts, handleAlerts);
   // Paseo 0.11+: one card per router account on Paseo's own Usage page. Older daemons skip this.
   registerUsage(server);
   // Also checks the AI Router provider once at load, with no Paseo handle yet (see server/provider.ts).

@@ -1,6 +1,8 @@
 // Plugins worth adding next to AI Router, as Paseo Cafe (paseo.cafe) lists them.
 // `install` is the command Paseo Cafe publishes, verbatim, except paseo-mcp:
 // its Cafe entry pins an older commit, so it follows the repository instead.
+// Activity (koinzhang) left the list in 0.18.0: it hung a daemon with a large
+// chat history, and it is turned off on every daemon we run.
 
 /** `blocked`: why it cannot be installed on the Paseo this plugin targets; the panel shows that instead of the command. */
 export type RecommendedPlugin = { id: string; name: string; by: string; what: string; install: string; blocked?: string };
@@ -15,13 +17,6 @@ export const RECOMMENDED_PLUGINS: readonly RecommendedPlugin[] = [
     by: "itsjustanks",
     what: "Manage MCP servers for Claude Code, Codex and your other agents in one place — sign-ins, tools and per-workspace switches.",
     install: "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git",
-  },
-  {
-    id: "activity",
-    name: "Activity",
-    by: "koinzhang",
-    what: "Local usage analytics and agent ops: tools, agents, messages, models, a fleet list and terminals.",
-    install: "paseo plugin add npm:@koinzhang/paseo-plugin-activity@0.7.0",
   },
   {
     id: "remote-editor",

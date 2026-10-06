@@ -184,7 +184,6 @@ function Requests({ theme, data, filter, setFilter, loading, openAgent }: { them
 /**
  * Traffic: what went through the router. Sessions (every tier) come from
  * this daemon's own hook; requests (read token) from OmniRoute's call log.
- * Local usage analytics (tools, agents, messages) are the Activity plugin's job.
  */
 export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; data: Status; openAgent?: OpenAgent }) {
   const [filter, setFilter] = useState<Filter>({ scope: "daemon", errorsOnly: false, model: null, provider: null, limit: PAGE });
@@ -210,7 +209,6 @@ export function ActivityTab({ theme, data, openAgent = null }: { theme: Theme; d
           <Note theme={theme}>A read token adds every request the router served: model, account, fallbacks, errors and the agent that sent it.</Note>
         </Banner>
       )}
-      {data.plugins.installed.includes("activity") ? <Meta theme={theme}>For this daemon's own analytics (tools, agents, messages), open the Activity plugin.</Meta> : null}
     </>
   );
 }

@@ -8,11 +8,9 @@ import { dashboardLink } from "../shared/logic";
 import { routingSettings } from "../shared/settings";
 import { ROUTERS } from "../shared/routers/copy";
 import type { EngineVerdict } from "../shared/routers/omniroute/copy";
-import { recheckBadges } from "./context";
-import { AdvancedBanner, dashboardTarget, useLinks } from "./dashboard";
-import { RouterSettingsCard } from "./insights";
+import { dashboardTarget, useLinks } from "./dashboard";
 import { errorText, type Message } from "./setup";
-import type { TabId } from "./navigation";
+import type { GoTarget } from "../shared/tabs";
 import { Button, Card, Chip, ItemTitle, Link, Meta, Note, Row, ToggleRow, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
@@ -29,7 +27,7 @@ const VERDICT: Record<EngineVerdict, { label: string; tone: Tone }> = {
  * and (manage key only, after a confirmation) applying it. Never switched on
  * by itself.
  */
-function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
+export function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
   const queryClient = useQueryClient();
   const call = useRpc(compression);
   const callApply = useRpc(compressionApply);
@@ -105,7 +103,7 @@ function CompressionCard({ theme, data, say }: { theme: Theme; data: Status; say
 }
 
 /** A few of the router's features worth knowing about, each one line and a link. */
-function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
+export function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
   const links = useLinks(say);
   const { url } = dashboardTarget(data);
   const copy = ROUTERS[data.connection.router];
@@ -128,48 +126,38 @@ function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }
   );
 }
 
-/** What AI Router adds to Paseo itself. Every tier, and no router needed: these are this daemon's own switches. */
-function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
+/**
+ * What AI Router adds to Paseo itself. Every tier, and no router needed. Since
+ * 0.18.0 a chat shows a chip from AI Router only while the router can't serve
+ * it, so there is no chip switch; the commands are listed here so they can be found.
+ */
+export function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
   const settings = useSettings(routingSettings);
   const ready = settings.status === "ready";
-  const save = (patch: { contextBadge?: boolean; mcpCard?: boolean }, done: string) => {
+  const mcp = ready ? settings.values.mcpCard !== false : true;
+  const setMcp = (next: boolean) => {
     if (settings.status !== "ready") return;
-    void settings.save({ ...settings.values, ...patch }, settings.revision).then((saved) => {
-      say(saved ? { text: done, tone: "success" } : { text: "The switch was changed elsewhere; try again.", tone: "warning" });
-      if (saved && patch.contextBadge !== undefined) recheckBadges();
+    void settings.save({ ...settings.values, mcpCard: next }, settings.revision).then((saved) => {
+      say(saved ? { text: next ? "MCP line back on Overview." : "MCP line hidden.", tone: "success" } : { text: "The switch was changed elsewhere; try again.", tone: "warning" });
     });
   };
-  const badge = ready ? settings.values.contextBadge !== false : true;
-  const mcp = ready ? settings.values.mcpCard !== false : true;
   return (
     <Card theme={theme} title="In Paseo" icon="ToggleRight">
-      <ToggleRow theme={theme} label="Context breakdown chip on each chat" text="Context breakdown chip on each chat" value={badge} busy={settings.saving} disabled={!ready} onChange={(next) => save({ contextBadge: next }, next ? "Breakdown chip on." : "Breakdown chip off.")} />
-      <Meta theme={theme}>Beside Paseo's context meter: tap it to see what fills the chat. It turns red when OmniRoute is down or has paused the chat's provider.</Meta>
-      <ToggleRow theme={theme} label="MCP plugin line on Overview" text="MCP plugin line on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={(next) => save({ mcpCard: next }, next ? "MCP line back on Overview." : "MCP line hidden.")} />
+      <Note theme={theme}>A chat shows a warning chip from AI Router only while the router can't serve it, such as "Router down" or "Claude paused". It goes away by itself once that's fixed.</Note>
+      <Meta theme={theme}>From the Command Center: "Sync AI Router models to Paseo" and "Check the AI Router connection". In a chat: /ai-router sync or /ai-router check.</Meta>
+      <ToggleRow theme={theme} label="MCP plugin line on Overview" text="MCP plugin line on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={setMcp} />
       {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
       {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
     </Card>
   );
 }
 
-export function SettingsTab({ theme, data, configured, go, say }: { theme: Theme; data: Status; configured: boolean; go: (tab: TabId) => void; say: Say }) {
-  const reads = data.tier === "operator" || data.tier === "admin";
+/** Router settings for someone without a read token, or before a router is connected: what a token adds, and where to add it. */
+export function RouterSettingsNeedToken({ theme, configured, go }: { theme: Theme; configured: boolean; go: (target: GoTarget) => void }) {
   return (
     <>
-      <InPaseoCard theme={theme} say={say} />
-      {configured && reads ? (
-        <>
-          <CompressionCard theme={theme} data={data} say={say} />
-          <RouterSettingsCard theme={theme} dashboardUrl={dashboardTarget(data).url} onMessage={say} />
-          <MoreCard theme={theme} data={data} say={say} />
-          <AdvancedBanner theme={theme} data={data} say={say} />
-        </>
-      ) : (
-        <Card theme={theme} title="Router settings" icon="Settings2">
-          <Note theme={theme}>{configured ? "A read token shows how the router compresses prompts, and a few key settings." : "Connect a router to see its settings."}</Note>
-          <Link theme={theme} label={configured ? "Add a read token on Connection" : "Open Connection"} onPress={() => go("connection")} />
-        </Card>
-      )}
+      <Note theme={theme}>{configured ? "A read token shows how the router compresses prompts, and a few key settings." : "Connect a router to see its settings."}</Note>
+      <Link theme={theme} label={configured ? "Add a read token" : "Connect a router"} onPress={() => go("connection")} />
     </>
   );
 }

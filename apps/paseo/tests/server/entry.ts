@@ -1,5 +1,5 @@
 export { registerRoutingHooks, registerAgentCleanup, getLastSession } from "../../server/hooks";
-export { handleBadge, handleContext, forgetContext, forgetAgent, keptContext } from "../../server/context";
+export { handleAlerts, forgetAgent } from "../../server/alerts";
 export {
   handleAccess,
   handleAccountAction,
@@ -32,7 +32,7 @@ export {
 } from "../../server/handlers";
 export { handleUpdates } from "../../server/updates";
 export { testConnection } from "../../server/routers/omniroute/health";
-export { ClisSchema, AccessSchema, AccountsSchema, ActivitySchema, BadgeSchema, ContextSchema, RouteExplanationSchema, ProfilesSchema, CompressionSchema, ProvidersSchema, RouterSettingsSchema, StatusSchema, TunnelsSchema, UsageSchema, UsageKeySchema, UpdatesSchema, accountReset } from "../../shared/contracts";
+export { ClisSchema, AccessSchema, AccountsSchema, ActivitySchema, AlertsSchema, RouteExplanationSchema, ProfilesSchema, CompressionSchema, ProvidersSchema, RouterSettingsSchema, StatusSchema, TunnelsSchema, UsageSchema, UsageKeySchema, UpdatesSchema, accountReset } from "../../shared/contracts";
 export { checkAutoSync, noteActivity, startAutoSync, syncReason, routedModels } from "../../server/provider";
 export { routedRuntime, sessionAccounts, sessionTagFromEnv, usageScope } from "../../shared/usage-scope";
 export { parseComboMembers } from "../../shared/routers/omniroute/parsers";

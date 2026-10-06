@@ -2,7 +2,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { Status } from "../shared/contracts";
 import { CODEX_ROUTER_PROVIDER_ID, connectionProblem, routeBuiltinCodex, routeSession, sessionKind, withSessionHeader, type SessionKind } from "../shared/logic";
-import { agentOpened, forgetAgent } from "./context";
+import { agentOpened, forgetAgent } from "./alerts";
 import { noteActivity } from "./provider";
 import { adapterFor } from "./routers";
 import { appendSessionLog, readConnection, readProviderEntries, readRoutingSettings } from "./store";
@@ -73,7 +73,7 @@ type ClosedEvent = { agent?: { id?: unknown } };
 type LifecycleOn = (name: string, handler: (event: ClosedEvent) => void) => unknown;
 
 /**
- * A chat's cached breakdown and its chip alerts go as soon as Paseo closes or
+ * A chat's chip alerts go as soon as Paseo closes or
  * archives it. `agent.closed` is Paseo 0.11.0-beta.4+; an older daemon throws
  * "Unknown lifecycle event" for it, and archiving still cleans up there.
  * Returns the events this daemon accepted.

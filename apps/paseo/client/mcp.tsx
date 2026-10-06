@@ -13,7 +13,7 @@ export const MCP_INSTALL_SOURCE = "git:https://github.com/itsjustanks/paseo-mcp.
 /**
  * The bottom of Overview: the sister plugin, as one quiet line. "Installed"
  * when this daemon's plugin sources already list paseo-mcp. Hide turns it off
- * for this daemon (Settings → In Paseo brings it back).
+ * for this daemon (Help → "What does AI Router add to Paseo?" brings it back).
  */
 export function McpCard({ theme, data, say }: { theme: PluginTheme; data: Status; say: (message: Message) => void }) {
   const settings = useSettings(routingSettings);
@@ -21,7 +21,7 @@ export function McpCard({ theme, data, say }: { theme: PluginTheme; data: Status
   if (settings.status !== "ready" || settings.values.mcpCard === false) return null;
   const hide = () => {
     void settings.save({ ...settings.values, mcpCard: false }, settings.revision).then((saved) => {
-      if (saved) say({ text: "MCP line hidden. Settings → In Paseo brings it back.", tone: "neutral" });
+      if (saved) say({ text: "MCP line hidden. Help → \"What does AI Router add to Paseo?\" brings it back.", tone: "neutral" });
     });
   };
   const installed = data.plugins.installed.includes("paseo-mcp");
