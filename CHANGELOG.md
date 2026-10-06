@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.20.0 — 2026-10-06
+
+Fixes from a check of the real Paseo app (the user: "improve the UX and design experience"), and the
+same habits as the other plugins. `requirements.paseo` is now `>=0.9.0` (see the manifest line below);
+`ROUTING_SETTINGS_VERSION` stays 1; no new dependencies.
+
+- **Help is plain questions only, every one folded.** It no longer repeats Overview: the setup form
+  and the unfolded guide are gone from it. The guide is one question, **How does AI Router work?**;
+  before setup, **How is this computer connected?** points at Overview's form with **Set up**.
+- **Models before a router is connected:** one line, **Connect a router first**, with **Set up**. The
+  lines that pointed at a missing Sync button or a missing key are gone, and the Claude switch is
+  off-limits until then (it can still be turned off).
+- **Switches say on or off to screen readers** on the web too (`role="switch"`, `aria-checked`).
+- **A calmer setup form:** three steps; no one-option "OmniRoute" picker; the public address and SSH
+  target sit under **Advanced (optional)** (open when either is set).
+- **Connectors, not "MCP".** The Overview suggestion uses the sister plugin's current name and shows
+  only while it isn't installed; the empty "MCP plugin line on Overview" switch is gone (a hidden
+  suggestion comes back from Help → "What does AI Router add to Paseo?"). Recommended plugins say
+  Connectors too.
+- **One Refresh, in the page header.** It checks the router, Paseo's providers and the agent apps'
+  latest versions. The separate Check now / Check again buttons went with it (account checks stay).
+- **The window title follows the tab** on Paseo 0.11 ("AI Router · Accounts"), as Memories does;
+  opening AI Router from the sidebar lands on Overview.
+- Smaller fixes: the agent apps' install folder is folded under **Where it's installed**; the **Tidy
+  up** fold-out's summary no longer repeats its body; the Help tab icon is `CircleHelp`.
+- **Paseo's Usage page before setup:** one **AI Router** card that says how to set it up, instead of
+  nothing (a chat's hover card still shows nothing). The read-token hint there names Help, not the old
+  Connection tab.
+- `paseo-plugin.json` has a plain `description` for Settings → Plugins. Paseo checks the manifest
+  strictly and accepts `description` only from 0.9.0, so `requirements.paseo` rises from `>=0.8.0` to
+  `>=0.9.0`. Paseo 0.8 hosts stay on 0.19.0; everything newer than 0.9 is still feature-detected.
+
 ## 0.19.0 — 2026-10-06
 
 Friendly router errors in the chat. `requirements.paseo` stays `>=0.8.0`; `ROUTING_SETTINGS_VERSION`

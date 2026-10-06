@@ -13,9 +13,9 @@ export const paseoCafeUrl = (id: string) => `${PASEO_CAFE_URL}${id}/`;
 export const RECOMMENDED_PLUGINS: readonly RecommendedPlugin[] = [
   {
     id: "paseo-mcp",
-    name: "Paseo MCP",
+    name: "Connectors",
     by: "itsjustanks",
-    what: "Manage MCP servers for Claude Code, Codex and your other agents in one place — sign-ins, tools and per-workspace switches.",
+    what: "Add the tools your agents use, such as GitHub or Linear, in one place for Claude Code, Codex and the rest: sign-ins, and which workspaces get each one.",
     install: "paseo plugin add git:https://github.com/itsjustanks/paseo-mcp.git",
   },
   {

@@ -16,8 +16,10 @@ type SidebarItemProps = PluginHostProps & {
   openPopover?: (Content: ComponentType<{ theme: PluginHostProps["theme"]; close(): void; openScreen(input: ScreenInput): void }>) => void;
 };
 type SidebarRowProps = { icon?: string; label?: string; onPress(): void; active?: boolean; trailing?: ReactNode };
+type ScreenTitle = string | ((params: Record<string, string>) => string);
 type NativeClient = {
-  addScreen?: (contribution: { id: string; title: string; Component: ComponentType<PluginSurfaceProps> }) => () => void;
+  addScreen?: (contribution: { id: string; title: ScreenTitle; Component: ComponentType<PluginSurfaceProps> }) => () => void;
+  openScreen?: (input: ScreenInput) => void;
   addSidebarHeaderItem?: (contribution: { id: string; title: string; Component: ComponentType<SidebarItemProps> }) => () => void;
 };
 
@@ -33,8 +35,14 @@ export type MainScreen = {
   title: string;
   icon: string;
   Component: ComponentType<PluginSurfaceProps>;
+  /** 0.11: the header and window title from the screen's params ("AI Router · Accounts"). */
+  screenTitle?: (params: Record<string, string>) => string;
   Trailing?: ComponentType<{ theme: PluginHostProps["theme"]; openPopover?: SidebarItemProps["openPopover"] }>;
 };
+
+/** Re-opens the main screen with new params (0.11), so its URL and title follow the tab; null on older apps. */
+let reopen: ((params: Record<string, string>) => void) | null = null;
+
 export type MainScreenApi = { screen: "screen" | "surface"; sidebar: "row" | "item" };
 
 /**
@@ -46,8 +54,9 @@ export type MainScreenApi = { screen: "screen" | "surface"; sidebar: "row" | "it
 export function registerMainScreen(client: PluginClientContext, screen: MainScreen): MainScreenApi {
   const native = client as PluginClientContext & NativeClient;
   const hasScreens = typeof native.addScreen === "function";
-  if (hasScreens) native.addScreen!({ id: screen.id, title: screen.title, Component: screen.Component });
+  if (hasScreens) native.addScreen!({ id: screen.id, title: screen.screenTitle ?? screen.title, Component: screen.Component });
   else client.addSurface(screen.id, screen.Component);
+  if (hasScreens && typeof native.openScreen === "function") reopen = (params) => native.openScreen!(Object.keys(params).length ? { screenId: screen.id, params } : { screenId: screen.id });
   const Row = hostSidebarRow();
   if (hasScreens && Row && typeof native.addSidebarHeaderItem === "function") {
     native.addSidebarHeaderItem({ id: screen.id, title: screen.title, Component: sidebarEntry(Row, screen) });
@@ -69,4 +78,16 @@ function sidebarEntry(Row: ComponentType<SidebarRowProps>, screen: MainScreen): 
 export function openMainScreen(capabilities: { openSurface(id: string): void; openScreen?: unknown }, id: string, params?: Record<string, string>): void {
   if (typeof capabilities.openScreen === "function") (capabilities as { openScreen(input: ScreenInput): void }).openScreen(params ? { screenId: id, params } : { screenId: id });
   else capabilities.openSurface(id);
+}
+
+
+/**
+ * The screen's params after a tab change inside it: `{ tab }`, or none for
+ * Overview. Re-opens the screen only when its params name another tab, so a
+ * deep link's extra fold-outs or an old tab id do not bounce it around.
+ */
+export function syncScreenTab(tab: string, current: Record<string, string> | undefined, resolve: (id: string | undefined) => string): void {
+  if (!reopen || !current) return;
+  if (resolve(current.tab) === tab) return;
+  reopen(tab === "overview" ? {} : { tab });
 }

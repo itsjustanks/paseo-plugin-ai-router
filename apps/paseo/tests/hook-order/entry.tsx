@@ -170,7 +170,7 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "tips tab (not connected)": surface("not connected", wide, { tab: "tips" }),
   "settings tab (basic)": surface("basic", wide, { tab: "settings" }),
   "settings tab (not connected)": surface("not connected", narrow, { tab: "settings" }),
-  "settings tab (MCP line off)": surface("routing on", wide, { tab: "settings", settings: "calm" }),
+  "settings tab (MCP line off)": surface("routing on", wide, { settings: "calm" }),
   // The chip on a chat: only while the router can't serve it
   "alert chip (router down)": alertChip(true),
   "activity (open an agent)": surface("routing on", wide, { tab: "activity" }),
@@ -190,6 +190,9 @@ export const mounts: Record<string, () => React.ReactElement> = {
   "deep link (tab=help, open=tips)": surface("routing on", narrow, { params: { tab: "help", open: "tips" } }),
   "deep link (unknown tab)": surface("routing on", wide, { params: { tab: "nowhere" } }),
   "help tab (press a question)": surface("routing on", wide, { tab: "help" }),
+  "help tab (guide question)": surface("routing on", narrow, { tab: "help" }),
+  "setup (advanced fields)": surface("not connected", wide),
+  "providers tab (agent apps, where installed)": surface("routing on", wide, { tab: "providers" }),
   // Every visible tab in one mounted surface, pressed in turn
   "tab walk (basic)": surface("basic", narrow),
   "tab walk (operator)": surface("routing on", narrow, { accounts: "healthy" }),
@@ -229,18 +232,21 @@ export const presses: Record<string, string[]> = {
   "activity (why this route)": ["Request r-300, succeeded; show why"],
   "activity (show older)": ["Show older"],
   "overview (last agent links to Activity)": ["See every chat in Recent traffic"],
-  "overview (hide the MCP card)": ["Hide the MCP line"],
+  "overview (hide the MCP card)": ["Hide the Connectors line"],
   "overview (guide opened)": ["New to AI Router? How it works"],
   "providers tab (re-route Codex asks first)": ["Send built-in Codex through the router"],
   "providers tab (re-route Codex confirmed)": ["Send built-in Codex through the router", "Yes, send Codex through the router"],
   "providers tab (Codex back on own sign-in asks first)": ["Send built-in Codex through the router"],
   "providers tab (agent apps asks first)": ["Update to 0.160.0"],
   "tips tab (admin, two installed, copy one)": ["Copy the Tell Agent install command"],
-  "settings tab (MCP line off)": ["MCP plugin line on Overview"],
+  "settings tab (MCP line off)": ["Hide the Connectors line", "Help", "What does AI Router add to Paseo?", "Show the Connectors suggestion on Overview again"],
   "help tab (press a question)": ["Which plugins work well with AI Router?"],
   "activity (open an agent)": ["Open Fix the login bug", "Open Draft release notes"],
   "overview (guide opens Models)": ["New to AI Router? How it works", "Open the Models tab"],
-  "setup (link opens the guide)": ["New to AI Router? Overview explains what it is and how it works"],
+  "setup (link opens the guide)": ["Set up"],
+  "help tab (guide question)": ["How does AI Router work?"],
+  "setup (advanced fields)": ["Advanced (optional): public address and SSH target"],
+  "providers tab (agent apps, where installed)": ["Where it's installed"],
 };
 
 /** Mounts whose every visible tab is pressed in turn, then the first again. */
@@ -610,12 +616,49 @@ export function nativeRegistrationCheck() {
 
   return {
     old,
-    next: { names: next.names, screen: { id: screens[0]?.id, title: screens[0]?.title, sameView: screens[0]?.Component === AiRouterSurface }, item: { id: items[0]?.id, title: items[0]?.title }, opened: next.opened },
+    next: { names: next.names, screen: { id: screens[0]?.id, title: typeof screens[0]?.title === "function" ? [screens[0].title({}), screens[0].title({ tab: "accounts" }), screens[0].title({ tab: "connection" })] : screens[0]?.title, sameView: screens[0]?.Component === AiRouterSurface }, item: { id: items[0]?.id, title: items[0]?.title }, opened: next.opened },
     row: { open: { icon: open.icon, active: open.active, label: open.label }, elsewhere: { active: elsewhere.active }, pressed, trailing: React.isValidElement(open.trailing) },
     partial: partial.names,
     surfaceIsTheView: old.calls.addSurface?.Component === AiRouterSurface,
     links: { noOpener, withOpener },
   };
+}
+
+/**
+ * 0.20.0: on a 0.11 app a tab picked inside the screen goes into its params
+ * (`openScreen` with `{ tab }`, none for Overview), so the window title follows.
+ * Opening it again without params (the sidebar row) lands on Overview.
+ */
+export async function titleFollowsTabCheck() {
+  setStatusFixture("routing on");
+  setHostDataReady(true);
+  const opened: any[] = [];
+  const client: any = {
+    addSurface() { return () => {}; }, addSidebarItem() { return () => {}; }, addCommandCenterItem() { return () => {}; }, addSlashCommand() { return () => {}; }, addComposerPill: () => () => {},
+    addScreen: () => () => {}, addSidebarHeaderItem: () => () => {}, openScreen: (input: any) => opened.push(input), openSurface() {}, openPanel() {},
+    rpc: async () => ({ ok: true, enabled: true, alerts: [] }), paseo: { agents: { subscribe: () => () => {} } },
+  };
+  const stop = contributeClient(client);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (params: Record<string, string>) => <QueryClientProvider client={queryClient}><AiRouterSurface {...base} layout={wide} params={params} /></QueryClientProvider>;
+  let renderer!: ReturnType<typeof create>;
+  await act(async () => { renderer = create(view({ tab: "help", open: "tips" })); });
+  await act(flush);
+  await act(flush);
+  const pressTab = async (label: string) => {
+    const tab = renderer.root.findAll((node) => node.type === "Pressable" && node.props.accessibilityRole === "tab" && node.props.accessibilityLabel === label)[0];
+    await act(async () => { tab?.props.onPress(); await flush(); });
+  };
+  const afterDeepLink = opened.length;
+  await pressTab("Models");
+  await pressTab("Overview");
+  await act(async () => { renderer.update(view({ tab: "accounts" })); await flush(); });
+  const activeAfterParams = renderer.root.findAll((node) => node.props.accessibilityRole === "tab" && node.props.accessibilityState?.selected)[0]?.props.accessibilityLabel;
+  await act(async () => { renderer.update(view({})); await flush(); });
+  const activeAfterSidebar = renderer.root.findAll((node) => node.props.accessibilityRole === "tab" && node.props.accessibilityState?.selected)[0]?.props.accessibilityLabel;
+  await act(async () => { renderer.unmount(); });
+  stop();
+  return { afterDeepLink, opened, activeAfterParams, activeAfterSidebar };
 }
 
 /** Paseo 0.11's sidebar row: the status dot opens the quick actions popover; without popovers it is only a dot. */

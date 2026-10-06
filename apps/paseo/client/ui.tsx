@@ -340,6 +340,10 @@ export function Toggle({ theme, label, value, onChange, busy, disabled }: { them
       accessibilityRole="switch"
       accessibilityLabel={label}
       accessibilityState={{ checked: value, disabled: !!inactive, busy: !!busy }}
+      // react-native-web 0.21 ignores accessibilityState; say on/off the web way too.
+      role="switch"
+      aria-checked={value}
+      aria-disabled={!!inactive}
       disabled={!!inactive}
       onPress={inactive ? undefined : () => onChange(!value)}
       style={{ width: 44, height: 26, borderRadius: 13, padding: SPACE.hair, backgroundColor: value ? theme.colors.accent : theme.colors.surface2, borderWidth: 1, borderColor: value ? theme.colors.accent : theme.colors.border, opacity: inactive ? 0.5 : 1, justifyContent: "center" }}
@@ -389,7 +393,7 @@ export function Disclosure({ theme, label, openLabel, initiallyOpen = false, qui
   const color = quiet ? theme.colors.foregroundMuted : theme.colors.accent;
   return (
     <View style={{ gap: quiet ? SPACE.sm : SPACE.row }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={shown} accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={{ flexDirection: "row", alignItems: "center", gap: SPACE.xs, paddingVertical: SPACE.xs, alignSelf: "flex-start" }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={shown} accessibilityState={{ expanded: open }} aria-expanded={open} onPress={() => setOpen(!open)} style={{ flexDirection: "row", alignItems: "center", gap: SPACE.xs, paddingVertical: SPACE.xs, alignSelf: "flex-start" }}>
         {HostIcon ? <HostIcon name={open ? "ChevronDown" : "ChevronRight"} size={quiet ? 14 : 16} color={color} /> : null}
         <Text style={{ ...(quiet ? TYPE.secondary : TYPE.body), color, fontWeight: "600" }}>{shown}</Text>
       </Pressable>

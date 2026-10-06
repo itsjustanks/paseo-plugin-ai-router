@@ -9,9 +9,10 @@ import { routingSettings } from "../shared/settings";
 import { ROUTERS } from "../shared/routers/copy";
 import type { EngineVerdict } from "../shared/routers/omniroute/copy";
 import { dashboardTarget, useLinks } from "./dashboard";
+import { connectorsInstalled } from "./mcp";
 import { errorText, type Message } from "./setup";
 import type { GoTarget } from "../shared/tabs";
-import { Button, Card, Chip, ItemTitle, Link, Meta, Note, Row, ToggleRow, type Tone, SPACE } from "./ui";
+import { Button, Card, Chip, ItemTitle, Link, Meta, Note, Row, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
@@ -129,25 +130,24 @@ export function MoreCard({ theme, data, say }: { theme: Theme; data: Status; say
 /**
  * What AI Router adds to Paseo itself. Every tier, and no router needed. Since
  * 0.18.0 a chat shows a chip from AI Router only while the router can't serve
- * it, so there is no chip switch; the commands are listed here so they can be found.
+ * it, so there is no chip switch; the commands are listed here so they can be
+ * found. A Connectors line someone hid on Overview comes back from here (0.20.0).
  */
-export function InPaseoCard({ theme, say }: { theme: Theme; say: Say }) {
+export function InPaseoCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
   const settings = useSettings(routingSettings);
-  const ready = settings.status === "ready";
-  const mcp = ready ? settings.values.mcpCard !== false : true;
-  const setMcp = (next: boolean) => {
+  const hidden = settings.status === "ready" && settings.values.mcpCard === false && !connectorsInstalled(data);
+  const showAgain = () => {
     if (settings.status !== "ready") return;
-    void settings.save({ ...settings.values, mcpCard: next }, settings.revision).then((saved) => {
-      say(saved ? { text: next ? "MCP line back on Overview." : "MCP line hidden.", tone: "success" } : { text: "The switch was changed elsewhere; try again.", tone: "warning" });
+    void settings.save({ ...settings.values, mcpCard: true }, settings.revision).then((saved) => {
+      say(saved ? { text: "The Connectors line is back on Overview.", tone: "success" } : { text: "That was changed elsewhere; try again.", tone: "warning" });
     });
   };
   return (
-    <Card theme={theme} title="In Paseo" icon="ToggleRight">
+    <Card theme={theme}>
       <Note theme={theme}>A chat shows a warning chip from AI Router only while the router can't serve it, such as "Router down" or "Claude paused". It goes away by itself once that's fixed.</Note>
       <Meta theme={theme}>From the Command Center: "Sync AI Router models to Paseo" and "Check the AI Router connection". In a chat: /ai-router sync or /ai-router check.</Meta>
-      <ToggleRow theme={theme} label="MCP plugin line on Overview" text="MCP plugin line on Overview" value={mcp} busy={settings.saving} disabled={!ready} onChange={setMcp} />
+      {hidden ? <Link theme={theme} label="Show the Connectors suggestion on Overview again" onPress={showAgain} /> : null}
       {settings.saveError ? <Note theme={theme} tone="danger">{settings.saveError}</Note> : null}
-      {settings.status === "error" || settings.status === "invalid" ? <Note theme={theme} tone="danger">{settings.error}</Note> : null}
     </Card>
   );
 }
@@ -157,7 +157,7 @@ export function RouterSettingsNeedToken({ theme, configured, go }: { theme: Them
   return (
     <>
       <Note theme={theme}>{configured ? "A read token shows how the router compresses prompts, and a few key settings." : "Connect a router to see its settings."}</Note>
-      <Link theme={theme} label={configured ? "Add a read token" : "Connect a router"} onPress={() => go("connection")} />
+      <Link theme={theme} label={configured ? "Add a read token" : "Set up"} onPress={() => go(configured ? "connection" : "overview")} />
     </>
   );
 }

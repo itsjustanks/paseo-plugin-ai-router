@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Pressable, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { TAB_IDS, type TabId } from "../shared/tabs";
+import { TAB_IDS, TAB_LABELS, type TabId } from "../shared/tabs";
 import { HostIcon, TYPE, SPACE } from "./ui";
 
 export { HostIcon } from "./ui";
@@ -18,10 +18,10 @@ type Theme = PluginTheme;
  * intro block under the bar: each tab starts with its own content.
  */
 export const TABS: ReadonlyArray<{ id: TabId; label: string; icon: string }> = [
-  { id: "overview", label: "Overview", icon: "LayoutDashboard" },
-  { id: "accounts", label: "Accounts", icon: "Users" },
-  { id: "models", label: "Models", icon: "Boxes" },
-  { id: "help", label: "Help", icon: "LifeBuoy" },
+  { id: "overview", label: TAB_LABELS.overview, icon: "LayoutDashboard" },
+  { id: "accounts", label: TAB_LABELS.accounts, icon: "Users" },
+  { id: "models", label: TAB_LABELS.models, icon: "Boxes" },
+  { id: "help", label: TAB_LABELS.help, icon: "CircleHelp" },
 ];
 // Keep the bar and the shared ids in step.
 if (TABS.map((tab) => tab.id).join() !== TAB_IDS.join()) throw new Error("AI Router: TABS and TAB_IDS differ");

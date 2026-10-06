@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiProvider, modelTest, profiles, status, type AnalyticsRangeId, type Status } from "../shared/contracts";
+import { aiProvider, clis, modelTest, profiles, providersList, status, type AnalyticsRangeId, type Status } from "../shared/contracts";
 import { providerLabel } from "../shared/routers/omniroute/parsers";
 import { TIER_LABELS, lastAgentLine } from "../shared/logic";
 import { routingSettings } from "../shared/settings";
@@ -12,16 +12,17 @@ import { resolveTarget, type GoTarget, type TabId } from "../shared/tabs";
 import { versionsLine } from "../shared/updates";
 import { ActivityTab, type OpenAgent } from "./activity";
 import { UsageTab } from "./analytics";
-import { AgentAppsCard } from "./apps";
-import { peekPendingMessage, subscribePendingMessage, takePendingMessage } from "./commands";
-import { ConnectionCard, useCheck, when } from "./connection";
+import { AgentAppsCard, CLIS_KEY } from "./apps";
+import { checkReply, peekPendingMessage, subscribePendingMessage, takePendingMessage } from "./commands";
+import { ConnectionCard, when } from "./connection";
 import { AdvancedBanner, OpenDashboardButton } from "./dashboard";
 import { OverviewGuide } from "./guide";
 import { HelpTab } from "./help";
 import { AccountsTab, YourAccess } from "./insights";
 import { McpCard } from "./mcp";
 import { TabBar } from "./navigation";
-import { CodexExtras, RoutingCard, TidyUp, codexExtrasOn, useTidyCount } from "./providers";
+import { CodexExtras, PROVIDERS_KEY, RoutingCard, TidyUp, codexExtrasOn, useTidyCount } from "./providers";
+import { syncScreenTab } from "./native";
 import { STATUS_KEY, errorText, type Message } from "./setup";
 import { WhatsNew, useUpdates } from "./updates";
 import { Accordion, AccordionItem, Banner, Button, Card, Chip, Divider, Field, FoldsContext, HeroCard, HostIcon, IconBadge, ItemTitle, Link, MessageBar, Meta, Note, Row, SectionTitle, StatusLine, TYPE, ToggleRow, toneColor, type Tone, SPACE } from "./ui";
@@ -72,7 +73,6 @@ function OverviewTab({ theme, data, compact, go, say, openAgent, initialNews = f
   const settings = useSettings(routingSettings);
   const sync = useSync(say);
   const name = ROUTERS[data.connection.router].label;
-  const check = useCheck(say);
   const news = useUpdates();
   const [showNews, setShowNews] = useState(initialNews);
   const versions = news.data ? versionsLine(news.data.router, news.data.plugin) : null;
@@ -109,7 +109,6 @@ function OverviewTab({ theme, data, compact, go, say, openAgent, initialNews = f
             <Note theme={theme}>{`Until it answers, AI Router chats can't start${claude ? ", re-routed Claude uses its own sign-in" : ""}${codex ? ", re-routed Codex can't answer" : ""}.`}</Note>
             <Row>
               <Button theme={theme} label="Check the connection" icon="Link" primary onPress={() => go("connection")} />
-              <Button theme={theme} label="Check again" icon="RefreshCw" busy={check.isPending} onPress={() => check.mutate()} />
             </Row>
             <Divider theme={theme} />
           </>
@@ -259,7 +258,8 @@ function SyncCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }
  * Models: is the model list in Paseo current (status first), which chats go
  * through the router, then the less-used parts folded: the full list with a
  * test, combos, the Codex extras, tidying the provider menu and updating the
- * agent apps. Routing and the folds that need no router still work before setup.
+ * agent apps. Before setup: one "Connect a router first" line, the switches
+ * shown but off-limits, and the folds that need no router (tidy, versions).
  */
 function ModelsTab({ theme, data, configured, go, say }: { theme: Theme; data: Status; configured: boolean; go: Go; say: Say }) {
   const queryClient = useQueryClient();
@@ -280,8 +280,8 @@ function ModelsTab({ theme, data, configured, go, say }: { theme: Theme; data: S
   const extrasOn = codexExtrasOn(data);
   return (
     <>
-      {configured ? <SyncCard theme={theme} data={data} say={say} /> : <ConnectFirst theme={theme} data={data} go={go} />}
-      <RoutingCard theme={theme} data={data} say={say} />
+      {configured ? <SyncCard theme={theme} data={data} say={say} /> : <ConnectFirst theme={theme} go={go} />}
+      <RoutingCard theme={theme} data={data} configured={configured} say={say} />
       <Accordion theme={theme}>
         {configured ? (
           <AccordionItem theme={theme} id="models-list" icon="Boxes" title="Models in Paseo's picker" summary={models.length ? `${models.length} models · test one with a tiny request` : "Test a model with a tiny request"}>
@@ -321,7 +321,7 @@ function ModelsTab({ theme, data, configured, go, say }: { theme: Theme; data: S
         <AccordionItem theme={theme} id="codex-extras" icon="SquareTerminal" title="Codex extras" summary={extrasOn ? "One is on" : "Optional: built-in Codex through the router, or a second Codex"} open={extrasOn}>
           <CodexExtras theme={theme} data={data} say={say} />
         </AccordionItem>
-        <AccordionItem theme={theme} id="tidy" icon="Sparkles" title="Tidy up Paseo's provider menu" summary={tidyCount === null ? "Turn off providers that can't run here" : tidyCount ? `${tidyCount} can't run here` : "Every enabled provider answers"}>
+        <AccordionItem theme={theme} id="tidy" icon="Sparkles" title="Tidy up Paseo's provider menu" summary={tidyCount ? `${tidyCount} can't run here` : "Turn off providers that can't run here"}>
           <TidyUp theme={theme} say={say} />
         </AccordionItem>
         <AccordionItem theme={theme} id="agent-apps" icon="AppWindow" title="Claude Code and Codex versions" summary="What this daemon runs, and updates">
@@ -342,7 +342,7 @@ function ModelsTab({ theme, data, configured, go, say }: { theme: Theme; data: S
  * key's spend.
  */
 function AccountsView({ theme, data, configured, compact, go, say, initialRange }: { theme: Theme; data: Status; configured: boolean; compact: boolean; go: Go; say: Say; initialRange?: AnalyticsRangeId }) {
-  if (!configured) return <ConnectFirst theme={theme} data={data} go={go} />;
+  if (!configured) return <ConnectFirst theme={theme} go={go} />;
   const access = (
     <AccordionItem theme={theme} id="your-access" icon="KeyRound" title="This key's spending" summary="Its name, spend against its limit, and quotas">
       <YourAccess theme={theme} data={data} />
@@ -369,20 +369,51 @@ function AccountsView({ theme, data, configured, compact, go, say, initialRange 
   );
 }
 
-/** A tab that needs a router, before one is connected: one line and the way to set it up. */
-function ConnectFirst({ theme, data, go }: { theme: Theme; data: Status; go: Go }) {
+/** A tab that needs a router, before one is connected: one line and the way to set it up (0.20.0). */
+function ConnectFirst({ theme, go }: { theme: Theme; go: Go }) {
   return (
-    <Banner theme={theme} tone="neutral" title="Connect a router first">
-      <Note theme={theme}>{data.problem ? `Not connected yet: ${data.problem}.` : "No router is set up."}</Note>
-      <Row><Button theme={theme} label="Set up" icon="Link" primary onPress={() => go("overview")} /></Row>
-    </Banner>
+    <Card theme={theme}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: SPACE.row }}>
+        <ItemTitle theme={theme}>Connect a router first</ItemTitle>
+        <Button theme={theme} label="Set up" icon="Plug" primary onPress={() => go("overview")} />
+      </View>
+    </Card>
   );
 }
 
 // ------------------------------------------------------------------- surface
 
-/** The page header: the plugin's icon and name, and one line on the connection with a coloured dot. */
-function PageHeader({ theme, data, configured }: { theme: Theme; data: Status; configured: boolean }) {
+/**
+ * Refresh (0.20.0), the page's one way to check again: the router's health,
+ * Paseo's providers and the agent apps' latest versions, then every list on
+ * the page. It says the result in the same words as the "Check router" command.
+ */
+function useRefresh(say: Say) {
+  const queryClient = useQueryClient();
+  const callStatus = useRpc(status);
+  const callClis = useRpc(clis);
+  const callProviders = useRpc(providersList);
+  return useMutation({
+    mutationFn: async () => {
+      const [next] = await Promise.all([
+        callStatus({ refresh: true }),
+        callClis({ refresh: true }).then((value) => queryClient.setQueryData(CLIS_KEY, value), () => undefined),
+        callProviders({ refresh: true }).then((value) => queryClient.setQueryData(PROVIDERS_KEY, value), () => undefined),
+      ]);
+      return next;
+    },
+    onSuccess: (next) => {
+      queryClient.setQueryData(STATUS_KEY, next);
+      void queryClient.invalidateQueries({ queryKey: ["ai-router"], predicate: (query) => ![STATUS_KEY, CLIS_KEY, PROVIDERS_KEY].some((key) => key.every((part, index) => query.queryKey[index] === part)) });
+      say(checkReply(next));
+    },
+    onError: (error) => say({ text: errorText(error), tone: "danger" }),
+  });
+}
+
+/** The page header: the plugin's icon and name, one line on the connection with a coloured dot, and Refresh. */
+function PageHeader({ theme, data, configured, say }: { theme: Theme; data: Status; configured: boolean; say: Say }) {
+  const refresh = useRefresh(say);
   const dot = !configured ? theme.colors.foregroundMuted : data.health?.up === false ? theme.colors.statusDanger : data.health?.up ? theme.colors.statusSuccess : theme.colors.foregroundMuted;
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.row }}>
@@ -394,6 +425,7 @@ function PageHeader({ theme, data, configured }: { theme: Theme; data: Status; c
           <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flexShrink: 1 }}>{configured ? `Connected to ${ROUTERS[data.connection.router].label} · ${TIER_LABELS[data.tier]}` : "Not connected yet. Routing stays off until setup is done and you turn it on."}</Text>
         </View>
       </View>
+      <Link theme={theme} label={refresh.isPending ? "Refreshing…" : "Refresh"} accessibilityLabel="Refresh AI Router" onPress={() => { if (!refresh.isPending) refresh.mutate(); }} />
     </View>
   );
 }
@@ -411,12 +443,19 @@ export function AiRouterSurface({ theme, layout, navigation, params, initialTab,
   const [message, setMessage] = useState<Message>(null);
   const deepLink = initialTab ?? params?.tab ?? null;
   const [place, setPlace] = useState<Place>(() => ({ ...resolveTarget(deepLink, params?.open), visit: 0 }));
-  // Opened again with other params (the screen stays mounted): go there.
-  const paramsKey = params ? `${params.tab ?? ""}|${params.open ?? ""}` : "";
+  // Opened again with other params (the screen stays mounted, 0.11): go there.
+  // Opened with none, as the sidebar row does, means Overview.
+  const paramsKey = params ? `${params.tab ?? ""}|${params.open ?? ""}` : null;
+  const seenParams = useRef(paramsKey);
   useEffect(() => {
-    if (!paramsKey || initialTab) return;
+    if (initialTab || paramsKey === seenParams.current) return;
+    seenParams.current = paramsKey;
     setPlace((now) => ({ ...resolveTarget(params?.tab, params?.open), visit: now.visit + 1 }));
   }, [paramsKey]);
+  // The other way round: a tab picked here goes into the params, so the window title follows it.
+  useEffect(() => {
+    if (!initialTab) syncScreenTab(place.tab, params, (id) => resolveTarget(id).tab);
+  }, [place.tab]);
   // A reply from a Command Center item or /ai-router: shown here once.
   const pending = useSyncExternalStore(subscribePendingMessage, peekPendingMessage, peekPendingMessage);
   useEffect(() => {
@@ -452,14 +491,14 @@ export function AiRouterSurface({ theme, layout, navigation, params, initialTab,
   const openAgent: OpenAgent = navigation ? (agentId) => navigation.openAgent({ agentId }) : null;
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: pad, paddingBottom: SPACE.section * 2, maxWidth: 980, width: "100%", alignSelf: "center" }}>
-      <PageHeader theme={theme} data={data} configured={configured} />
+      <PageHeader theme={theme} data={data} configured={configured} say={setMessage} />
       <TabBar theme={theme} compact={layout.compact} active={tab} onSelect={go} />
       {message ? <MessageBar theme={theme} tone={message.tone} text={message.text} /> : null}
       <FoldsContext.Provider value={folds}>
         {tab === "overview" && configured ? <OverviewTab theme={theme} data={data} compact={layout.compact} go={go} say={setMessage} openAgent={openAgent} initialNews={initialNews} /> : null}
         {tab === "overview" && !configured ? (
           <>
-            <ConnectionCard theme={theme} data={data} configured={false} go={go} say={setMessage} guideLink={false} />
+            <ConnectionCard theme={theme} data={data} configured={false} go={go} say={setMessage} />
             <OverviewGuide theme={theme} compact={layout.compact} go={go} router={name} accounts={[]} synced={false} open />
             <Accordion theme={theme}>
               <AccordionItem theme={theme} id="traffic" icon="ArrowLeftRight" title="Recent traffic" summary="Chats started here, and whether they used the router">

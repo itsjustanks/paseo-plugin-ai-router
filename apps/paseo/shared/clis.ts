@@ -38,6 +38,17 @@ export function detectInstall(id: CliId, realPath: string): InstallMethod {
 }
 
 /** What the card shows and the button runs. `run` is null when only the command can be shown. */
+/**
+ * An install method said plainly, with any folder split off so the panel can
+ * fold it away: "npm, in /opt/npm-global" → how "npm", where "/opt/npm-global".
+ * "not known" reads "some other way".
+ */
+export function installPlace(method: string): { how: string; where: string | null } {
+  const at = method.indexOf(", in ");
+  if (at >= 0) return { how: method.slice(0, at), where: method.slice(at + 5) };
+  return { how: method === "not known" ? "some other way" : method, where: null };
+}
+
 export type UpdatePlan = { method: string; command: string | null; run: { file: string; args: string[] } | null; why: string | null };
 
 /**

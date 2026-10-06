@@ -37,5 +37,5 @@ export { checkAutoSync, noteActivity, startAutoSync, syncReason, routedModels } 
 export { routedRuntime, sessionAccounts, sessionTagFromEnv, usageScope } from "../../shared/usage-scope";
 export { parseComboMembers } from "../../shared/routers/omniroute/parsers";
 export { forgetSessionLog, readSessionLog } from "../../server/store";
-export { accountKey, accountReport, discoverUsage, fetchUsage, hashAccountKey, registerUsage, toneFromUsedPct, unavailable, usageSourceRegistered, windowFromUsedPct, READ_TOKEN_NEEDED, USAGE_SOURCE_ID } from "../../server/usage";
+export { accountKey, accountReport, discoverUsage, fetchUsage, hashAccountKey, registerUsage, toneFromUsedPct, unavailable, usageSourceRegistered, windowFromUsedPct, READ_TOKEN_NEEDED, SETUP_NEEDED, USAGE_SOURCE_ID } from "../../server/usage";
 export { default as contributeServer } from "../../index.server";

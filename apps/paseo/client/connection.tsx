@@ -3,11 +3,10 @@ import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { connectionClear, connectionTest, status, tunnelSet, tunnels, type Status } from "../shared/contracts";
+import { connectionClear, connectionTest, tunnelSet, tunnels, type Status } from "../shared/contracts";
 import { CODEX_LOGIN_PORT, privateDashboardAccess, tunnelDashboardUrl } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
 import type { GoTarget } from "../shared/tabs";
-import { checkReply } from "./commands";
 import { dashboardTarget, useLinks } from "./dashboard";
 import { ConnectionForm, PUBLIC_ADDRESS_WHY, STATUS_KEY, errorText, type Message } from "./setup";
 import { Button, Card, Chip, Fact, ItemTitle, Link, Meta, Note, Row, TYPE, SPACE } from "./ui";
@@ -22,20 +21,6 @@ export function when(iso: string): string {
   const date = new Date(iso);
   const today = new Date().toDateString() === date.toDateString();
   return today ? hhmm(iso) : `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${hhmm(iso)}`;
-}
-
-/** Check now: a fresh health check, said in one line (the same line as the "Check router" command). */
-export function useCheck(say: Say) {
-  const queryClient = useQueryClient();
-  const call = useRpc(status);
-  return useMutation({
-    mutationFn: () => call({ refresh: true }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(STATUS_KEY, next);
-      say(checkReply(next));
-    },
-    onError: (error) => say({ text: errorText(error), tone: "danger" }),
-  });
 }
 
 /** OmniRoute's own tunnels, for admins: status, start and stop, and "use this address". */
@@ -89,18 +74,17 @@ function TunnelsSection({ theme, data, say }: { theme: Theme; data: Status; say:
 }
 
 /**
- * The router this computer uses: before setup, the four-step form; after, its
- * address, key, where it is set and Check now / Edit / Disconnect. On
- * Overview while setup is unfinished, and in Help as "How is this computer
- * connected?". `guideLink` points at the guide when it isn't on the same tab.
+ * The router this computer uses: before setup, the three-step form (on
+ * Overview only); after, its address, key, where it is set and Edit /
+ * Disconnect, in Help as "How is this computer connected?". Checking again is
+ * the page header's Refresh.
  */
-export function ConnectionCard({ theme, data, configured, go, say, guideLink = true }: { theme: Theme; data: Status; configured: boolean; go: Go; say: Say; guideLink?: boolean }) {
+export function ConnectionCard({ theme, data, configured, go, say }: { theme: Theme; data: Status; configured: boolean; go: Go; say: Say }) {
   const queryClient = useQueryClient();
   const callClear = useRpc(connectionClear);
   const [editing, setEditing] = useState(false);
   const { connection, health } = data;
   const name = ROUTERS[connection.router].label;
-  const check = useCheck(say);
   const clear = useMutation({
     mutationFn: () => callClear({}),
     onSuccess: (result) => {
@@ -119,10 +103,7 @@ export function ConnectionCard({ theme, data, configured, go, say, guideLink = t
       <Card theme={theme} title={configured ? "Edit connection" : "Set up"} icon={configured ? "Settings2" : "Plug"}>
         {warnings}
         {connection.source === "none" && !configured ? (
-          <>
-            <Note theme={theme}>Four steps, about two minutes. Your agents don't change until you pick the AI Router provider.</Note>
-            {guideLink ? <Link theme={theme} label="New to AI Router? Overview explains what it is and how it works" onPress={() => go("overview")} /> : null}
-          </>
+          <Note theme={theme}>Three steps, about two minutes. Your agents don't change until you pick the AI Router provider.</Note>
         ) : data.problem ? (
           <Note theme={theme} tone="warning">{`Not connected yet: ${data.problem}.`}</Note>
         ) : null}
@@ -152,7 +133,6 @@ export function ConnectionCard({ theme, data, configured, go, say, guideLink = t
         {health?.error ? <Note theme={theme} tone="danger">{health.error}</Note> : null}
         {!health?.error && data.lastSeenAt && health?.up ? <Meta theme={theme}>{`Answering · last check ${when(health.checkedAt)}`}</Meta> : null}
         <Row>
-          <Button theme={theme} label="Check now" icon="RefreshCw" busy={check.isPending} onPress={() => check.mutate()} />
           <Button theme={theme} label="Edit" icon="Pencil" onPress={() => setEditing(true)} />
           {connection.source === "saved" ? <Button theme={theme} label="Disconnect" busy={clear.isPending} onPress={() => clear.mutate()} /> : null}
         </Row>

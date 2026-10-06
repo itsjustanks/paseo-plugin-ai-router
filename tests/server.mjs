@@ -1375,7 +1375,7 @@ try {
     assert.deepEqual(t.mod.unavailable({ kind: "no_quota", detail: "d" }), { status: "unavailable", problem: { kind: "no_quota", detail: "d" } });
     passed += 1;
 
-    // Key only: one card that says how to see the accounts. Not connected: no card at all.
+    // Key only: one card that says how to see the accounts. Not connected: one card that says how to set up (0.20.0), none on a chat.
     const basic = await fresh("usage-basic", { router: "omniroute", endpoint: LIVE, apiKey: KEY });
     const b = [];
     contribute(basic, fakeHost({ registerUsageSource: (s) => b.push(s) }).host);
@@ -1384,16 +1384,21 @@ try {
     basic.restore();
     assert.deepEqual(basicCards, [{ key: "router", label: "OmniRoute", input: { account: null } }]);
     assert.deepEqual(basicReport, { status: "unavailable", problem: { kind: "no_quota", detail: basic.mod.READ_TOKEN_NEEDED } });
-    assert.match(basic.mod.READ_TOKEN_NEEDED, /read-only access token in AI Router → Connection/);
+    assert.match(basic.mod.READ_TOKEN_NEEDED, /read-only access token in AI Router → Help → "How do I see accounts and usage\?"/);
     const none = await fresh("usage-none", {});
     rmSync(join(none.dir, "plugin-settings", "ai-router", "connection.json"));
     const n = [];
     contribute(none, fakeHost({ registerUsageSource: (s) => n.push(s) }).host);
-    const noneCards = await n[0].discover();
+    const noneCards = Discovered.parse(await n[0].discover());
     const noneReport = await n[0].fetch({ account: null });
+    const noneChat = await n[0].discover({ kind: "session", provider: "claude", model: "claude-sonnet-5", env: {} });
+    const noneAccount = await n[0].fetch({ account: "acc-1" });
     none.restore();
-    assert.deepEqual(noneCards, [], "not connected: nothing on the Usage page");
-    assert.deepEqual(noneReport, { status: "error", error: "AI Router is not connected to a router: no endpoint URL set." });
+    assert.deepEqual(noneCards, [{ key: "setup", label: "Not set up", input: { account: null } }], "not connected: one set-up card on the Usage page");
+    assert.deepEqual(noneReport, { status: "unavailable", problem: { kind: "no_quota", detail: none.mod.SETUP_NEEDED } });
+    assert.match(none.mod.SETUP_NEEDED, /^Set up AI Router to see your team's AI accounts here: open AI Router in the sidebar/);
+    assert.deepEqual(noneChat, [], "not connected: nothing on a chat's hover card");
+    assert.deepEqual(noneAccount, { status: "error", error: "AI Router is not connected to a router: no endpoint URL set." });
     passed += 1;
 
     // Router down with nothing read yet: one card with the reason; then a back-off, answered from memory.
@@ -1558,7 +1563,7 @@ try {
       const first = await t.mod.handleUpdates({});
       t.mod.UpdatesSchema.parse(first);
       assert.deepEqual([first.router.running, first.router.latest.version, first.router.state, first.router.latest.highlights], ["3.8.50", "3.8.52", "behind", ["Routing: better.", "Codex: reset credits."]], "the running version comes from the read-token health check");
-      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.19.0", "0.15.1", "ahead"]);
+      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.20.0", "0.15.1", "ahead"]);
       assert.deepEqual(github.map((u) => u.replace(/^https:\/\/api\.github\.com\/repos\//, "")).sort(), ["diegosouzapw/OmniRoute/releases?per_page=10", "itsjustanks/paseo-plugin-ai-router/releases?per_page=10"]);
       await t.mod.handleUpdates({});
       assert.equal(github.length, 2, "6 hours between checks");

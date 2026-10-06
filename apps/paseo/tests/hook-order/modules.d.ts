@@ -8,6 +8,7 @@ declare module "react-test-renderer" {
   export interface TestRenderer {
     root: { findAll(predicate: (node: TestInstance) => boolean): TestInstance[] };
     toJSON(): unknown;
+    update(element: ReactElement): void;
     unmount(): void;
   }
   export function create(element: ReactElement): TestRenderer;

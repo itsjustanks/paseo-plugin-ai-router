@@ -13,7 +13,7 @@ export const RoutingSettingsSchema = z.object({
   routeAgents: z.boolean().default(ROUTING_DEFAULTS.routeAgents),
   /** Keep one Paseo agent profile per OmniRoute combo (ids start with "ai-router:"). */
   comboProfiles: z.boolean().default(ROUTING_DEFAULTS.comboProfiles),
-  /** The "Check out MCP" card at the bottom of Overview; "Hide" turns it off. */
+  /** The Connectors line at the bottom of Overview (shown while Connectors is not installed); "Hide" turns it off. */
   mcpCard: z.boolean().default(ROUTING_DEFAULTS.mcpCard),
 });
 

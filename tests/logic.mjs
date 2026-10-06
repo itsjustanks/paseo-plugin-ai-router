@@ -687,6 +687,12 @@ try {
     assert.ok(T.resolveTarget("usage").open.includes("usage-days"));
     assert.deepEqual(T.resolveTarget("providers").open, ["codex-extras", "tidy", "agent-apps"]);
     for (const id of T.TAB_IDS) assert.deepEqual(T.resolveTarget(id).tab, id, `${id} is its own tab`);
+    // 0.20.0: the window title follows the tab; Overview, unknown and missing ids read just "AI Router".
+    assert.deepEqual(T.TAB_IDS.map((id) => T.screenTitle({ tab: id })), ["AI Router", "AI Router · Accounts", "AI Router · Models", "AI Router · Help"]);
+    assert.equal(T.screenTitle({}), "AI Router");
+    assert.equal(T.screenTitle(undefined), "AI Router");
+    assert.equal(T.screenTitle({ tab: "nonsense" }), "AI Router");
+    assert.equal(T.screenTitle({ tab: "connection", open: "keys" }), "AI Router · Help", "an old tab id titles its new home");
     assert.deepEqual(T.resolveTarget(" Connection "), T.resolveTarget("connection"), "case and spaces from a URL don't matter");
     assert.deepEqual(T.resolveTarget("nowhere"), { tab: "overview", open: [] }, "an unknown id lands on Overview");
     assert.deepEqual(T.resolveTarget(null), { tab: "overview", open: [] });
@@ -783,6 +789,13 @@ try {
     assert.deepEqual(C.detectInstall("codex", "/opt/agent-home/.codex/packages/standalone/releases/0.156.1-x86_64-unknown-linux-musl/bin/codex"), { kind: "codex-standalone" });
     assert.deepEqual(C.detectInstall("claude", "/opt/claude-code/claude"), { kind: "unknown" }, "a copy baked into an image");
     assert.deepEqual(C.detectInstall("codex", "/opt/npm-global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"), { kind: "unknown" }, "the other app's package is not this one");
+  });
+
+  check("agent apps: the install folder is split off so the panel can fold it (0.20.0)", () => {
+    assert.deepEqual(C.installPlace("npm, in /opt/npm-global"), { how: "npm", where: "/opt/npm-global" });
+    assert.deepEqual(C.installPlace("Claude Code's own installer"), { how: "Claude Code's own installer", where: null });
+    assert.deepEqual(C.installPlace("not known"), { how: "some other way", where: null });
+    assert.deepEqual(C.installPlace("Homebrew"), { how: "Homebrew", where: null });
   });
 
   check("agent apps: a button only when the method is known and writable; otherwise the exact command", () => {

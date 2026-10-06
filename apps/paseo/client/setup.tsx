@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { connectionTest, type Status } from "../shared/contracts";
 import { ENDPOINT_EXAMPLES, ROUTER_IDS, type RouterId } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
-import { Button, Card, Chip, Field, Meta, Note, Row, TYPE, type Tone, SPACE } from "./ui";
+import { Button, Card, Chip, Disclosure, Field, Meta, Note, Row, TYPE, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 export type Message = { text: string; tone: Tone } | null;
@@ -43,7 +43,11 @@ function useSave(onSaved: (message: Message) => void) {
   return { save, result };
 }
 
-/** Steps 1–4, and the edit form once connected. A blank key keeps the saved one. */
+/**
+ * Steps 1–3, and the edit form once connected. A blank key keeps the saved
+ * one. The router picker shows only when there is more than one kind; the
+ * public address and SSH target sit under "Advanced" (open when set).
+ */
 export function ConnectionForm({ theme, data, onDone }: { theme: Theme; data: Status | undefined; onDone: (message: Message, saved: boolean) => void }) {
   const [router, setRouter] = useState<RouterId>(data?.connection.router ?? "omniroute");
   const [endpoint, setEndpoint] = useState(data?.connection.endpoint ?? "");
@@ -61,20 +65,25 @@ export function ConnectionForm({ theme, data, onDone }: { theme: Theme; data: St
       {data?.connection.source === "env" ? (
         <Note theme={theme}>Pre-filled from this daemon's AI_ROUTER_* variables, which work without saving. Saving here takes over from them.</Note>
       ) : null}
-      <Step theme={theme} title="1. Choose your router" why="AI Router drives one router on your network. Pick the kind you run." />
-      <Row>
-        {ROUTER_IDS.map((id) => <Button key={id} theme={theme} label={ROUTERS[id].label} primary={id === router} onPress={() => setRouter(id)} />)}
-      </Row>
-      <Note theme={theme}>{info.summary}</Note>
-      <Step theme={theme} title="2. Endpoint URL" why="Where this daemon sends agent requests. Use an address this daemon can reach, which may differ from your laptop's." />
+      {ROUTER_IDS.length > 1 ? (
+        <>
+          <Step theme={theme} title="Your router" why="AI Router drives one router on your network. Pick the kind you run." />
+          <Row>
+            {ROUTER_IDS.map((id) => <Button key={id} theme={theme} label={ROUTERS[id].label} primary={id === router} onPress={() => setRouter(id)} />)}
+          </Row>
+        </>
+      ) : null}
+      <Step theme={theme} title="1. Endpoint URL" why={`Where this daemon reaches your ${info.label}. Use an address this daemon can reach, which may differ from your laptop's.`} />
       <Field theme={theme} label="Endpoint URL" value={endpoint} onChangeText={setEndpoint} placeholder={ENDPOINT_EXAMPLES[0]} />
       <Meta theme={theme}>{`Local: ${ENDPOINT_EXAMPLES[0]} · Remote: ${ENDPOINT_EXAMPLES[1]}`}</Meta>
-      <Step theme={theme} title="3. API key" why={`Proves this daemon may use the router. Make one per daemon (${info.keyWhere}), named after it, so usage shows per daemon.`} />
+      <Step theme={theme} title="2. API key" why={`Proves this daemon may use the router. Make one per daemon (${info.keyWhere}), named after it, so usage shows per daemon.`} />
       <Field theme={theme} label={`API key (${info.keyHint})`} value={apiKey} onChangeText={setApiKey} placeholder={key?.present ? `saved …${key.last4} — leave blank to keep` : info.keyHint} secure />
-      <Step theme={theme} title="Optional: public address (custom domain)" why={PUBLIC_ADDRESS_WHY} />
-      <Field theme={theme} label="Public address (custom domain)" value={consoleUrl} onChangeText={setConsoleUrl} placeholder="https://ai-router.example.com" />
-      <Field theme={theme} label="SSH target that can reach the router (for the dashboard on a private network)" value={sshTarget} onChangeText={setSshTarget} placeholder="root@router.example.com" />
-      <Step theme={theme} title="4. Test connection & save" why="Checks the router answers and accepts the key. Nothing is saved until it does." />
+      <Disclosure theme={theme} quiet label="Advanced (optional): public address and SSH target" openLabel="Hide advanced" initiallyOpen={Boolean(consoleUrl || sshTarget)}>
+        <Meta theme={theme}>{PUBLIC_ADDRESS_WHY}</Meta>
+        <Field theme={theme} label="Public address (custom domain)" value={consoleUrl} onChangeText={setConsoleUrl} placeholder="https://ai-router.example.com" />
+        <Field theme={theme} label="SSH target that can reach the router (for the dashboard on a private network)" value={sshTarget} onChangeText={setSshTarget} placeholder="root@router.example.com" />
+      </Disclosure>
+      <Step theme={theme} title="3. Test connection & save" why="Checks the router answers and accepts the key. Nothing is saved until it does." />
       <Row>
         <Button
           theme={theme}

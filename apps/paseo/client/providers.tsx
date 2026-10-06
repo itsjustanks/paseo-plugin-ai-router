@@ -13,14 +13,15 @@ import { Banner, Button, Card, ItemTitle, Link, Meta, Note, Row, ToggleRow, SPAC
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
 type ProviderRowData = Providers["rows"][number];
-const PROVIDERS_KEY = ["ai-router", "providers"] as const;
+export const PROVIDERS_KEY = ["ai-router", "providers"] as const;
 
 /**
  * Built-in Claude: its own sign-in, or OmniRoute's accounts. Off unless a
  * person turns it on, and either way the switch asks first and says what
- * changes; nothing is saved until they confirm.
+ * changes; nothing is saved until they confirm. Before a router is connected
+ * it can only be turned off.
  */
-function ClaudeReroute({ theme, say }: { theme: Theme; say: Say }) {
+function ClaudeReroute({ theme, configured, say }: { theme: Theme; configured: boolean; say: Say }) {
   const settings = useSettings(routingSettings);
   const [asking, setAsking] = useState<boolean | null>(null);
   const on = settings.status === "ready" ? settings.values.routeAgents : false;
@@ -36,7 +37,7 @@ function ClaudeReroute({ theme, say }: { theme: Theme; say: Say }) {
   };
   return (
     <View style={{ gap: SPACE.sm, flexShrink: 1 }}>
-      <ToggleRow theme={theme} label="Send Claude through the router" text={on ? "Through OmniRoute" : "Own sign-in"} value={on} busy={settings.saving} disabled={settings.status !== "ready" || asking !== null} onChange={(next) => setAsking(next)} />
+      <ToggleRow theme={theme} label="Send Claude through the router" text={on ? "Through OmniRoute" : "Own sign-in"} value={on} busy={settings.saving} disabled={settings.status !== "ready" || asking !== null || (!configured && !on)} onChange={(next) => setAsking(next)} />
       {on && asking === null ? <Meta theme={theme}>Fast mode is off for these chats: OmniRoute can't pass it on yet.</Meta> : null}
       {asking === true ? (
         <>
@@ -162,8 +163,10 @@ export const codexExtrasOn = (data: Status) => data.codexRouter.present || data.
  * The providers that can go through OmniRoute, and how. The AI Router
  * provider always does; built-in Claude has an ask-first switch; Codex says
  * what OmniRoute has, with its two extras folded; the rest aren't switched here.
+ * Before a router is connected, the AI Router and Codex rows (which depend on
+ * it) stay out: the tab's one "Connect a router first" line says it.
  */
-function RerouteCard({ theme, rows, data, codexAccounts, say }: { theme: Theme; rows: readonly ProviderRowData[]; data: Status; codexAccounts: number | null; say: Say }) {
+function RerouteCard({ theme, rows, data, configured, codexAccounts, say }: { theme: Theme; rows: readonly ProviderRowData[]; data: Status; configured: boolean; codexAccounts: number | null; say: Say }) {
   const router = rows.find((row) => row.id === AI_ROUTER_PROVIDER_ID);
   const claude = rows.find((row) => row.through === "claude-toggle");
   const codex = rows.find((row) => row.through === "codex-toggle");
@@ -177,11 +180,13 @@ function RerouteCard({ theme, rows, data, codexAccounts, say }: { theme: Theme; 
   return (
     <Card theme={theme} title="Send chats through the router" icon="Route">
       <Meta theme={theme}>AI Router chats always go through OmniRoute. Built-in Claude can too; the switch asks first.</Meta>
-      {line(router?.label ?? "AI Router", data.aiProvider.present
-        ? <Meta theme={theme}>{`Always through OmniRoute · ${data.aiProvider.modelCount} models`}</Meta>
-        : <Note theme={theme}>Not in Paseo yet: Sync models, above, adds it.</Note>)}
-      {claude ? line(claude.label, <ClaudeReroute theme={theme} say={say} />) : null}
-      {codex ? line(codex.label, <CodexSection theme={theme} data={data} accounts={codexAccounts} say={say} />) : null}
+      {configured
+        ? line(router?.label ?? "AI Router", data.aiProvider.present
+          ? <Meta theme={theme}>{`Always through OmniRoute · ${data.aiProvider.modelCount} models`}</Meta>
+          : <Note theme={theme}>Not in Paseo yet: Sync models, above, adds it.</Note>)
+        : null}
+      {claude ? line(claude.label, <ClaudeReroute theme={theme} configured={configured} say={say} />) : null}
+      {codex && configured ? line(codex.label, <CodexSection theme={theme} data={data} accounts={codexAccounts} say={say} />) : null}
       {others.length ? line("Other providers", <Meta theme={theme}>{`${others.join(", ")}: not switched here; they keep their own sign-in.`}</Meta>) : null}
     </Card>
   );
@@ -194,13 +199,13 @@ function useProvidersList() {
 }
 
 /** Which chats go through the router: the AI Router provider, built-in Claude's switch, and what Codex has. */
-export function RoutingCard({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
+export function RoutingCard({ theme, data, configured, say }: { theme: Theme; data: Status; configured: boolean; say: Say }) {
   const queryClient = useQueryClient();
   const callList = useRpc(providersList);
   const query = useProvidersList();
   const refresh = useMutation({ mutationFn: () => callList({ refresh: true }), onSuccess: (next) => queryClient.setQueryData(PROVIDERS_KEY, next), onError: (error) => say({ text: errorText(error), tone: "danger" }) });
   const list = query.data;
-  if (list?.state === "ok") return <RerouteCard theme={theme} rows={list.rows} data={data} codexAccounts={list.codexAccounts} say={say} />;
+  if (list?.state === "ok") return <RerouteCard theme={theme} rows={list.rows} data={data} configured={configured} codexAccounts={list.codexAccounts} say={say} />;
   if (list?.state === "error") {
     return (
       <Banner theme={theme} tone="danger" title="Could not read Paseo's providers">

@@ -4,6 +4,9 @@
 export const TAB_IDS = ["overview", "accounts", "models", "help"] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
+/** Each tab's name, on the tab bar and in the window title. */
+export const TAB_LABELS: Record<TabId, string> = { overview: "Overview", accounts: "Accounts", models: "Models", help: "Help" };
+
 /** The nine tabs before 0.18.0. Deep links, buttons and tests may still name them. */
 export const LEGACY_TAB_IDS = ["overview", "activity", "models", "providers", "accounts", "usage", "settings", "connection", "tips"] as const;
 export type LegacyTabId = (typeof LEGACY_TAB_IDS)[number];
@@ -43,3 +46,9 @@ export function resolveTarget(id: string | null | undefined, extra?: string | nu
 
 /** Anywhere the panel can send someone: a tab, or an old tab id that maps to one. */
 export type GoTarget = TabId | LegacyTabId;
+
+/** The screen's header and window title (Paseo 0.11): "AI Router" on Overview, "AI Router · Accounts" on a tab. */
+export function screenTitle(params: Record<string, string> | undefined): string {
+  const { tab } = resolveTarget(params?.tab);
+  return tab === "overview" ? "AI Router" : `AI Router · ${TAB_LABELS[tab]}`;
+}

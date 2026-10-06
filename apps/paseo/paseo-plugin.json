@@ -1,4 +1,5 @@
 {
   "id": "ai-router",
-  "requirements": { "paseo": ">=0.8.0" }
+  "description": "Send your Paseo chats through your team's shared AI router (OmniRoute), and see its accounts, models and usage in one place.",
+  "requirements": { "paseo": ">=0.9.0" }
 }

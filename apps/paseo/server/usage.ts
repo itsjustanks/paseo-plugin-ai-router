@@ -95,7 +95,10 @@ const routerCard = (router: string): UsageAccount => ({ key: "router", label: ro
 const HARNESS = "OmniRoute";
 
 /** "Add a read token" for a key-only connection: the plain key cannot see the router's accounts. */
-export const READ_TOKEN_NEEDED = "Add a read-only access token in AI Router → Connection (under More access) to see each of the router's accounts and how much of its limits is left.";
+export const READ_TOKEN_NEEDED = "Add a read-only access token in AI Router → Help → \"How do I see accounts and usage?\" to see each of the router's accounts and how much of its limits is left.";
+/** The one card before setup (0.20.0): what to do, instead of an empty Usage page. */
+const setupCard: UsageAccount = { key: "setup", label: "Not set up", harness: HARNESS, input: { account: null } };
+export const SETUP_NEEDED = "Set up AI Router to see your team's AI accounts here: open AI Router in the sidebar and connect your router. It takes about two minutes.";
 
 const iso = (value: string | null | undefined): string | null => {
   const ms = value ? Date.parse(value) : NaN;
@@ -210,7 +213,8 @@ function accountsForUsage(connection: Connection): Promise<Accounts> {
 
 /**
  * The cards for a scope. Global (the Usage page, and every call from Paseo
- * before 0.11.0-beta.5): every router account. A session (one chat's
+ * before 0.11.0-beta.5): every router account, or one "set up" card before
+ * a router is connected. A session (one chat's
  * context-window hover card): the accounts that chat's model runs on, or none
  * when the chat doesn't go through this router. Both reuse the one cached
  * accounts read and what the model sync already knows; a hover never adds a
@@ -219,7 +223,8 @@ function accountsForUsage(connection: Connection): Promise<Accounts> {
 export async function discoverUsage(scope?: unknown): Promise<UsageAccount[]> {
   const where = usageScope(scope);
   const resolved = await readConnection();
-  if (connectionProblem(resolved)) return [];
+  // Not set up: one card on the Usage page that says how; nothing on a chat's hover card.
+  if (connectionProblem(resolved)) return where.kind === "session" ? [] : [setupCard];
   const { connection } = resolved;
   const runtime = where.kind === "session" ? routedRuntime(where, connection.endpoint) : null;
   if (where.kind === "session" && !runtime) return [];
@@ -243,7 +248,7 @@ function servingAccount(connection: Connection, env: Record<string, string>): st
 export async function fetchUsage(input: UsageInput): Promise<UsageReport> {
   const resolved = await readConnection();
   const problem = connectionProblem(resolved);
-  if (problem) return { status: "error", error: `AI Router is not connected to a router: ${problem}.` };
+  if (problem) return input.account === null ? unavailable({ kind: "no_quota", detail: SETUP_NEEDED }) : { status: "error", error: `AI Router is not connected to a router: ${problem}.` };
   const { connection } = resolved;
   if (accessTier(connection) === "basic") return unavailable({ kind: "no_quota", detail: READ_TOKEN_NEEDED });
   const answer = await accountsForUsage(connection);

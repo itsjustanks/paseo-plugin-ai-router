@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { installPlace } from "../shared/clis";
 import { cliUpdate, clis, type Clis } from "../shared/contracts";
 import { useLinks } from "./dashboard";
 import { errorText, type Message } from "./setup";
@@ -11,7 +12,7 @@ import { Button, Card, Chip, Disclosure, ItemTitle, Link, Meta, Note, RADIUS, Ro
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
 type Tool = Clis["tools"][number];
-const CLIS_KEY = ["ai-router", "clis"] as const;
+export const CLIS_KEY = ["ai-router", "clis"] as const;
 
 const STATE: Record<Tool["state"], (tool: Tool) => { label: string; tone: Tone }> = {
   current: () => ({ label: "Up to date", tone: "success" }),
@@ -35,6 +36,7 @@ function ToolRow({ theme, tool, job, asking, busy, onAsk, onCancel, onUpdate, sa
   const state = STATE[tool.state](tool);
   const running = job?.state === "running" && job.id === tool.id;
   const offer = tool.state === "behind" || tool.state === "unknown";
+  const place = installPlace(tool.method);
   return (
     <View style={{ gap: SPACE.sm, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>
       <Row>
@@ -42,7 +44,12 @@ function ToolRow({ theme, tool, job, asking, busy, onAsk, onCancel, onUpdate, sa
         {tool.installed ? <Meta theme={theme}>{tool.installed}</Meta> : null}
         <Chip theme={theme} label={running ? "Updating…" : state.label} tone={running ? "neutral" : state.tone} />
       </Row>
-      {tool.state !== "missing" ? <Meta theme={theme} selectable>{tool.path && tool.method === "not known" ? `Installed at ${tool.path}` : `Installed with ${tool.method}`}</Meta> : null}
+      {tool.state !== "missing" ? <Meta theme={theme}>{`Installed with ${place.how}`}</Meta> : null}
+      {tool.state !== "missing" && (place.where ?? tool.path) ? (
+        <Disclosure theme={theme} quiet label="Where it's installed" openLabel="Hide where it's installed">
+          <Meta theme={theme} selectable>{place.where ?? tool.path}</Meta>
+        </Disclosure>
+      ) : null}
       {tool.canUpdate && offer && !asking ? <Row><Button theme={theme} label={tool.latest && tool.state === "behind" ? `Update to ${tool.latest}` : "Update"} icon="Download" busy={running || busy} disabled={job?.state === "running"} onPress={onAsk} /></Row> : null}
       {asking ? (
         <>
@@ -84,7 +91,6 @@ export function AgentAppsCard({ theme, say }: { theme: Theme; say: Say }) {
     queryFn: () => call({}),
     refetchInterval: (current) => (current.state.data?.job?.state === "running" ? 1_500 : 5 * 60_000),
   });
-  const refresh = useMutation({ mutationFn: () => call({ refresh: true }), onSuccess: (next) => queryClient.setQueryData(CLIS_KEY, next), onError: (error) => say({ text: errorText(error), tone: "danger" }) });
   const update = useMutation({
     mutationFn: (id: Tool["id"]) => callUpdate({ id }),
     onSuccess: (result) => {
@@ -123,10 +129,7 @@ export function AgentAppsCard({ theme, say }: { theme: Theme; say: Say }) {
           ) : null}
         </View>
       ) : null}
-      <Row>
-        <Meta theme={theme}>Latest versions come from npm, checked every hour.</Meta>
-        <Link theme={theme} label={refresh.isPending ? "Checking…" : "Check now"} onPress={() => refresh.mutate()} />
-      </Row>
+      <Meta theme={theme}>Latest versions come from npm, checked every hour and on Refresh.</Meta>
     </Card>
   );
 }
