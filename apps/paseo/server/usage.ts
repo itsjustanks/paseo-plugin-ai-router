@@ -97,7 +97,8 @@ const HARNESS = "OmniRoute";
 /** "Add a read token" for a key-only connection: the plain key cannot see the router's accounts. */
 export const READ_TOKEN_NEEDED = "Add a read-only access token in AI Router → Help → \"How do I see accounts and usage?\" to see each of the router's accounts and how much of its limits is left.";
 /** The one card before setup (0.20.0): what to do, instead of an empty Usage page. */
-const setupCard: UsageAccount = { key: "setup", label: "Not set up", harness: HARNESS, input: { account: null } };
+// No harness: Paseo would print "OmniRoute:" before the hint, and nothing is signed in yet.
+const setupCard: UsageAccount = { key: "setup", label: "Not set up", input: { account: null } };
 export const SETUP_NEEDED = "Set up AI Router to see your team's AI accounts here: open AI Router in the sidebar and connect your router. It takes about two minutes.";
 
 const iso = (value: string | null | undefined): string | null => {
