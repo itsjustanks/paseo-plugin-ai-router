@@ -5,6 +5,8 @@ import type { Accounts } from "../shared/contracts";
 import { accessTier, connectionProblem, type Connection } from "../shared/logic";
 import { healthLine, quotaName, quotaShortLabel, type Account } from "../shared/routers/omniroute/parsers";
 import { ROUTERS } from "../shared/routers/copy";
+import { routedRuntime, sessionAccounts, sessionTagFromEnv, usageScope, type UsageScope } from "../shared/usage-scope";
+import { routedModels } from "./provider";
 import { adapterFor } from "./routers";
 import { readConnection } from "./store";
 
@@ -12,10 +14,12 @@ import { readConnection } from "./store";
 //
 // Paseo 0.11 daemons let a plugin add cards to their Usage page with
 // `registerUsageSource`. The types and helpers below copy
-// @getpaseo/plugin 0.11.0-beta.3 (dist/server/usage.d.ts and usage.js) rather
+// @getpaseo/plugin 0.11.0-beta.5 (dist/server/usage.d.ts and usage.js) rather
 // than import them: daemons before 0.11 refuse to compile a plugin that names
 // `@getpaseo/plugin/server/usage` at all, even in a type import, and the 0.8
-// SDK this plugin builds against does not declare them.
+// SDK this plugin builds against does not declare them. beta.5 adds the
+// `scope` argument to discover and `harness` on accounts; earlier betas call
+// discover() with nothing and ignore `harness`.
 
 export type UsageTone = "default" | "ok" | "warning" | "danger";
 export interface UsageWindow {
@@ -45,6 +49,8 @@ export interface UsageAccount {
   /** Stable, [A-Za-z0-9._-]{1,128}, never a credential or a raw email. */
   key: string;
   label?: string;
+  /** Harness owning this login, e.g. Codex, OpenCode, Pi or OMP. */
+  harness?: string;
   input: UsageInput;
 }
 export interface UsageSourceRegistration {
@@ -53,7 +59,8 @@ export interface UsageSourceRegistration {
   /** Plugin-directory-relative path to a self-contained SVG. */
   icon?: string;
   input: z.ZodType;
-  discover(): Promise<UsageAccount[]>;
+  /** Accounts for this scope only. The same key in any scope identifies the same account. */
+  discover(scope?: UsageScope): Promise<UsageAccount[]>;
   fetch(input: unknown): Promise<UsageReport>;
 }
 
@@ -83,7 +90,9 @@ export const USAGE_SOURCE_ID = "ai-router";
 const UsageInputSchema = z.object({ account: z.string().min(1).max(200).nullable() });
 type UsageInput = z.infer<typeof UsageInputSchema>;
 /** The card shown instead of account cards: a key-only connection, or a router that has not answered yet. */
-const routerCard = (router: string): UsageAccount => ({ key: "router", label: router, input: { account: null } });
+const routerCard = (router: string): UsageAccount => ({ key: "router", label: router, harness: HARNESS, input: { account: null } });
+/** Who holds these logins: OmniRoute, not this daemon. */
+const HARNESS = "OmniRoute";
 
 /** "Add a read token" for a key-only connection: the plain key cannot see the router's accounts. */
 export const READ_TOKEN_NEEDED = "Add a read-only access token in AI Router → Connection (under More access) to see each of the router's accounts and how much of its limits is left.";
@@ -199,16 +208,36 @@ function accountsForUsage(connection: Connection): Promise<Accounts> {
   return value;
 }
 
-/** Every card the Usage page should show now. None when AI Router is not connected. */
-export async function discoverUsage(): Promise<UsageAccount[]> {
+/**
+ * The cards for a scope. Global (the Usage page, and every call from Paseo
+ * before 0.11.0-beta.5): every router account. A session (one chat's
+ * context-window hover card): the accounts that chat's model runs on, or none
+ * when the chat doesn't go through this router. Both reuse the one cached
+ * accounts read and what the model sync already knows; a hover never adds a
+ * request to the router of its own.
+ */
+export async function discoverUsage(scope?: unknown): Promise<UsageAccount[]> {
+  const where = usageScope(scope);
   const resolved = await readConnection();
   if (connectionProblem(resolved)) return [];
   const { connection } = resolved;
+  const runtime = where.kind === "session" ? routedRuntime(where, connection.endpoint) : null;
+  if (where.kind === "session" && !runtime) return [];
   const card = routerCard(ROUTERS[connection.router].label);
   if (accessTier(connection) === "basic") return [card];
   const answer = await accountsForUsage(connection);
   if (!answer.accounts.length) return answer.state === "ok" ? [] : [card];
-  return answer.accounts.map((account) => ({ key: accountKey(connection, account.id), label: account.shortName, input: { account: account.id } }));
+  const accounts =
+    where.kind === "session" && runtime
+      ? sessionAccounts({ model: where.model, runtime, accounts: answer.accounts, models: routedModels(), serving: servingAccount(connection, where.env) })
+      : answer.accounts;
+  return accounts.map((account) => ({ key: accountKey(connection, account.id), label: account.shortName, harness: HARNESS, input: { account: account.id } }));
+}
+
+/** The account OmniRoute's call log says served this chat, from reads already in memory. */
+function servingAccount(connection: Connection, env: Record<string, string>): string | null {
+  const tag = sessionTagFromEnv(env);
+  return tag ? adapterFor(connection.router).servingAccount(connection, tag) : null;
 }
 
 export async function fetchUsage(input: UsageInput): Promise<UsageReport> {
@@ -248,7 +277,7 @@ export function registerUsage(server: PluginServerContext): boolean {
     label: "AI Router",
     icon: "assets/ai-router.svg",
     input: UsageInputSchema,
-    discover: discoverUsage,
+    discover: (scope) => discoverUsage(scope),
     fetch: (input) => fetchUsage(UsageInputSchema.parse(input)),
   };
   try {

@@ -88,7 +88,7 @@ managed["/api/combos"] = { combos: [{ id: "0b1f6c2e-5a1d-4c3e-9f7a-2d8e6b4c1a90"
 const LEAK = "PROMPT-TEXT-MUST-NOT-LEAK";
 let callLogBase = Date.now();
 const callLogRows = () => [
-  { id: "log-5", seconds: 50, status: 200, model: "claude-sonnet-5", requestedModel: "cc/claude-sonnet-5", provider: "claude", account: "someone@example.com", duration: 1840, tokens: { in: 12000, out: 800 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: "paseo-agent-1" },
+  { id: "log-5", seconds: 50, status: 200, model: "claude-sonnet-5", requestedModel: "cc/claude-sonnet-5", provider: "claude", account: "someone@example.com", duration: 1840, tokens: { in: 12000, out: 800 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: "paseo-agent-1", connectionId: fixtures["/api/providers"].body.connections.find((c) => c.provider === "claude").id },
   { id: "log-4", seconds: 40, status: 200, model: "gpt-5.6-sol", requestedModel: "cx/gpt-5.6-sol", provider: "codex", account: "other@example.com", duration: 2300, tokens: { in: 9000, out: 1500 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: null },
   { id: "log-3", seconds: 30, status: 200, model: "gpt-5.6-sol", requestedModel: "auto/coding", provider: "codex", account: "other@example.com", duration: 2100, tokens: { in: 5000, out: 400 }, apiKeyId: "k2", apiKeyName: "daemon-b", comboName: "auto/coding", error: null, sessionTag: null },
   { id: "log-2", seconds: 20, status: 200, model: "glm-5.2", requestedModel: "cc/claude-opus-5-5", provider: "glm", account: null, duration: 900, tokens: { in: 3000, out: 200 }, apiKeyId: "k1", apiKeyName: "daemon-a", comboName: null, error: null, sessionTag: null },
@@ -1289,6 +1289,44 @@ try {
     passed += 1;
   }
   {
+    // Paseo 0.11.0-beta.4+ says when a chat closes: its kept breakdown and its chip alerts go at once,
+    // and come back when it opens again. Older daemons refuse the event name; archiving still cleans up.
+    const t = await fresh("agent-closed", full);
+    routingDoc(t.dir, { routeAgents: true });
+    const handlers = {};
+    const beta4 = { before: (name, handler) => { handlers[name] = handler; }, on: (name, handler) => { handlers[name] = handler; } };
+    const known09 = new Set(["agent.turn_started", "agent.turn_ended", "agent.archived", "agent.created"]);
+    const beta3 = { on(name) { if (!known09.has(name)) throw new Error(`Unknown lifecycle event: ${name}`); } };
+    assert.deepEqual(t.mod.registerAgentCleanup(beta3), ["agent.archived"], "beta.3: no agent.closed, and nothing breaks");
+    assert.deepEqual(t.mod.registerAgentCleanup({ on() {} }), ["agent.closed", "agent.archived"]);
+    t.mod.registerRoutingHooks(beta4);
+    assert.equal(typeof handlers["agent.closed"], "function");
+    writeFileSync(join(t.dir, "plugin-settings", "ai-router", "sessions.json"), JSON.stringify([
+      { at: new Date().toISOString(), agentId: "agent-c", kind: "provider", provider: "ai-router", routed: true, reason: null, tagged: true },
+    ]));
+    t.mod.forgetSessionLog();
+    const calm = managed["/api/monitoring/health"];
+    managed["/api/monitoring/health"] = { ...calm, providerBreakers: [{ provider: "claude", state: "OPEN" }] };
+    try {
+      assert.deepEqual((await t.mod.handleBadge()).alerts.map((a) => a.agentId), ["agent-c"]);
+      // A breakdown kept for the chat (here, the failure Paseo's lookup gave).
+      await t.mod.handleContext({ agentId: "agent-c" }, { paseo: t.api });
+      assert.equal(t.mod.keptContext("agent-c"), true);
+      handlers["agent.closed"]({ agent: { id: "agent-c", workspaceId: null, parentAgentId: null, provider: "ai-router", cwd: "/tmp", title: null } }, { paseo: t.api });
+      assert.equal(t.mod.keptContext("agent-c"), false, "closed: the kept breakdown is dropped now");
+      assert.deepEqual((await t.mod.handleBadge()).alerts, [], "closed: no chip alert for it");
+      await handlers["agent.session_open"]({ request: { agentId: "agent-c", workspaceId: null, provider: "ai-router", cwd: "/tmp", reason: "resume", purpose: "history", env: {} } }, { paseo: t.api, signal: new AbortController().signal });
+      assert.deepEqual((await t.mod.handleBadge()).alerts.map((a) => a.agentId), ["agent-c"], "opened again: its alerts are back");
+      handlers["agent.archived"]?.({ agent: { id: "agent-c" }, archivedAt: new Date().toISOString() }, { paseo: t.api });
+      assert.deepEqual((await t.mod.handleBadge()).alerts, [], "archived: gone too");
+      handlers["agent.closed"]({}, { paseo: t.api });
+    } finally {
+      managed["/api/monitoring/health"] = calm;
+      t.restore();
+    }
+    passed += 1;
+  }
+  {
     // Recommended plugins already on this daemon, from its plugin sources.
     const t = await fresh("plugins", full);
     t.restore();
@@ -1511,7 +1549,7 @@ try {
     assert.deepEqual(downCards, [{ key: "router", label: "OmniRoute", input: { account: null } }]);
     assert.equal(downReport.status, "error");
     assert.match(downReport.error, /^Accounts: /);
-    assert.deepEqual(again, downCards, "backing off: the last answer again");
+    assert.deepEqual(Discovered.parse(again), downCards, "backing off: the last answer again");
     assert.equal(requested.length, asked, "without asking the router");
     passed += 1;
 
@@ -1528,6 +1566,113 @@ try {
     }
     assert.equal(refused.mod.usageSourceRegistered(), false);
     assert.match(warnings.join("\n"), /Usage page refused the AI Router source: Duplicate usage source: ai-router/);
+    passed += 1;
+
+    // Paseo 0.11.0-beta.5: one chat's context-window hover card asks discover(scope) for the
+    // accounts that chat runs on. Paseo passes the runtime ("claude", "codex"), the model and
+    // the chat's launch environment. The schema is beta.5's discover check, with `harness`.
+    const Scoped = z.array(z.object({ key: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/), label: z.string().optional(), harness: z.string().optional(), input: z.json() }).strict());
+    const sc = await fresh("usage-session", full);
+    const ss = [];
+    contribute(sc, fakeHost({ registerUsageSource: (x) => ss.push(x) }).host);
+    const scoped = ss[0];
+    const labelsFor = async (scope) => Scoped.parse(await scoped.discover(scope)).map((card) => card.label);
+    const session = (provider, model, env = {}) => ({ kind: "session", provider, ...(model ? { model } : {}), env });
+    const viaRouter = { ANTHROPIC_BASE_URL: LIVE, ANTHROPIC_AUTH_TOKEN: KEY, PATH: "/usr/bin" };
+    const all = ["Claude #1", "Codex #1", "Codex #2"];
+    const globalCards = Scoped.parse(await scoped.discover());
+    assert.deepEqual(globalCards.map((c) => c.label), all, "beta.3/beta.4 call discover() with nothing: the Usage page, every account");
+    assert.deepEqual(Scoped.parse(await scoped.discover({ kind: "global" })), globalCards, "beta.5's global scope: the same");
+    assert.ok(globalCards.every((c) => c.harness === "OmniRoute"), "every login is OmniRoute's");
+    const hoverStart = requested.length;
+    const sessionCards = Scoped.parse(await scoped.discover(session("claude", "cc/claude-opus-5-5", viaRouter)));
+    assert.deepEqual(sessionCards.map((c) => c.label), ["Claude #1"], "an AI Router chat on a cc/ model: the Claude accounts");
+    assert.equal(sessionCards[0].key, globalCards[0].key, "the same key as its Usage-page card, so Paseo matches them");
+    assert.deepEqual(await labelsFor(session("ai-router", "cc/claude-sonnet-5")), ["Claude #1"], "a later Paseo naming our provider id");
+    assert.deepEqual(await labelsFor(session("claude", "cx/gpt-5.6-sol", viaRouter)), ["Codex #1", "Codex #2"], "cx/ on the AI Router provider: the Codex accounts");
+    assert.deepEqual(await labelsFor(session("claude", "claude-opus-5-5[1m]", { ANTHROPIC_BASE_URL: `${LIVE}/` })), ["Claude #1"], "re-routed built-in Claude, Paseo's own model id");
+    assert.deepEqual(await labelsFor(session("claude", undefined, viaRouter)), ["Claude #1"], "no model named: Claude Code's own default");
+    assert.deepEqual(await labelsFor(session("codex", "cx/gpt-5.6-sol", { OPENAI_BASE_URL: `${LIVE}/v1`, OPENAI_API_KEY: KEY })), ["Codex #1", "Codex #2"], "Codex via OmniRoute");
+    assert.deepEqual(await labelsFor(session("codex", "gpt-5.6-sol", { AI_ROUTER_API_KEY: KEY })), ["Codex #1", "Codex #2"], "re-routed built-in Codex: our key variable");
+    assert.deepEqual(await labelsFor(session("claude", "auto/coding", viaRouter)), all, "an auto combo: OmniRoute may pick any account");
+    assert.deepEqual(await labelsFor(session("claude", "claude-opus-5-5", { PATH: "/usr/bin" })), [], "built-in Claude on its own sign-in: none of ours");
+    assert.deepEqual(await labelsFor(session("claude", "cc/claude-opus-5-5", { ANTHROPIC_BASE_URL: "https://api.anthropic.com" })), [], "pointed elsewhere: none");
+    assert.deepEqual(await labelsFor(session("codex", "gpt-5.6-sol", {})), [], "native Codex: none");
+    assert.deepEqual(await labelsFor(session("opencode", "glm/glm-5.2", {})), [], "another harness: none");
+    assert.deepEqual(await labelsFor({ kind: "nonsense" }), all, "an unreadable scope is read as global");
+    assert.deepEqual(requested.slice(hoverStart), [], "hovers reuse the Usage page's accounts read: no request of their own");
+    // The call log in memory (Traffic, the Breakdown panel) names the account that served this chat: only that one.
+    const tagged = { ...viaRouter, ANTHROPIC_CUSTOM_HEADERS: "X-Trace: 1\nx-omniroute-session-id: paseo-agent-1" };
+    assert.deepEqual(await labelsFor(session("claude", "auto/coding", tagged)), all, "nothing read yet: every account it may use");
+    await sc.mod.handleActivity({}, { paseo: sc.api });
+    assert.deepEqual(await labelsFor(session("claude", "auto/coding", tagged)), ["Claude #1"], "the call log says Claude #1 served it");
+    assert.deepEqual(await labelsFor(session("claude", "cx/gpt-5.6-sol", tagged)), ["Codex #1", "Codex #2"], "a serving account outside the model's accounts is ignored");
+    // Key only: the one card that says how to see accounts, for routed chats only.
+    const scBasic = await fresh("usage-session-basic", { router: "omniroute", endpoint: LIVE, apiKey: KEY });
+    const sb = [];
+    contribute(scBasic, fakeHost({ registerUsageSource: (x) => sb.push(x) }).host);
+    assert.deepEqual(Scoped.parse(await sb[0].discover(session("claude", "cc/claude-opus-5-5", viaRouter))), [{ key: "router", label: "OmniRoute", harness: "OmniRoute", input: { account: null } }]);
+    assert.deepEqual(await sb[0].discover(session("claude", "claude-opus-5-5", {})), []);
+    scBasic.restore();
+    sc.restore();
+    for (const secret of [KEY, TOKEN]) assert.equal(JSON.stringify(sessionCards).includes(secret), false);
+    passed += 1;
+
+    // The mapping itself: Kimi, combos (members, pinned accounts, references, loops), the served account.
+    const M = sc.mod;
+    const acc = (id, provider, state = "healthy") => ({ id, provider, state });
+    const accounts = [acc("c1", "claude"), acc("x1", "codex"), acc("x2", "codex"), acc("k1", "kimi-coding"), acc("c2", "claude", "disabled"), acc("g1", "glm")];
+    const known = {
+      owners: { "cc/claude-opus-5-5": "claude", "kmc/kimi-k2.6": "kimi-coding", "team-review": "combo", "outer": "combo", "loop-a": "combo", "pinned": "combo", "blank": "combo" },
+      combos: {
+        "team-review": { models: ["cc/claude-opus-5-5", "cx/gpt-6-sol"], providers: [], connections: [], refs: [] },
+        outer: { models: [], providers: [], connections: [], refs: ["team-review"] },
+        "loop-a": { models: ["loop-b"], providers: [], connections: [], refs: [] },
+        "loop-b": { models: ["kmc/kimi-k2.6"], providers: [], connections: [], refs: ["loop-a"] },
+        pinned: { models: [], providers: [], connections: ["x2"], refs: [] },
+        blank: { models: [], providers: [], connections: [], refs: [] },
+      },
+    };
+    known.owners["loop-b"] = "combo";
+    const pick = (model, runtime = "claude", serving = null, models = known) => M.sessionAccounts({ model, runtime, accounts, models, serving }).map((a) => a.id);
+    assert.deepEqual(pick("kmc/kimi-k2.6"), ["k1"], "kmc/ → Kimi");
+    assert.deepEqual(pick("kmc/kimi-k2.6", "claude", null, null), ["k1"], "the prefix alone is enough before the first sync");
+    assert.deepEqual(pick("cc/claude-opus-5-5"), ["c1"], "an account turned off in the router is left out");
+    assert.deepEqual(pick("glm/glm-5.2"), ["g1"], "any other prefix: that provider");
+    assert.deepEqual(pick("team-review"), ["c1", "x1", "x2"], "a combo: its members' accounts");
+    assert.deepEqual(pick("outer"), ["c1", "x1", "x2"], "a combo that refers to another");
+    assert.deepEqual(pick("loop-a"), ["k1"], "references that loop end");
+    assert.deepEqual(pick("pinned"), ["x2"], "a step pinned to one account");
+    assert.deepEqual(pick("blank"), ["c1", "x1", "x2", "k1", "g1"], "steps it can't read: any account");
+    assert.deepEqual(pick("auto"), ["c1", "x1", "x2", "k1", "g1"], "auto: any account");
+    assert.deepEqual(pick("my-combo", "claude", null, null), ["c1", "x1", "x2", "k1", "g1"], "a bare name the sync hasn't seen: most likely a combo");
+    assert.deepEqual(pick("nope/model"), [], "a provider with no account here: none");
+    assert.deepEqual(pick(undefined, "codex"), ["x1", "x2"], "no model on Codex: its default");
+    assert.deepEqual(pick("team-review", "claude", "x2"), ["x2"], "the account OmniRoute's log says served it");
+    assert.deepEqual(pick("cc/claude-opus-5-5", "claude", "x2"), ["c1"], "unless it can't serve this model");
+    assert.deepEqual(M.usageScope(undefined), { kind: "global" });
+    assert.deepEqual(M.usageScope({ kind: "session", provider: "claude", env: { A: "1", B: 2 } }), { kind: "session", provider: "claude", env: { A: "1" } });
+    assert.equal(M.routedRuntime({ kind: "session", provider: "codex", env: { OPENAI_BASE_URL: `${LIVE}/v1/` } }, LIVE), "codex");
+    assert.equal(M.routedRuntime({ kind: "session", provider: "claude", env: { ANTHROPIC_BASE_URL: `${LIVE}:1` } }, LIVE), null, "another port is another router");
+    assert.equal(M.sessionTagFromEnv({ ANTHROPIC_CUSTOM_HEADERS: "Foo: bar\nX-OmniRoute-Session-Id: paseo-abc" }), "paseo-abc");
+    assert.deepEqual(M.parseComboMembers({ combos: [
+      { name: "team", models: ["cc/a", { model: "cx/b", provider: "codex", connectionId: "c1", allowedConnectionIds: ["c2"] }, { kind: "combo-ref", comboName: "other" }, {}] },
+      { name: "auto/x", models: ["cc/a"] },
+    ] }), { team: { models: ["cc/a", "cx/b"], providers: ["codex"], connections: ["c1", "c2"], refs: ["other"] } }, "OmniRoute's own auto combos are left to 'any'");
+    passed += 1;
+
+    // After a sync the model list and combo members are known; an unreadable custom combo means any account.
+    const synced = await fresh("usage-session-synced", full);
+    withCombos = true;
+    await synced.mod.checkAutoSync(synced.api);
+    withCombos = false;
+    const sy = [];
+    contribute(synced, fakeHost({ registerUsageSource: (x) => sy.push(x) }).host);
+    const models = synced.mod.routedModels();
+    assert.equal(models.owners["cx/gpt-5.6-sol"], "codex");
+    assert.equal(models.owners["team-review"], "combo");
+    assert.deepEqual(Scoped.parse(await sy[0].discover(session("claude", "team-review", viaRouter))).map((c) => c.label), all);
+    synced.restore();
     passed += 1;
   }
 
@@ -1552,7 +1697,7 @@ try {
       const first = await t.mod.handleUpdates({});
       t.mod.UpdatesSchema.parse(first);
       assert.deepEqual([first.router.running, first.router.latest.version, first.router.state, first.router.latest.highlights], ["3.8.50", "3.8.52", "behind", ["Routing: better.", "Codex: reset credits."]], "the running version comes from the read-token health check");
-      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.16.0", "0.15.1", "ahead"]);
+      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.17.0", "0.15.1", "ahead"]);
       assert.deepEqual(github.map((u) => u.replace(/^https:\/\/api\.github\.com\/repos\//, "")).sort(), ["diegosouzapw/OmniRoute/releases?per_page=10", "itsjustanks/paseo-plugin-ai-router/releases?per_page=10"]);
       await t.mod.handleUpdates({});
       assert.equal(github.length, 2, "6 hours between checks");

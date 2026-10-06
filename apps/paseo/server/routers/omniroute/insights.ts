@@ -48,8 +48,10 @@ import {
   callLogQuery,
   parseCallLogs,
   parseRouteExplanation,
+  parseComboMembers,
   type ActivityFilter,
   type ComboInfo,
+  type ComboMembers,
   type KeyIdentity,
   type RequestRow,
   type RouteExplanation,
@@ -276,7 +278,7 @@ const UNFILTERED_MODELS = 300;
  * `/api/providers`. With only the inference key: `/v1/models?configuredOnly=true`,
  * which OmniRoute filters itself and also limits to the key's allowed models.
  */
-export async function catalogue(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[]; upstream: number | null } | { ok: false; error: string }> {
+export async function catalogue(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[]; members: Record<string, ComboMembers> | null; upstream: number | null } | { ok: false; error: string }> {
   if (!connection.endpoint || !connection.apiKey) return { ok: false, error: "Set the endpoint URL and API key first." };
   const down = recentlyDown(connection);
   if (down) return { ok: false, error: `Models: ${down}` };
@@ -310,7 +312,7 @@ export async function catalogue(connection: Connection): Promise<{ ok: true; lis
   const comboIds = list.filter((model) => model.provider === "combo").map((model) => model.id);
   const combos = describeCombos(comboIds, models.body, custom?.body ?? null, { auto: AUTO_COMBO_KINDS, fallback: AUTO_COMBO_DEFAULT, custom: CUSTOM_COMBO_LOOK });
   const data = (models.body as { data?: unknown } | null)?.data;
-  return { ok: true, list, combos, upstream: Array.isArray(data) ? data.length : null };
+  return { ok: true, list, combos, members: custom ? parseComboMembers(custom.body) : null, upstream: Array.isArray(data) ? data.length : null };
 }
 
 // ------------------------------------------------------------- your access
@@ -620,6 +622,24 @@ export async function getRequests(connection: Connection, filter: ActivityFilter
     if (!got.ok) return keepOrFallBack(key, { ...base, state: "error" as const, message: `Requests: ${got.error}`, checkedAt, ...empty });
     return keepOrFallBack(key, { ...base, checkedAt, notes, ...parseCallLogs(got.body, own, filter.limit), ownKey: own?.name ?? null });
   });
+}
+
+/**
+ * The account that served this session tag's latest request, from call-log
+ * reads already in memory (Traffic, the Breakdown panel). Never asks the
+ * router: null when no read in memory has seen the tag.
+ */
+export function servingAccountFromMemory(connection: Connection, tag: string): string | null {
+  const scope = `\n${connection.endpoint}\n${readKey(connection)}`;
+  let latest: { at: string; id: string } | null = null;
+  for (const [key, answer] of lastGood) {
+    if (!key.startsWith("requests\n") || !key.endsWith(scope)) continue;
+    for (const row of (answer as Requests).rows ?? []) {
+      if (row.sessionTag !== tag || !row.connectionId) continue;
+      if (!latest || row.at > latest.at) latest = { at: row.at, id: row.connectionId };
+    }
+  }
+  return latest?.id ?? null;
 }
 
 /** Why OmniRoute routed one request (`/api/routing/decisions/<id>`); a whitelist of routing fields. */

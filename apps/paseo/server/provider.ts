@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { Status } from "../shared/contracts";
 import { providerLabel, type CatalogModel } from "../shared/routers/omniroute/parsers";
+import type { RoutedModels } from "../shared/usage-scope";
 import {
   AI_ROUTER_PROVIDER_ID,
   CODEX_PROVIDER_ID,
@@ -81,8 +82,17 @@ const codexModels = (list: CatalogModel[]) => list.filter((model) => model.provi
 export type CatalogueCheck = { at: string; ok: boolean; message: string | null; upstream: number | null; wanted: string[] };
 let lastCatalogue: CatalogueCheck | null = null;
 export const catalogueCheck = () => lastCatalogue;
+/**
+ * Each listed model's provider and each custom combo's members, from the same
+ * catalogue read: what a chat's hover card needs to name its accounts.
+ * Memory only; the first check after a restart fills it.
+ */
+let lastModels: RoutedModels | null = null;
+export const routedModels = () => lastModels;
+
 function noteCheck(result: Awaited<ReturnType<typeof fetchCatalogue>>): void {
   const at = new Date().toISOString();
+  if (result.ok) lastModels = { owners: Object.fromEntries(result.list.map((model) => [model.id, model.provider])), combos: result.members ?? lastModels?.combos ?? {} };
   lastCatalogue = result.ok
     ? { at, ok: true, message: null, upstream: result.upstream ?? null, wanted: result.list.map((model) => model.id) }
     : { at, ok: false, message: result.error, upstream: lastCatalogue?.upstream ?? null, wanted: lastCatalogue?.wanted ?? [] };

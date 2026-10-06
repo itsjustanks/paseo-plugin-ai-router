@@ -848,6 +848,46 @@ export function parseKeyStatus(body: unknown): KeyStatus {
   };
 }
 
+/**
+ * What each custom combo can run on, from `/api/combos` (read token): its
+ * steps' models, any accounts a step is pinned to, and the combos it refers
+ * to. A step is a plain "cc/claude-opus-5-5", an object with `model` (and
+ * maybe `provider`, `connectionId`, `allowedConnectionIds`), or a
+ * `{ kind: "combo-ref", comboName }`. Built-in `auto/…` combos are not
+ * listed here: they choose from every connected account.
+ */
+export type ComboMembers = { models: string[]; providers: string[]; connections: string[]; refs: string[] };
+export function parseComboMembers(body: unknown): Record<string, ComboMembers> {
+  const root = rec(body);
+  const items = Array.isArray(body) ? body : list(root.combos).length ? list(root.combos) : list(root.data);
+  const out: Record<string, ComboMembers> = {};
+  for (const item of items.map(rec)) {
+    const name = str(item.name) ?? str(item.id);
+    if (!name || name === "auto" || name.startsWith("auto/")) continue;
+    const members: ComboMembers = { models: [], providers: [], connections: [], refs: [] };
+    for (const step of list(item.models)) {
+      if (typeof step === "string") {
+        if (str(step)) members.models.push(step.trim());
+        continue;
+      }
+      const row = rec(step);
+      if (str(row.kind) === "combo-ref") {
+        const ref = str(row.comboName);
+        if (ref) members.refs.push(ref);
+        continue;
+      }
+      const model = str(row.model);
+      if (model) members.models.push(model);
+      const provider = str(row.providerId) ?? str(row.provider);
+      if (provider) members.providers.push(provider);
+      const pinned = [str(row.connectionId), ...list(row.allowedConnectionIds).map(str)].filter((id): id is string => !!id);
+      members.connections.push(...pinned);
+    }
+    out[name] = members;
+  }
+  return out;
+}
+
 // ------------------------------------------------------ combos as profiles
 
 export type ComboLook = { match: RegExp; words: string; icon: string; color: string };
@@ -1165,6 +1205,8 @@ export type RequestRow = {
   providerId: string | null;
   provider: string | null;
   account: string | null;
+  /** OmniRoute's id for the account that served it (an Accounts row id). Server side only: never sent to the panel. */
+  connectionId: string | null;
   combo: string | null;
   /** The served model is not the one asked for, outside a combo: OmniRoute fell back. */
   fallback: boolean;
@@ -1206,6 +1248,7 @@ export function parseCallLogs(body: unknown, ownKey: KeyIdentity | null, limit: 
       providerId: str(row.provider),
       provider: provider ? providerLabel(provider) : null,
       account: str(row.account) ? maskLabel(str(row.account)!) : null,
+      connectionId: str(row.connectionId),
       combo,
       fallback: !combo && !!requestedModel && !!model && bareModel(requestedModel) !== bareModel(model),
       status,

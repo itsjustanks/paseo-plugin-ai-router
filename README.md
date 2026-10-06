@@ -73,6 +73,15 @@ got before.
   the router's account id, never an email or a key. The usage helpers are copied from the 0.11 SDK, not
   imported, because Paseo 0.9.1 and 0.10 refuse to build a plugin that names
   `@getpaseo/plugin/server/usage`.
+- **A chat's own accounts on its context-window card** (daemon 0.11.0-beta.5+): hovering a chat's
+  context meter shows the limits of the router accounts that chat runs on. Claude models (`cc/…`) show
+  the Claude accounts, Codex models (`cx/…`) the Codex ones, Kimi (`kmc/…`) Kimi's, a combo its members'
+  accounts (an auto combo: any of them). When OmniRoute's call log, already read for Traffic or the
+  Breakdown panel, names the account that served the chat, only that one shows. A chat that doesn't go
+  through this router shows none. Hovers reuse the Usage page's read and never ask the router anything
+  of their own. Earlier 0.11 betas show the Usage page only.
+- **Closed chats are let go at once** (daemon 0.11.0-beta.4+): when Paseo closes or archives a chat, its
+  kept breakdown and its chip alerts are dropped straight away instead of waiting to expire.
 - **A screen and the app's own sidebar row** (app 0.11+): the panel opens as a screen titled "AI Router"
   (an older app titled it by its id when opened from the command menu), and the sidebar entry is
   Paseo's row, highlighted while the screen is open.
@@ -425,7 +434,8 @@ apps/paseo/
   assets/ai-router.svg                the AI Router card icon on Paseo's Usage page
   client/                             the panel (tabs, cards)
   server/                             hooks, the provider sync, Paseo's config, the Providers tab
-  server/usage.ts                     the Usage page cards (Paseo 0.11+)
+  server/usage.ts                     the Usage page cards (Paseo 0.11+) and a chat's own accounts
+  shared/usage-scope.ts               which router accounts a chat runs on (pure)
   server/routers/index.ts             the router registry and the adapter interface
   server/routers/omniroute/           OmniRoute: adapter and HTTP reads
   shared/                             contracts and pure logic, the only code the client imports

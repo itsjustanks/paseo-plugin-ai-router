@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.17.0 — 2026-10-06
+
+Uses what Paseo 0.11.0-beta.4 and beta.5 add for plugins, where it gives people something real.
+Everything is feature-detected: `requirements.paseo` stays `>=0.8.0`; `ROUTING_SETTINGS_VERSION`
+stays 1; no new SDK entry is imported.
+
+- **A chat's own accounts on its context-window card (beta.5).** Paseo now asks a usage source which
+  accounts one chat runs under (`discover(scope)`), for the hover card on that chat's context meter.
+  AI Router answers with the OmniRoute accounts that serve the chat's model: `cc/` and Claude models →
+  the Claude accounts, `cx/` and GPT models → Codex, `kmc/` → Kimi, any other prefix → that provider's
+  accounts, a combo → its members' accounts (following combo references and accounts a step is pinned
+  to; an auto combo, or one whose steps can't be read, → any account). Accounts turned off in OmniRoute
+  are left out. When a call-log read already in memory (Traffic, the Breakdown panel) says which account
+  served the chat, only that one shows. A chat counts as routed when its launch environment points at
+  this router (Paseo reports AI Router chats as `claude` and Codex via OmniRoute as `codex`), carries
+  our Codex key variable, or names our provider id; any other chat gets none. The cards use the same
+  keys as the Usage page and say `harness: "OmniRoute"`. Hovers reuse the cached accounts read and the
+  model sync's list and combos; they never call the router themselves. beta.3 and beta.4 call
+  `discover()` with nothing, which still means the whole Usage page.
+- **Closed chats are let go at once (beta.4).** On `agent.closed` (and `agent.archived` on any version),
+  the chat's kept context breakdown and back-off are dropped and its composer-chip alerts stop; they come
+  back if the chat opens again. An older daemon refuses the `agent.closed` name, which is caught.
+- **A person's own provider options are kept.** Paseo 0.11.0-beta.4 reads `options` on a provider entry.
+  The model sync at plugin load (written straight into `config.json`) now lays our fields over the entry
+  instead of replacing it, as Paseo's own config patch already did, so `options`, `enabled`, `order` and
+  tool lists set on the AI Router provider survive. AI Router sets no options of its own: Claude's
+  provider options hold tools, sandbox and settings, not a thinking level, and each model already
+  carries its own default level.
+- **Speed, said plainly.** No routed chat can pick a speed that fails: Claude's Fast stays off on routed
+  chats (`CLAUDE_CODE_DISABLE_FAST_MODE`, since 0.12.0) and Paseo never offers it for `cc/` models;
+  Codex's Speed menu comes from Codex's own model list, and OmniRoute passes Fast on to its Codex account
+  as the `priority` tier. The re-routed Codex row on Providers now says so in one line. Native Codex is
+  untouched.
+- Not used: `playAudio` and the new process helpers (no user benefit here; the fleet is Linux and macOS).
+
 ## 0.16.0 — 2026-10-05
 
 Answers five points of feedback: updates on the Overview, less wordy tabs, a Codex row that says what is

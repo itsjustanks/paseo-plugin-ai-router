@@ -1,7 +1,7 @@
 import type { Access, Accounts, Activity, Compression, RouteExplanationView, RouterSettings, Tunnels, Usage, UsageKey } from "../../shared/contracts";
 import type { Connection, HealthProbe, RouterId } from "../../shared/logic";
 import { omniroute } from "./omniroute";
-import type { ActivityFilter, CatalogModel, ComboInfo, RequestRow, Tunnel, UsageWindowInput } from "../../shared/routers/omniroute/parsers";
+import type { ActivityFilter, CatalogModel, ComboInfo, ComboMembers, RequestRow, Tunnel, UsageWindowInput } from "../../shared/routers/omniroute/parsers";
 
 type Result = { ok: boolean; message: string };
 export type Health = {
@@ -33,7 +33,7 @@ export interface RouterAdapter {
   /** The public address's health route, from this daemon, within the panel's wait budget. */
   publicForPanel(publicUrl: string | null, refresh: boolean): Promise<{ state: "ok" | "dns" | "tls" | "http" | "unreachable" | "checking"; label: string; detail: string | null; checkedAt: string | null } | null>;
   /** Models for the AI Router provider, limited to connected accounts (with a plain key when the router can). */
-  models(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[]; upstream?: number | null } | { ok: false; error: string }>;
+  models(connection: Connection): Promise<{ ok: true; list: CatalogModel[]; combos: ComboInfo[]; members?: Record<string, ComboMembers> | null; upstream?: number | null } | { ok: false; error: string }>;
   testModel(connection: Connection, model: string): Promise<Result>;
   /** What this key itself may see about itself: name, spend and limit, account quotas. */
   access(connection: Connection, refresh: boolean): Promise<Access>;
@@ -55,6 +55,8 @@ export interface RouterAdapter {
   setTunnel(connection: Connection, id: "cloudflared" | "ngrok" | "tailscale", on: boolean): Promise<Result>;
   /** Recent requests from the router's own log, filtered there; routing metadata only. */
   requests(connection: Connection, filter: ActivityFilter, refresh: boolean): Promise<Omit<Activity["requests"], "rows"> & { rows: RequestRow[] }>;
+  /** The account that served a session tag's latest request, from reads in memory only; never asks the router. */
+  servingAccount(connection: Connection, tag: string): string | null;
   /** Why the router routed one request where it did. */
   explanation(connection: Connection, id: string): Promise<RouteExplanationView>;
   /** The running tunnel from the last read only; never waits. */

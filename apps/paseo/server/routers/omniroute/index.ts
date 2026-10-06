@@ -19,6 +19,7 @@ import {
   getUsageKey,
   knownTunnel,
   resetAccount,
+  servingAccountFromMemory,
   setTunnel,
   testModel,
 } from "./insights";
@@ -54,5 +55,6 @@ export const omniroute: RouterAdapter = {
   setTunnel,
   knownTunnel,
   requests: getRequests,
+  servingAccount: servingAccountFromMemory,
   explanation: getExplanation,
 };

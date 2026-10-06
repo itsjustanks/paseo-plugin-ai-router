@@ -2,6 +2,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { Status } from "../shared/contracts";
 import { CODEX_ROUTER_PROVIDER_ID, connectionProblem, routeBuiltinCodex, routeSession, sessionKind, withSessionHeader, type SessionKind } from "../shared/logic";
+import { agentOpened, forgetAgent } from "./context";
 import { noteActivity } from "./provider";
 import { adapterFor } from "./routers";
 import { appendSessionLog, readConnection, readProviderEntries, readRoutingSettings } from "./store";
@@ -32,8 +33,10 @@ function record(agentId: string, kind: SessionKind, provider: string, routed: bo
 export function registerRoutingHooks(server: PluginServerContext): void {
   // Any agent activity is also the first chance after start to check the model sync.
   server.on("agent.turn_started", (_event, context) => noteActivity(context.paseo));
+  registerAgentCleanup(server);
   server.before("agent.session_open", async ({ request }, context) => {
     noteActivity(context.paseo);
+    agentOpened(request.agentId);
     if (request.provider === "codex") return builtinCodex(request, context.paseo);
     const kind = sessionKind(request.provider);
     if (!kind) return request;
@@ -64,6 +67,32 @@ export function registerRoutingHooks(server: PluginServerContext): void {
     if (refuse) throw new Error(`AI Router cannot start this agent: ${skipped}. Fix it in the AI Router panel, or pick another provider.`);
     return request;
   });
+}
+
+type ClosedEvent = { agent?: { id?: unknown } };
+type LifecycleOn = (name: string, handler: (event: ClosedEvent) => void) => unknown;
+
+/**
+ * A chat's cached breakdown and its chip alerts go as soon as Paseo closes or
+ * archives it. `agent.closed` is Paseo 0.11.0-beta.4+; an older daemon throws
+ * "Unknown lifecycle event" for it, and archiving still cleans up there.
+ * Returns the events this daemon accepted.
+ */
+export function registerAgentCleanup(server: PluginServerContext): string[] {
+  const on = server.on as unknown as LifecycleOn;
+  const forget = (event: ClosedEvent) => {
+    if (typeof event?.agent?.id === "string") forgetAgent(event.agent.id);
+  };
+  const accepted: string[] = [];
+  for (const name of ["agent.closed", "agent.archived"]) {
+    try {
+      on.call(server, name, forget);
+      accepted.push(name);
+    } catch {
+      // not on this daemon
+    }
+  }
+  return accepted;
 }
 
 type OpenRequest = { agentId: string; provider: string; reason: string; env: Record<string, string> };

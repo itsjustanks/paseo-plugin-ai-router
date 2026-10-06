@@ -359,6 +359,11 @@ try {
       assert.equal(L.withProviderEntries(bad, { "ai-router": entry }).ok, false, `refuses ${bad}`);
     }
     assert.equal(L.withProviderEntries(JSON.stringify({ version: 1 }), { "Bad Id": {} }).ok, false);
+    // Paseo 0.11.0-beta.4+ reads `options` on a provider entry: a person's own, on ours, survive a sync like Paseo's config.patch keeps them.
+    const own = { ...config, agents: { providers: { "ai-router": { ...entry, label: "Old", models: [], options: { sandbox: { enabled: true } }, enabled: false, order: 2 } } } };
+    const kept = JSON.parse(L.withProviderEntries(JSON.stringify(own), { "ai-router": entry }).text).agents.providers["ai-router"];
+    assert.deepEqual(kept, { ...entry, options: { sandbox: { enabled: true } }, enabled: false, order: 2 }, "our fields are rewritten; theirs are kept");
+    assert.equal(L.withProviderEntries(JSON.stringify({ ...own, agents: { providers: { "ai-router": kept } } }), { "ai-router": entry }).changed, false, "and kept again without a rewrite");
     // A fresh daemon's real config has no version/daemon keys yet; it must still sync.
     const minimal = { pluginsEnabled: true, plugins: { "ai-router": { source: "directory", path: "/x" } }, agents: { providers: { copilot: { enabled: false } } }, features: {} };
     const synced = L.withProviderEntries(JSON.stringify(minimal), { "ai-router": entry });

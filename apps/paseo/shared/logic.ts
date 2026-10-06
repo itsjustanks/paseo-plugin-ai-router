@@ -736,7 +736,8 @@ export function sameProviderEntry(current: unknown, desired: { label: string; en
  * config.json, leaving every other key as it is. Providers live at
  * `agents.providers`, profiles at `daemon.agentProfiles` (Paseo's own layout).
  * Refuses anything that does not look like a daemon config, so a surprise
- * never gets written back. A `null` provider entry removes it; `profiles`
+ * never gets written back. An entry is laid over the one there, so fields we
+ * don't write are kept. A `null` provider entry removes it; `profiles`
  * (when given) is the full set of AI Router profiles, merged with
  * mergeAgentProfiles so a person's own profiles are kept exactly.
  */
@@ -767,9 +768,15 @@ export function withProviderEntries(raw: string, entries: Record<string, unknown
         delete providers[id];
         providersChanged = true;
       }
-    } else if (JSON.stringify(providers[id]) !== JSON.stringify(entry)) {
-      providers[id] = entry;
-      providersChanged = true;
+    } else {
+      // Field by field over what is there, as Paseo's own config.patch does: a person's
+      // `options`, `enabled`, `order` or tool lists on our entry stay as they set them.
+      const previous = providers[id];
+      const next = isObject(previous) && isObject(entry) ? { ...previous, ...entry } : entry;
+      if (JSON.stringify(previous) !== JSON.stringify(next)) {
+        providers[id] = next;
+        providersChanged = true;
+      }
     }
   }
   const merged = profiles ? mergeAgentProfiles(daemon.agentProfiles, profiles) : null;

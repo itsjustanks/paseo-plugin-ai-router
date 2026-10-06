@@ -238,7 +238,7 @@ export async function handleActivity(input: { scope?: "daemon" | "all"; errorsOn
   const links = linkAgents(requests.rows, log, agents, agentIdFromTag);
   return {
     sessions: log.slice().reverse().map((entry) => ({ ...entry, agentTitle: agents.get(entry.agentId)?.title ?? null })),
-    requests: { ...requests, rows: requests.rows.map(({ sessionTag: _tag, ...row }) => ({ ...row, agent: links.get(row.id) ?? null })) },
+    requests: { ...requests, rows: requests.rows.map(({ sessionTag: _tag, connectionId: _account, ...row }) => ({ ...row, agent: links.get(row.id) ?? null })) },
   };
 }
 

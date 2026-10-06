@@ -53,7 +53,7 @@ const expected = {
   "connection tab (basic, narrow)": ["Read token (optional)", "Not set", "Add"],
   "connection tab (editing)": ["Edit connection", "1. Choose your router", "Test connection & save", "Cancel"],
   "connection tab (router down)": ["connection refused at http://10.0.0.5:20128/api/health/ping", "Check now", "Edit", "Disconnect"],
-  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", "OmniRoute 3.8.51 · AI Router 0.16.0", "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Re-routed", "Claude", "Providers →", "Last Claude agent (", "routed through OmniRoute", "Traffic →", "Open OmniRoute dashboard", "Sync models"],
+  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", "OmniRoute 3.8.51 · AI Router 0.17.0", "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Re-routed", "Claude", "Providers →", "Last Claude agent (", "routed through OmniRoute", "Traffic →", "Open OmniRoute dashboard", "Sync models"],
   "overview (guide opened)": ["Hide how AI Router works", "On your router now:", ...GUIDE],
   "overview (drift)": ["Models in Paseo", "2 out of step with OmniRoute"],
   "overview (Codex re-routed)": ["Re-routed", "Claude and Codex"],

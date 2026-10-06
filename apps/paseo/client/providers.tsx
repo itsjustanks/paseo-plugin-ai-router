@@ -88,6 +88,7 @@ function CodexReroute({ theme, data, say }: { theme: Theme; data: Status; say: S
     <View style={{ gap: SPACE.sm, flexShrink: 1 }}>
       <ToggleRow theme={theme} label="Re-route built-in Codex through OmniRoute" text={on ? "Built-in Codex goes through OmniRoute" : "Re-route built-in Codex: off, it uses its own sign-in"} value={on} busy={toggle.isPending} disabled={data.problem !== null || asking !== null} onChange={(next) => setAsking(next)} />
       {on && !reroute.current && asking === null ? <Note theme={theme} tone="warning">{`It still points at ${reroute.baseUrl ?? "an old address"}; the next model sync moves it to this router.`}</Note> : null}
+      {on && asking === null ? <Meta theme={theme}>Speed: when Codex offers Fast here, OmniRoute asks its Codex account for it, and it uses that account's limits faster.</Meta> : null}
       {asking === true ? (
         <>
           <Note theme={theme} tone="warning">New built-in Codex chats here will use OmniRoute's accounts, not this daemon's sign-in; open chats switch when restarted. ~/.codex isn't changed. Unlike Claude there's no fallback: while OmniRoute is down, these chats won't answer.</Note>
