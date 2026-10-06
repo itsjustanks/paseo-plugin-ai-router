@@ -20,7 +20,7 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival, alertRegistryCheck, alertButtonsCheck, commandsCheck, followAgentsCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck, quickActionsCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, routerErrorsCheck, alertRegistryCheck, alertButtonsCheck, commandsCheck, followAgentsCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck, quickActionsCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
 const TABS = ["Overview", "Accounts", "Models", "Help"];
@@ -44,6 +44,16 @@ const IN_PASEO = ["In Paseo", "A chat shows a warning chip from AI Router only w
 const MCP = ["Also try MCP: manage MCP servers for Claude Code, Codex and your other agents in one place.", "View plugin"];
 const ADVANCED = "Combos (named groups of models), fallbacks and per-provider rules live in the OmniRoute dashboard";
 const expected = {
+  "router error card (Claude paused, manage key)": ["Claude is paused on the router after repeated errors", "OmniRoute tries Claude again by itself", "This chat won't retry", "Open AI Router", "Resume now", "Details"],
+  "router error card (resume asks first)": ["OmniRoute sends Claude requests again now, instead of waiting out the pause.", "Yes, resume now", "Cancel"],
+  "router error card (resume confirmed)": ["Claude is back in rotation."],
+  "router error card (paused, read token only)": ["Claude is paused on the router after repeated errors", "OmniRoute has resumed Claude since.", "Open AI Router"],
+  "router error card (cooling down)": ["Claude accounts are cooling down until", ":41", "The router moves to another account by itself", "Open AI Router", "Details"],
+  "router error card (details)": ["Hide details", "API Error: 503 [claude/claude-fable-5-1] [429]", "check your inference gateway (10.0.0.5:20128)"],
+  "router error card (open AI Router)": ["Claude accounts are cooling down"],
+  "router error card (chat on its own sign-in)": ["API Error: 503 [claude/claude-fable-5-1] [429]: rate_limit_error"],
+  "router error card (another gateway, not in the log)": ["proxy.example.com:8080"],
+  "router error card (our gateway, log says own sign-in)": ["Claude accounts are cooling down until"],
   "setup (not connected, opens on Connection)": ["Hide how AI Router works", "Not connected yet. Routing stays off", "Set up", "Four steps, about two minutes", "until you pick the AI Router provider", "1. Choose your router", "OmniRoute", "2. Endpoint URL", "http://10.0.0.5:20128", "3. API key", "named after it, so usage shows per daemon", "4. Test connection & save", "Nothing is saved until it does"],
   "setup (env, no key, narrow)": ["Not connected yet: no API key set for http://127.0.0.1:20128", "connection refused at", "Pre-filled from this daemon's AI_ROUTER_* variables", "AI_ROUTER_TOKEN set without AI_ROUTER_URL"],
   "misconfigured (opens on Connection)": ["Not connected yet: the saved endpoint in connection.json is not a usable http(s) URL.", "The saved public address is not a usable http(s) URL; it is ignored.", "1. Choose your router", "Disconnect (remove saved connection)"],
@@ -53,7 +63,7 @@ const expected = {
   "connection tab (basic, narrow)": ["Read token (optional)", "Not set", "Add"],
   "connection tab (editing)": ["Edit connection", "1. Choose your router", "Test connection & save", "Cancel"],
   "connection tab (router down)": ["connection refused at http://10.0.0.5:20128/api/health/ping", "Check now", "Edit", "Disconnect"],
-  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", "OmniRoute 3.8.51 · AI Router 0.18.0", "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Through the router", "Built-in Claude", "Change →", "Last Claude agent (", "routed through OmniRoute", "Recent traffic →", "Open OmniRoute dashboard", "Sync models"],
+  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", "OmniRoute 3.8.51 · AI Router 0.19.0", "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Through the router", "Built-in Claude", "Change →", "Last Claude agent (", "routed through OmniRoute", "Recent traffic →", "Open OmniRoute dashboard", "Sync models"],
   "overview (guide opened)": ["Hide how AI Router works", "On your router now:", ...GUIDE],
   "overview (drift)": ["Models in Paseo", "2 out of step with OmniRoute"],
   "overview (Codex re-routed)": ["Through the router", "Built-in Claude and Codex"],
@@ -152,6 +162,11 @@ const expected = {
 
 /** Text a state must NOT show: a hidden tier feature, or a fact that moved. */
 const absent = {
+  "router error card (Claude paused, manage key)": ["OmniRoute has resumed"],
+  "router error card (paused, read token only)": ["Resume now"],
+  "router error card (cooling down)": ["Resume now", "API Error", "Hide details"],
+  "router error card (chat on its own sign-in)": ["Open AI Router", "cooling down", "Details"],
+  "router error card (another gateway, not in the log)": ["Open AI Router", "cooling down"],
   "accounts tab (operator)": ["Paseo's Usage page"],
   "connection tab (operator, private dashboard)": ["Starting a tunnel makes"],
   "overview (basic)": [LEARN_MORE, "What is AI Router?"],
@@ -255,6 +270,25 @@ for (const name of Object.keys(mounts)) {
   } finally {
     console.error = original;
   }
+}
+
+try {
+  const re = routerErrorsCheck();
+  assert.deepEqual(re.renderer, [{ kind: "router-error", version: 1, parses: true, rejects: true }]);
+  assert.deepEqual(re.transformers, [{ id: "router-error-assistant-message", itemType: "assistant_message" }, { id: "router-error-error", itemType: "error" }], "ids pass the app's rule, one per item type");
+  assert.deepEqual(re.removed, ["renderer:router-error", "transformer:router-error-assistant-message", "transformer:router-error-error"], "stopping removes all three");
+  assert.equal(re.older, 0, "an app without both hooks gets nothing");
+  assert.deepEqual(re.refused, { kept: 0, undone: ["renderer"] }, "an app that refuses one: the rest is undone, native rendering stays");
+  assert.deepEqual(re.routerItem, [{ type: "plugin", kind: "router-error", version: 1, source: "assistant", same: true }], "a router error becomes one card item, the original text kept");
+  assert.equal(re.streaming, undefined, "a message still streaming is left alone");
+  assert.equal(re.reply, undefined, "a reply that mentions the router is left alone");
+  assert.equal(re.native, undefined, "Anthropic's own error is left alone");
+  assert.deepEqual(re.errorItem, { message: "[codex/gpt-6-sol] Unavailable (reset after 13s)", source: "error" });
+  assert.ok(openedAgents.includes("router:accounts"), "Open AI Router opens the Accounts tab");
+  console.log("ok   router errors: timeline hooks registered when available, only router errors transformed");
+} catch (error) {
+  failed += 1;
+  console.error(`FAIL router errors: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 try {

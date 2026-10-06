@@ -16,12 +16,13 @@ import { TabBar } from "../../client/navigation";
 import type { GoTarget } from "../../shared/tabs";
 import { createAlertStore, makeAlertChip, registerRouterAlerts } from "../../client/alerts";
 import { peekPendingMessage, registerRouterCommands, slashJob, takePendingMessage } from "../../client/commands";
+import { forgetRouterErrorReads, makeRouterErrorCard, registerRouterErrors, transformRouterError } from "../../client/router-errors";
 import { followAgents } from "../../client/agents";
 // The same module the vite alias hands the client under "@getpaseo/plugin/client".
 import contributeClient from "../../index.client";
 import { hostOpener } from "../../client/links";
 import { makeQuickActions, makeStatusTrailing } from "../../client/quick";
-import { releaseRpc, setHostExports, setAccessFixture, setActivityFixture, setClisFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import { releaseRpc, setChatRouted, setHostExports, setAccessFixture, setActivityFixture, setClisFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -57,7 +58,33 @@ const alertChip = (alert: boolean) => () => {
   return <Chip {...base} layout={wide} workspaceId="ws-1" agentId="agent-7" />;
 };
 
+/** Real OmniRoute errors as Claude Code shows them (tests/fixtures/router-errors.json has the full set). */
+const GATEWAY = " This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (10.0.0.5:20128).";
+export const ROUTER_ERRORS = {
+  paused: `API Error: 503 Provider claude circuit breaker is open.${GATEWAY}`,
+  cooling: `API Error: 503 [claude/claude-fable-5-1] [429]: {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."}} (reset after 1m 9s).${GATEWAY}`,
+  elsewhere: "API Error: 503 [claude/claude-fable-5-1] [429]: rate_limit_error (reset after 1m 9s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (proxy.example.com:8080).",
+};
+const errorCard = (fixture: string, text: string, routed: boolean | null = true) => () => {
+  setStatusFixture(fixture);
+  setChatRouted(routed);
+  forgetRouterErrorReads();
+  const Card = makeRouterErrorCard(() => openedAgents.push("router:accounts"));
+  return <Card {...base} layout={wide} agentId="agent-7" timestamp={new Date(2026, 9, 6, 16, 40, 0)} item={{ type: "plugin", kind: "router-error", version: 1, data: { message: text, source: "assistant" } }} />;
+};
+
 export const mounts: Record<string, () => React.ReactElement> = {
+  // Router errors in a chat (0.19.0)
+  "router error card (Claude paused, manage key)": errorCard("claude paused", ROUTER_ERRORS.paused),
+  "router error card (resume asks first)": errorCard("claude paused", ROUTER_ERRORS.paused),
+  "router error card (resume confirmed)": errorCard("claude paused", ROUTER_ERRORS.paused),
+  "router error card (paused, read token only)": errorCard("routing on", ROUTER_ERRORS.paused),
+  "router error card (cooling down)": errorCard("routing on", ROUTER_ERRORS.cooling),
+  "router error card (details)": errorCard("routing on", ROUTER_ERRORS.cooling),
+  "router error card (open AI Router)": errorCard("routing on", ROUTER_ERRORS.cooling),
+  "router error card (chat on its own sign-in)": errorCard("routing on", ROUTER_ERRORS.elsewhere, false),
+  "router error card (another gateway, not in the log)": errorCard("routing on", ROUTER_ERRORS.elsewhere, null),
+  "router error card (our gateway, log says own sign-in)": errorCard("routing on", ROUTER_ERRORS.cooling, false),
   // Connection, and the setup that lives there
   "setup (not connected, opens on Connection)": surface("not connected", wide),
   "setup (env, no key, narrow)": surface("env, no key", narrow),
@@ -179,6 +206,10 @@ export const mounts: Record<string, () => React.ReactElement> = {
 
 /** Buttons and links pressed, by accessibility label, once data has arrived. */
 export const presses: Record<string, string[]> = {
+  "router error card (resume asks first)": ["Resume now: Claude"],
+  "router error card (resume confirmed)": ["Resume now: Claude", "Yes, resume now"],
+  "router error card (details)": ["Details"],
+  "router error card (open AI Router)": ["Open AI Router's Accounts tab"],
   "connection tab (operator, private dashboard)": ["Dashboard won't open? It is on a private network — show how"],
   "connection tab (editing)": ["Edit"],
   "models tab (testing one)": ["Test Opus 5.5"],
@@ -618,4 +649,33 @@ export async function quickActionsCheck() {
   // Their minute-by-minute status reads stop with them.
   act(() => { dot.unmount(); plain.unmount(); popover.unmount(); });
   return { label, popped: popovers[0] === Quick, plainPressables, text, synced, opened, screens, closed };
+}
+
+/** The timeline hooks: registered only when the app has both; the transform picks out router errors only, once complete. */
+export function routerErrorsCheck() {
+  const added: { renderers: any[]; transformers: any[] } = { renderers: [], transformers: [] };
+  const removed: string[] = [];
+  const full: any = {
+    addTimelineRenderer: (c: any) => { added.renderers.push(c); return () => removed.push(`renderer:${c.kind}`); },
+    addTimelineTransformer: (c: any) => { added.transformers.push(c); return () => removed.push(`transformer:${c.id}`); },
+  };
+  const cleanups = registerRouterErrors(full, () => {});
+  for (const cleanup of cleanups) cleanup();
+  const older = registerRouterErrors({ addTimelineRenderer: () => () => {} } as any, () => {}).length;
+  const refusing: string[] = [];
+  const refused = registerRouterErrors({ addTimelineRenderer: () => () => refusing.push("renderer"), addTimelineTransformer: () => { throw new Error("no"); } } as any, () => {}).length;
+  const t = (item: any, phase: "streaming" | "complete" = "complete") => transformRouterError({ item, phase }) as any;
+  const routerItem = t({ type: "assistant_message", text: ROUTER_ERRORS.cooling });
+  return {
+    renderer: added.renderers.map((c) => ({ kind: c.kind, version: c.version, parses: c.schema.safeParse({ message: "x", source: "assistant" }).success, rejects: !c.schema.safeParse({ message: 1 }).success })),
+    transformers: added.transformers.map((c) => ({ id: c.id, itemType: c.query.itemType })),
+    removed,
+    older,
+    refused: { kept: refused, undone: refusing },
+    routerItem: routerItem?.items.map((i: any) => ({ type: i.type, kind: i.kind, version: i.version, source: i.data.source, same: i.data.message === ROUTER_ERRORS.cooling })),
+    streaming: t({ type: "assistant_message", text: ROUTER_ERRORS.cooling }, "streaming"),
+    reply: t({ type: "assistant_message", text: "Here is the fix. The router once said Provider claude circuit breaker is open." }),
+    native: t({ type: "assistant_message", text: "API Error: 529 Overloaded" }),
+    errorItem: t({ type: "error", message: "[codex/gpt-6-sol] Unavailable (reset after 13s)" })?.items[0].data,
+  };
 }

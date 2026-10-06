@@ -1,6 +1,7 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { createAlertStore, registerRouterAlerts } from "./client/alerts";
 import { registerRouterCommands } from "./client/commands";
+import { registerRouterErrors } from "./client/router-errors";
 import { openMainScreen, registerMainScreen } from "./client/native";
 import { makeQuickActions, makeStatusTrailing } from "./client/quick";
 import { AiRouterSurface } from "./client/surface";
@@ -31,8 +32,10 @@ export default function contribute(client: PluginClientContext) {
   const commands = registerRouterCommands(client, open);
   // A chip on a chat only while the router can't serve it ("Router down", "Claude paused"); pressing it opens AI Router.
   const stopAlerts = registerRouterAlerts(client, createAlertStore(), () => openMainScreen(client, MAIN_SCREEN));
+  // 0.19.0: OmniRoute's errors in a routed chat become a plain card (the original text under Details).
+  const errors = registerRouterErrors(client, () => openMainScreen(client, MAIN_SCREEN, { tab: "accounts" }));
   return () => {
     stopAlerts();
-    for (const cleanup of commands) cleanup();
+    for (const cleanup of [...commands, ...errors]) cleanup();
   };
 }

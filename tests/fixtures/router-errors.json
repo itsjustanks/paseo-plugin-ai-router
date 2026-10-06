@@ -1,0 +1,219 @@
+[
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [codex/gpt-5.4-mini] [400]: {\"detail\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"} (reset after 29s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (9router:20128).",
+  "kind": "unsupported"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 Provider claude circuit breaker is open. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "paused"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "Prompt is too long",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "Autocompact is thrashing: the context refilled to the limit within 3 turns of the previous compact, 3 times in a row. A file being read or a tool output is likely too large for the context window. Try reading in smaller chunks, or use /clear to start fresh.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [codex/gpt-5.4-mini] [400]: {\"detail\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account. (reset after 19s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (9router:20128).",
+  "kind": "unsupported"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [claude/claude-fable-5-1] [429]: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your  (reset after 1m 9s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "cooling"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [codex/gpt-5.4-mini] Unavailable (reset after 13s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "unavailable"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [codex/gpt-5.4-mini] [401]: {\n  \"error\": {\n    \"message\": \"Encountered invalidated oauth token for user, failing request\",\n    \"type\": null,\n    \"code\": \"token_revoked\",\n    \"param\": null\n  },\n  \"status\": 401\n} (reset after 29s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "signed-out"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [claude/claude-opus-5] [401]: {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"OAuth access token has been revoked.\"},\"request_id\":null} (reset after 1m 47s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "signed-out"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: This request would exceed your account's rate limit. Please try again later.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "[System Error] You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Oct 9th, 2026 10:11 PM.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [claude/claude-fable-5-1] [401]: {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"OAuth access token has been revoked.\"},\"request_id\":null} (reset after 1m 56s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "signed-out"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "There's an issue with the selected model (claude-opus-4-8). It may not exist or you may not have access to it. Run /model to pick a different model.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [claude/claude-opus-5] [401]: {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"OAuth access token has been (reset after 1m 13s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "signed-out"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [claude/claude-fable-5-1] [429]: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's rate limit. Please try again later.\"},\"request_id\":\"req_<id>\"} (reset after 2m 8s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "cooling"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "Request too large (max 32MB). Accumulated images and attachments in the conversation pushed the request over the limit. Remove older images or compact the conversation.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [claude/claude-fable-5-1] [401]: {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"OAuth access token has been (reset after 11s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:20128).",
+  "kind": "signed-out"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 503 [codex/gpt-5.4-mini] [429]: The usage limit has been reached (reset after 6s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (9router:20128).",
+  "kind": "cooling"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: Request rejected (429) · [claude/claude-opus-5-5] This request would exceed your account's rate limit. Please try again later. (reset after 20m 48s)",
+  "kind": "cooling"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: Connection lost mid-response. The response above may be incomplete.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: Can't reach the API server — check your internet or DNS (EAI_AGAIN)",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: Connection refused — a firewall or proxy may be blocking it (ConnectionRefused)",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "There's an issue with the selected model (claude-opus-4-8). It may not exist or you may not have access to it. Run --model to pick a different model.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "Prompt is too long · automatic compaction failed: There's an issue with the selected model (claude-opus-4-8). It may not exist or you may not have access to it. Run --model to pick a different model.",
+  "kind": null
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "API Error: 500 capture. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (<ip>:18089).",
+  "kind": "other"
+ },
+ {
+  "from": "Ankit daemon, Claude Code transcripts and Paseo turn_failed logs (redacted)",
+  "source": "assistant",
+  "text": "Failed to authenticate: OAuth session expired and could not be refreshed",
+  "kind": null
+ },
+ {
+  "from": "OmniRoute 3.8.51 message templates, as Claude Code and Paseo wrap them",
+  "source": "assistant",
+  "text": "API Error: 503 No active credentials for provider: claude. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (10.0.0.5:20128).",
+  "kind": "no-account",
+  "provider": "claude"
+ },
+ {
+  "from": "OmniRoute 3.8.51 message templates, as Claude Code and Paseo wrap them",
+  "source": "assistant",
+  "text": "API Error: 429 [claude] All accounts rate limited (reset after 2m 30s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (10.0.0.5:20128).",
+  "kind": "cooling",
+  "provider": "claude"
+ },
+ {
+  "from": "OmniRoute 3.8.51 message templates, as Claude Code and Paseo wrap them",
+  "source": "assistant",
+  "text": "API Error: 400 [claude/claude-opus-5-5] [400]: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Claude Code version 2.1.280 or newer is required\"}} This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (10.0.0.5:20128).",
+  "kind": "outdated",
+  "provider": "claude"
+ },
+ {
+  "from": "OmniRoute 3.8.51 message templates, as Claude Code and Paseo wrap them",
+  "source": "assistant",
+  "text": "API Error: 504 [claude/claude-opus-5-5] Request timed out (120s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (10.0.0.5:20128).",
+  "kind": "unavailable",
+  "provider": "claude"
+ },
+ {
+  "from": "OmniRoute 3.8.51 message templates, as Claude Code and Paseo wrap them",
+  "source": "assistant",
+  "text": "[System Error] unexpected status 503 Service Unavailable: [codex/gpt-6-sol] Unavailable (reset after 13s)",
+  "kind": "unavailable",
+  "provider": "codex"
+ },
+ {
+  "from": "OmniRoute 3.8.51 message templates, as Claude Code and Paseo wrap them",
+  "source": "assistant",
+  "text": "[System Error] Provider codex circuit breaker is open",
+  "kind": "paused",
+  "provider": "codex"
+ },
+ {
+  "from": "a reply that talks about the router",
+  "source": "assistant",
+  "text": "OmniRoute said \"Provider claude circuit breaker is open\" earlier, so I waited a minute and retried.",
+  "kind": null
+ },
+ {
+  "from": "an error item from another provider",
+  "source": "error",
+  "text": "rate limit exceeded, retry later",
+  "kind": null
+ },
+ {
+  "from": "an error item through OmniRoute",
+  "source": "error",
+  "text": "[claude/claude-opus-5-5] [429]: rate_limit_error (reset after 45s)",
+  "kind": "cooling",
+  "provider": "claude"
+ }
+]

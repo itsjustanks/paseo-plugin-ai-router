@@ -7,6 +7,7 @@ import {
   accountsCheckAll,
   accountReset,
   alerts,
+  chatRoute,
   aiProvider,
   codexRouter,
   codexReroute,
@@ -65,7 +66,7 @@ import {
   handleUsageKey,
 } from "./server/handlers";
 import { handleUpdates } from "./server/updates";
-import { handleAlerts } from "./server/alerts";
+import { handleAlerts, handleChatRoute } from "./server/alerts";
 import { registerRoutingHooks } from "./server/hooks";
 import { noteActivity, recheckSoon, startAutoSync } from "./server/provider";
 import { registerUsage } from "./server/usage";
@@ -118,6 +119,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(compressionApply, active(handleCompressionApply));
   // Chat alerts: no model sync, so a chat's chip never adds work beyond its own read.
   server.handle(alerts, handleAlerts);
+  // Router-error cards in a chat (0.19.0): one local read per chat.
+  server.handle(chatRoute, handleChatRoute);
   // Paseo 0.11+: one card per router account on Paseo's own Usage page. Older daemons skip this.
   registerUsage(server);
   // Also checks the AI Router provider once at load, with no Paseo handle yet (see server/provider.ts).

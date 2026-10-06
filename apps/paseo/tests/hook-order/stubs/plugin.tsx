@@ -459,6 +459,9 @@ function activityDetailAnswer(id: string) {
 // ------------------------------------------------------------- switches
 /** The switches a test pressed, so the next render follows them. */
 let savedSwitches: { mcpCard?: boolean } = {};
+/** What the daemon says about a chat with a router error: routed, its own sign-in (false), or not in its log (null). */
+let chatRouted: boolean | null = true;
+export function setChatRouted(value: boolean | null) { chatRouted = value; }
 
 /** Preview: pick every answer at once. */
 export function setPreview(state: { status: string; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; apps?: string; updates?: string; codexAccounts?: number | null }) {
@@ -489,7 +492,7 @@ export function setSettingsFixture(name: string) { settingsFixture = name; }
 export function setUsageFixture(name: string) { usageFixture = name; }
 let accountFixture = "ok";
 let usageFixture = "ok";
-export function setStatusFixture(name: string, insights = "ok") { clisFixture = "mac"; updatesFixture = "current"; codexFixture = 4; fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; savedComboProfiles = null; savedSwitches = {}; }
+export function setStatusFixture(name: string, insights = "ok") { clisFixture = "mac"; updatesFixture = "current"; codexFixture = 4; fixture = name; accountFixture = insights; usageFixture = insights in usageFixtures ? insights : "no-token"; settingsFixture = "ok"; accessFixture = "ok"; compressionFixture = "stacked"; profilesFixture = "ok"; activityFixture = "ok"; savedComboProfiles = null; savedSwitches = {}; chatRouted = true; }
 
 const pendingRpc = new Set<() => void>();
 export function releaseRpc() { for (const release of pendingRpc) release(); pendingRpc.clear(); }
@@ -505,7 +508,6 @@ export function useRpc(contract: any) {
       usage: () => usageAnswer(usageFixture, (input ?? {}) as UsageWindowInput),
       "usage.key": () => ({ state: "ok", message: null, models: parseKeyModels(valued(analyticsBody(7))) }),
       updates: () => updatesAnswer(status),
-      "accounts.reset": () => ({ ok: true, message: `${(input as { name: string }).name} is back in rotation.` }),
       profiles: () => profilesFixtures[savedComboProfiles === false ? "off" : savedComboProfiles === true ? "ok" : profilesFixture],
       settings: () => { const answer = settingsFixtures[settingsFixture] as Record<string, unknown>; return { ...answer, canEdit: answer.canEdit === true || manage }; },
       access: () => accessFixtures[accessFixture],
@@ -519,6 +521,8 @@ export function useRpc(contract: any) {
       activity: () => activityAnswer(status, (input ?? {}) as ActivityInput),
       "activity.detail": () => activityDetailAnswer((input as { id: string }).id),
       alerts: () => ({ alerts: [] }),
+      "chat-route": () => ({ routed: chatRouted }),
+      "accounts.reset": () => ({ ok: true, message: `${(input as { name: string }).name} is back in rotation.` }),
       ensure: () => ({ ok: true }),
     };
     const answer = answers[name]?.() ?? { ok: true, saved: true, message: "ok" };

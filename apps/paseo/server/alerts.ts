@@ -1,4 +1,4 @@
-import type { AlertsView } from "../shared/contracts";
+import type { AlertsView, ChatRouteView } from "../shared/contracts";
 import { chatAlerts } from "../shared/alerts";
 import { connectionProblem } from "../shared/logic";
 import { providerLabel } from "../shared/routers/omniroute/parsers";
@@ -37,4 +37,11 @@ export function forgetAgent(agentId: string): void {
 /** A chat opened again (session_open): its chip alerts come back. */
 export function agentOpened(agentId: string): void {
   closed.delete(agentId);
+}
+
+/** Whether this chat's latest open went through the router; null when the log doesn't have it. Local read only. */
+export function handleChatRoute({ agentId }: { agentId: string }): ChatRouteView {
+  const log = readSessionLog();
+  for (let i = log.length - 1; i >= 0; i -= 1) if (log[i].agentId === agentId) return { routed: log[i].routed };
+  return { routed: null };
 }

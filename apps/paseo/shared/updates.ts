@@ -6,7 +6,7 @@
 import { compareVersions } from "./clis";
 
 /** This plugin's version. A test keeps it equal to package.json. */
-export const PLUGIN_VERSION = "0.18.0";
+export const PLUGIN_VERSION = "0.19.0";
 
 export const RELEASE_SOURCES = {
   router: { label: "OmniRoute", repo: "diegosouzapw/OmniRoute" },

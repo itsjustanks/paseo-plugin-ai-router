@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.19.0 — 2026-10-06
+
+Friendly router errors in the chat. `requirements.paseo` stays `>=0.8.0`; `ROUTING_SETTINGS_VERSION`
+stays 1; no new dependencies.
+
+- **A plain card instead of a raw router error.** When a request through OmniRoute fails, a routed chat
+  now shows what happened in one line ("Claude accounts are cooling down until 16:45", "Claude is
+  paused on the router after repeated errors", "No Codex account is signed in on the router"), whether
+  anything retries by itself, and **Open AI Router** (Accounts tab). For a paused provider, a manage key
+  adds **Resume now**, which asks first and uses the same reset as the Accounts tab. The original text
+  is always there under **Details**.
+- **Only router errors, only in routed chats.** An item must be an error by its form (Claude Code's
+  "API Error: …", Paseo's "[System Error] …", or an error item) and carry OmniRoute's own marks.
+  Replies that mention these errors, Anthropic's and OpenAI's own errors, and chats on their own sign-in
+  or another gateway are left exactly as they were. A new local read, `ai-router.chat-route`, says
+  whether a chat went through this router.
+- Uses Paseo's timeline transformers and renderers when the app has them; otherwise nothing changes.
+- The matching is tested against 26 real error texts collected read-only from a daemon (keys, emails
+  and addresses removed) and OmniRoute 3.8.51's message templates.
+
 ## 0.18.0 — 2026-10-06
 
 The user, on the MCP plugin's redesign: "the nesting… feels a bit weird. It needs better panels and

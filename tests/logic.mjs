@@ -604,6 +604,10 @@ try {
   const tabsSource = readFileSync(new URL("../apps/paseo/shared/tabs.ts", import.meta.url), "utf8");
   writeFileSync(join(staging, "tabs.mjs"), ts.transpileModule(tabsSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
   const T = await import(join(staging, "tabs.mjs"));
+  const reSource = readFileSync(new URL("../apps/paseo/shared/router-errors.ts", import.meta.url), "utf8");
+  writeFileSync(join(staging, "router-errors.mjs"), ts.transpileModule(reSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  const RE = await import(join(staging, "router-errors.mjs"));
+  const ERRORS = JSON.parse(readFileSync(new URL("./fixtures/router-errors.json", import.meta.url), "utf8"));
   const pluginsSource = readFileSync(new URL("../apps/paseo/shared/plugins.ts", import.meta.url), "utf8");
   writeFileSync(join(staging, "plugins.mjs"), ts.transpileModule(pluginsSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
   const P = await import(join(staging, "plugins.mjs"));
@@ -611,6 +615,53 @@ try {
   const hostSource = readFileSync(new URL("../apps/paseo/shared/host-features.ts", import.meta.url), "utf8");
   writeFileSync(join(staging, "host-features.mjs"), ts.transpileModule(hostSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
   const HF = await import(join(staging, "host-features.mjs"));
+
+  check("router errors: real OmniRoute errors from chats are recognised; nothing else is", () => {
+    assert.ok(ERRORS.length >= 30, "the fixture holds the real strings");
+    for (const e of ERRORS) {
+      const m = RE.matchRouterError(e.text, e.source);
+      assert.equal(m?.kind ?? null, e.kind, `${e.kind ?? "not a router error"}: ${e.text.slice(0, 90)}`);
+      if (e.provider) assert.equal(m.provider, e.provider, e.text.slice(0, 60));
+    }
+    const kinds = new Set(ERRORS.map((e) => e.kind).filter(Boolean));
+    for (const kind of ["paused", "cooling", "no-account", "signed-out", "outdated", "unsupported", "unavailable", "other"]) assert.ok(kinds.has(kind), `a ${kind} example`);
+    // A reply that merely talks about the router is never touched; only error-shaped items are.
+    assert.equal(RE.matchRouterError("The router said: [claude/claude-opus-5-5] [429]: rate limited (reset after 1m)", "assistant"), null);
+    assert.equal(RE.matchRouterError("API Error: 529 Overloaded", "assistant"), null, "Anthropic's own error, no router mark");
+    assert.equal(RE.matchRouterError(`API Error: 503 ${"x".repeat(7000)} check your inference gateway (h:1)`, "assistant"), null, "too long to be an error line");
+    const cooling = RE.matchRouterError(ERRORS.find((e) => e.kind === "cooling").text, "assistant");
+    assert.ok(cooling.resetSeconds > 0 && cooling.gateway, "reset time and gateway are read");
+  });
+
+  check("router errors: the reset time, the plain words, and whose chat it is", () => {
+    assert.deepEqual(["(reset after 1m 9s)", "(reset after 29s)", "(reset after 2h 5m)", "(reset after 0s)", "no reset"].map(RE.resetSecondsOf), [69, 29, 7500, 0, null]);
+    assert.deepEqual([69, 29, 7500, 0].map(RE.waitWords), ["1m 9s", "29s", "2h 5m", "0s"]);
+    const label = (id) => ({ claude: "Claude", codex: "Codex" })[id] ?? id;
+    const at = new Date(2026, 9, 6, 16, 40, 0);
+    const cool = RE.routerErrorWords({ kind: "cooling", provider: "claude", model: "claude-fable-5-1", status: 429, resetSeconds: 300, gateway: null }, at, label);
+    assert.match(cool.title, /^Claude accounts are cooling down until \d{1,2}:45/, "until = when it happened + the reset");
+    assert.match(cool.retry, /This chat won't retry/);
+    const paused = RE.routerErrorWords({ kind: "paused", provider: "claude", model: null, status: 503, resetSeconds: null, gateway: null }, at, label);
+    assert.equal(paused.title, "Claude is paused on the router after repeated errors");
+    assert.match(paused.retry, /OmniRoute tries Claude again by itself/);
+    for (const kind of ["paused", "cooling", "no-account", "signed-out", "outdated", "unsupported", "unavailable", "router-down", "other"]) {
+      const words = RE.routerErrorWords({ kind, provider: null, model: null, status: null, resetSeconds: null, gateway: null }, at, label);
+      assert.ok(words.title && words.retry && words.icon, kind);
+      assert.ok(!/undefined|null/.test(words.title + words.retry), `${kind}: no holes in the words`);
+    }
+    assert.equal(RE.endpointHost("http://10.0.0.5:20128"), "10.0.0.5:20128");
+    assert.equal(RE.endpointHost("https://ai-router.example.com"), "ai-router.example.com:443");
+    assert.equal(RE.endpointHost("not a url"), null);
+    const viaGateway = { kind: "cooling", provider: "claude", model: null, status: 429, resetSeconds: 60, gateway: "10.0.0.5:20128" };
+    const otherGateway = { ...viaGateway, gateway: "proxy.example.com:8080" };
+    const noGateway = { ...viaGateway, gateway: null };
+    assert.equal(RE.isOurs(viaGateway, false, "http://10.0.0.5:20128"), true, "Claude Code names this router: ours, whatever the log says");
+    assert.equal(RE.isOurs(otherGateway, true, "http://10.0.0.5:20128"), true, "the log says this router routed it");
+    assert.equal(RE.isOurs(otherGateway, false, "http://10.0.0.5:20128"), false, "its own sign-in: never touched");
+    assert.equal(RE.isOurs(otherGateway, null, "http://10.0.0.5:20128"), false, "someone else's gateway: never touched");
+    assert.equal(RE.isOurs(noGateway, null, "http://10.0.0.5:20128"), true, "OmniRoute's own marks, no other gateway named");
+    assert.equal(RE.isOurs(noGateway, false, null), false);
+  });
 
   check("chip face: only a router problem gives a chat a chip (0.18.0)", () => {
     assert.equal(X.alertChipFace(null), null, "a calm chat: no chip");

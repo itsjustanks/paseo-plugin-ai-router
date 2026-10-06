@@ -323,6 +323,35 @@ What it costs: one small read (`ai-router.alerts`) once a minute while a chat is
 15 minutes if the daemon does not answer), from the health check the panel shares: at most one ping a
 minute and never more than 1.5 s of waiting. At most one read is ever out at a time.
 
+## Router errors in a chat
+
+When a request through OmniRoute fails, a routed chat used to show the raw text, for example
+"API Error: 503 Provider claude circuit breaker is open … check your inference gateway (…)". Since
+0.19.0 AI Router shows a small card in its place instead:
+
+- **what happened, in one line**: "Claude is paused on the router after repeated errors", "Claude
+  accounts are cooling down until 16:45", "No Codex account is signed in on the router", "A Claude
+  account's sign-in has run out on the router", "Anthropic asks for a newer Claude Code than the router
+  sends", "Codex didn't answer through the router";
+- **whether anything retries by itself**: OmniRoute moves to another account, or tries a paused
+  provider again, on its own; the chat itself has stopped retrying, so the card says when to send the
+  message again;
+- **Open AI Router** (its Accounts tab) and, for a paused provider with a manage key, **Resume now**
+  (asks first; the same reset as on Accounts). Once OmniRoute has resumed the provider, the card says so;
+- **Details**: the original text, unchanged.
+
+What counts: only an item that is an error by its form (Claude Code's "API Error: …", Paseo's
+"[System Error] …" for a failed turn, or an `error` item) and carries one of OmniRoute's own marks
+(`[provider/model] [status]`, "Provider … circuit breaker is open", "No active credentials for
+provider", "All accounts rate limited", or Claude Code naming the gateway). A reply that talks about
+these errors is never touched, and neither are Anthropic's or OpenAI's own errors ("Prompt is too
+long", a native rate limit, "You've hit your usage limit"). The card then asks the daemon whether that
+chat went through this router (the hook's session log, one local read per chat): a chat on its own
+sign-in, or one whose gateway is somebody else's, shows the original text as it was. Built on Paseo's
+timeline transformers and renderers, found at runtime; an app without them shows the text as before.
+The matching is tested against 26 real error texts from a daemon's chats (keys, emails and addresses
+removed) and OmniRoute's own message templates (`tests/fixtures/router-errors.json`).
+
 ## Public address and dashboard access
 
 OmniRoute can have a **public address** (custom domain), such as `https://ai-router.example.com`.
@@ -410,6 +439,7 @@ apps/paseo/
   server/routers/omniroute/           OmniRoute: adapter and HTTP reads
   shared/                             contracts and pure logic, the only code the client imports
   shared/alerts.ts                    which chats a router problem reaches (pure)
+  shared/router-errors.ts             which chat items are OmniRoute's errors, and their plain words (pure)
   shared/tabs.ts                      the four tabs and where each old tab id goes (pure)
   shared/plugins.ts                   Help's recommended plugins
   shared/routers/                     each router's UI copy and response parsers

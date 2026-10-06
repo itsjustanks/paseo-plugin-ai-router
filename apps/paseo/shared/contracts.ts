@@ -560,6 +560,12 @@ export type AlertsView = z.infer<typeof AlertsSchema>;
 /** Read by the composer chips once a minute: a chip shows only on a chat the router can't serve. */
 export const alerts = defineRpc({ name: "ai-router.alerts", input: z.object({}), output: AlertsSchema });
 
+/** Whether this daemon sent one chat through the router, from the hook's session log: null when the chat isn't in it (older than its last 200 opens). */
+export const ChatRouteSchema = z.object({ routed: z.boolean().nullable() });
+export type ChatRouteView = z.infer<typeof ChatRouteSchema>;
+/** Asked by a router-error card in a chat (0.19.0), once per chat, before it shows. */
+export const chatRoute = defineRpc({ name: "ai-router.chat-route", input: z.object({ agentId: z.string().min(1).max(200) }), output: ChatRouteSchema });
+
 // ----------------------------------------------------------------- updates
 
 const ProductUpdateSchema = z.object({

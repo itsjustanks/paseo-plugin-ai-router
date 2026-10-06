@@ -65,8 +65,8 @@ function sidebarEntry(Row: ComponentType<SidebarRowProps>, screen: MainScreen): 
   };
 }
 
-/** Opens a screen with `openScreen` on a 0.11 app, `openSurface` before. */
-export function openMainScreen(capabilities: { openSurface(id: string): void; openScreen?: unknown }, id: string): void {
-  if (typeof capabilities.openScreen === "function") (capabilities as { openScreen(input: ScreenInput): void }).openScreen({ screenId: id });
+/** Opens a screen with `openScreen` on a 0.11 app, `openSurface` before. `params` (such as `{ tab: "accounts" }`) reach 0.11 screens only. */
+export function openMainScreen(capabilities: { openSurface(id: string): void; openScreen?: unknown }, id: string, params?: Record<string, string>): void {
+  if (typeof capabilities.openScreen === "function") (capabilities as { openScreen(input: ScreenInput): void }).openScreen(params ? { screenId: id, params } : { screenId: id });
   else capabilities.openSurface(id);
 }

@@ -5,10 +5,11 @@ import { AiRouterSurface } from "../../client/surface";
 import { createAlertStore, makeAlertChip } from "../../client/alerts";
 import type { GoTarget } from "../../shared/tabs";
 import type { AnalyticsRangeId } from "../../shared/contracts";
-import { setPreview } from "./plugin";
+import { setChatRouted, setPreview } from "./plugin";
+import { forgetRouterErrorReads, makeRouterErrorCard } from "../../client/router-errors";
 
 /** Every state the screenshots cover: `?state=<name>&theme=light|dark`. Tiers: basic = key only, operator = read token, admin = manage key. */
-export const STATES: Record<string, { status: string; tab?: GoTarget; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: AnalyticsRangeId; chip?: boolean; apps?: string; alert?: boolean; updates?: string; news?: boolean; codexAccounts?: number | null }> = {
+export const STATES: Record<string, { status: string; tab?: GoTarget; accounts?: string; usage?: string; settings?: string; access?: string; compression?: string; profiles?: string; activity?: string; range?: AnalyticsRangeId; chip?: boolean; error?: string; routed?: boolean | null; apps?: string; alert?: boolean; updates?: string; news?: boolean; codexAccounts?: number | null }> = {
   setup: { status: "not connected" },
   overview: { status: "routing on", settings: "calm" },
   "overview-basic": { status: "basic" },
@@ -61,6 +62,11 @@ export const STATES: Record<string, { status: string; tab?: GoTarget; accounts?:
   // The chip on a chat's composer: only while the router can't serve it.
   "chip-router-down": { status: "routing on", chip: true, alert: true },
   "chip-calm": { status: "routing on", chip: true },
+  // A router error in a chat (0.19.0), as Claude Code reported it, between two ordinary messages.
+  "chat-error-paused": { status: "claude paused", error: "paused" },
+  "chat-error-cooling": { status: "routing on", error: "cooling" },
+  "chat-error-no-account": { status: "routing on", error: "no-account" },
+  "chat-error-not-routed": { status: "routing on", error: "elsewhere", routed: false },
 };
 
 const params = new URLSearchParams(location.search);
@@ -85,6 +91,30 @@ function Preview() {
     return () => removeEventListener("resize", resize);
   }, []);
   const props = { theme: { colors }, host: { id: "preview", label: "daemon-b" }, layout: { compact, platform: "web" as const }, navigation: { openAgent() {}, openWorkspace() {} } } as any;
+  if (state.error) {
+    const gateway = " This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (10.0.0.5:20128).";
+    const texts: Record<string, string> = {
+      paused: `API Error: 503 Provider claude circuit breaker is open.${gateway}`,
+      cooling: `API Error: 503 [claude/claude-fable-5-1] [429]: {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."}} (reset after 4m 51s).${gateway}`,
+      "no-account": `API Error: 503 No active credentials for provider: codex.${gateway}`,
+      elsewhere: "API Error: 503 [claude/claude-fable-5-1] [429]: rate_limit_error (reset after 1m 9s). This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (proxy.example.com:8080).",
+    };
+    setChatRouted(state.routed === undefined ? true : state.routed);
+    forgetRouterErrorReads();
+    const Card = makeRouterErrorCard(() => {});
+    const bubble = { padding: "10px 14px", borderRadius: 14, fontSize: 15, lineHeight: "22px", fontFamily: "system-ui", color: colors.foreground, maxWidth: 560 } as const;
+    return (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchInterval: false } } })}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16, maxWidth: 720, minHeight: "100vh", boxSizing: "border-box", background: colors.surface0 }}>
+          <div style={{ ...bubble, alignSelf: "flex-end", background: colors.surface2 }}>Can you tidy the parser and run the tests?</div>
+          <div style={{ alignSelf: "stretch" }}>
+            <Card {...props} agentId="agent-7" timestamp={new Date(Date.now() - 2 * 60_000)} item={{ type: "plugin", kind: "router-error", version: 1, data: { message: texts[state.error], source: "assistant" } }} />
+          </div>
+          <span style={{ color: colors.foregroundMuted, fontSize: 11, fontFamily: "system-ui" }}>AI Router · a router error in a chat</span>
+        </div>
+      </QueryClientProvider>
+    );
+  }
   if (state.chip) {
     const store = createAlertStore();
     store.set("agent-7", "ws-1");

@@ -1125,6 +1125,20 @@ try {
     passed += 1;
   }
   {
+    // 0.19.0: a router-error card asks whether its chat went through the router (the hook's log, latest open wins).
+    const t = await fresh("chat-route", full);
+    t.restore();
+    writeFileSync(join(t.dir, "plugin-settings", "ai-router", "sessions.json"), JSON.stringify([
+      { at: new Date().toISOString(), agentId: "agent-r", kind: "claude", provider: "claude", routed: false, reason: "routing off", tagged: false },
+      { at: new Date().toISOString(), agentId: "agent-own", kind: "claude", provider: "claude", routed: false, reason: "routing off", tagged: false },
+      { at: new Date().toISOString(), agentId: "agent-r", kind: "claude", provider: "claude", routed: true, reason: null, tagged: true },
+    ]));
+    t.mod.forgetSessionLog();
+    const ask = (agentId) => t.mod.ChatRouteSchema.parse(t.mod.handleChatRoute({ agentId })).routed;
+    assert.deepEqual([ask("agent-r"), ask("agent-own"), ask("agent-unknown")], [true, false, null]);
+    passed += 1;
+  }
+  {
     // The router stops answering: every routed chat on this daemon is told, within the chips' 1.5 s budget.
     const t = await fresh("badge-down", { router: "omniroute", endpoint: DEAD, apiKey: KEY });
     t.restore();
@@ -1544,7 +1558,7 @@ try {
       const first = await t.mod.handleUpdates({});
       t.mod.UpdatesSchema.parse(first);
       assert.deepEqual([first.router.running, first.router.latest.version, first.router.state, first.router.latest.highlights], ["3.8.50", "3.8.52", "behind", ["Routing: better.", "Codex: reset credits."]], "the running version comes from the read-token health check");
-      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.18.0", "0.15.1", "ahead"]);
+      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.19.0", "0.15.1", "ahead"]);
       assert.deepEqual(github.map((u) => u.replace(/^https:\/\/api\.github\.com\/repos\//, "")).sort(), ["diegosouzapw/OmniRoute/releases?per_page=10", "itsjustanks/paseo-plugin-ai-router/releases?per_page=10"]);
       await t.mod.handleUpdates({});
       assert.equal(github.length, 2, "6 hours between checks");
