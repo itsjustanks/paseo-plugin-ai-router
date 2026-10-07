@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.21.0 — 2026-10-07
+
+Routing switches that work and say so, an easy way back when the router is down, and which computer
+you're looking at. `requirements.paseo` stays `>=0.9.0`; `ROUTING_SETTINGS_VERSION` stays 1; nothing
+switches by itself; no new dependencies.
+
+- **Why "the button didn't work".** On a computer that isn't connected (the Mac's preview), the Codex
+  switch under Models → Codex extras was greyed out with no reason, so pressing it did nothing. On a
+  connected computer, any answer (success or failure) appeared only at the top of the page, far from
+  the switch, and the switch waited on a full read of the router's model list: up to 50 s on a slow
+  router, past Paseo's 30 s limit for a plugin call (on the main server those reads take under half a
+  second, so that limit wasn't hit there). The main server's real Codex entry (`additionalModels`,
+  `enabled`, then our 5-part command) was never the problem: it reads as ours.
+- **Switches that answer.** Each switch now shows **Switching…** while it works, then says what
+  happened right under it ("Done: …" or "Not switched: …"). A switch that can't be turned on says why
+  ("Connect a router first to turn this on."). The Codex switch answers within a few seconds: it uses
+  the model list the sync already read (a fresh read waits at most 4 s, and if the router is that slow
+  it switches anyway and says so), and Paseo's provider refresh finishes in the background. A failed
+  Claude save says why instead of "changed elsewhere".
+- **The switches on Overview.** The status card has two rows, **Claude · through the router** and
+  **Codex · through the router**, each with what on and off mean ("Uses your team's accounts on the
+  router" / "Uses this computer's own sign-in"). They ask first, as before; Models keeps the same two.
+- **An easy way back when the router is down.** While OmniRoute is down or has paused Claude or Codex,
+  and that app goes through it, Overview, the sidebar popover, the chat's **Router down** chip and the
+  router-error card in a chat offer **Use this computer's own sign-in for Claude/Codex**. One press, it
+  asks first, and it is never automatic. It is offered only when this computer has its own sign-in
+  (Claude Code's credentials or keychain item, or Codex's `auth.json`, present and not expired);
+  otherwise it says so plainly instead of offering a switch that would break chats. Once the router
+  works again, **Switch back to the router** (also asks first). Only whether a sign-in exists and
+  whether it has expired is read; no secret leaves the daemon.
+- **The chat chip opens a popover** on Paseo 0.11 (what's wrong, the offer, **Open AI Router**); older
+  apps still open AI Router.
+- **Which computer.** The page header, the window title ("AI Router · team-server · Accounts") and the
+  sidebar popover name the host, from Paseo's own name for it. Not connected: "This Mac (Localhost)
+  isn't connected to a router yet. Each computer has its own connection…"
+- The "router down" line on Overview no longer claims re-routed Claude falls back to its own sign-in
+  when this computer's own sign-in has expired.
+
 ## 0.20.0 — 2026-10-06
 
 Fixes from a check of the real Paseo app (the user: "improve the UX and design experience"), and the

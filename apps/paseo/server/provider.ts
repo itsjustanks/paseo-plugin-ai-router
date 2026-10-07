@@ -37,6 +37,7 @@ import {
   refreshProviders,
   writeDaemonConfig,
   writeNativeThinking,
+  writeSwitchedAway,
   writeSyncState,
   type ProviderEntries,
 } from "./store";
@@ -251,21 +252,40 @@ export async function setCodexRouter(paseo: Paseo, connection: Connection, enabl
   return { ok: true, message: `Added "Codex via OmniRoute" with ${codex.length} model${codex.length === 1 ? "" : "s"}. Pick it when you start a Codex agent; this daemon needs no Codex login for it.` };
 }
 
+/** Waits at most `ms`; null after that, while the work carries on by itself. */
+function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([promise, new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ms)))]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The switch answers well inside Paseo's 30 s plugin call limit, even on a
+ * busy daemon: the Codex-account check uses the model list the sync already
+ * read (a fresh read waits at most this long), and Paseo's provider refresh
+ * finishes in the background.
+ */
+const SWITCH_CHECK_MS = 4_000;
+const SWITCH_REFRESH_MS = 3_000;
+
 /**
  * Re-route built-in Codex, or put it back. On: Paseo's launch command for
  * Codex carries OmniRoute as its model provider (the key comes from the
  * session_open hook). Off: the command goes, and the rest of the entry
  * (enabled, order, models) is put back as it was. Someone else's command is
- * never touched.
+ * never touched. `fallback`: switched off because the router can't serve
+ * Codex, so the panel offers "Switch back to the router" later.
  */
-export async function setCodexReroute(paseo: Paseo, connection: Connection, enabled: boolean): Promise<{ ok: boolean; message: string }> {
+export async function setCodexReroute(paseo: Paseo, connection: Connection, enabled: boolean, fallback = false): Promise<{ ok: boolean; message: string }> {
   const { config } = await paseo.config.get();
   const view = config as { providers?: Record<string, Record<string, unknown> | undefined>; metadataGeneration?: { providers?: Array<{ provider?: unknown }> } };
   const entry = view.providers?.codex;
   const state = describeProviderEntries(view.providers ?? {}).builtinCodex.state;
   if (state === "foreign") return { ok: false, message: "Codex has its own launch command in Paseo's config (agents.providers.codex.command), so AI Router leaves it alone." };
   if (!enabled) {
-    if (state === "off") return { ok: true, message: "Built-in Codex already uses its own sign-in." };
+    if (state === "off") {
+      writeSwitchedAway("codex", fallback ? new Date().toISOString() : null);
+      return { ok: true, message: "Codex already uses this computer's own sign-in." };
+    }
     const { command: _ours, ...rest } = entry ?? {};
     // Paseo masks secret env values when they're read, so an entry with env can't be written back safely.
     if (rest.env && typeof rest.env === "object" && Object.keys(rest.env).length) return { ok: false, message: "Codex's entry in Paseo's config has its own environment settings, so AI Router won't rewrite it. Remove \"command\" from agents.providers.codex in Paseo's config.json by hand." };
@@ -274,19 +294,22 @@ export async function setCodexReroute(paseo: Paseo, connection: Connection, enab
     await paseo.config.patch({ removeProviders: ["codex"] });
     const restore = { ...(Object.keys(rest).length ? { providers: { codex: rest } } : {}), ...(metadata?.some((item) => item?.provider === "codex") ? { metadataGeneration: { providers: metadata } } : {}) };
     if (Object.keys(restore).length) await paseo.config.patch(restore as Parameters<Paseo["config"]["patch"]>[0]);
-    await refreshProviders(paseo, ["codex"]);
-    return { ok: true, message: "Built-in Codex back on its own sign-in for new chats. Open chats switch when they restart." };
+    await within(refreshProviders(paseo, ["codex"]), SWITCH_REFRESH_MS);
+    writeSwitchedAway("codex", fallback ? new Date().toISOString() : null);
+    return { ok: true, message: "Done: Codex now uses this computer's own sign-in for new chats. Open chats switch when they restart." };
   }
   const problem = connectionProblem({ connection, blocked: null });
-  if (problem) return { ok: false, message: `Connect the router first: ${problem}.` };
+  if (problem) return { ok: false, message: `Connect a router first: ${problem}.` };
   const command = codexRerouteCommand(connection.endpoint!);
   if (!command) return { ok: false, message: `${connection.endpoint} can't be used as Codex's address.` };
-  const result = await catalogueFor(connection, true);
-  if (!result.ok) return { ok: false, message: result.error };
-  if (!codexModels(result.list).length) return { ok: false, message: "OmniRoute has no active Codex account, so there is nothing for Codex to use." };
+  const result = await within(catalogueFor(connection), SWITCH_CHECK_MS);
+  if (result && !result.ok) return { ok: false, message: `Not switched: the router's model list couldn't be read (${result.error}). Codex keeps its own sign-in.` };
+  if (result && !codexModels(result.list).length) return { ok: false, message: "Not switched: the router has no working Codex account, so Codex would have nothing to use. Codex keeps its own sign-in." };
   await paseo.config.patch({ providers: { codex: { command } } } as Parameters<Paseo["config"]["patch"]>[0]);
-  await refreshProviders(paseo, ["codex"]);
-  return { ok: true, message: "Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart." };
+  await within(refreshProviders(paseo, ["codex"]), SWITCH_REFRESH_MS);
+  writeSwitchedAway("codex", null);
+  const unchecked = result ? "" : " The router was slow to list its Codex accounts; if a new Codex chat doesn't answer, switch this off.";
+  return { ok: true, message: `Done: Codex now goes through the router, so new Codex chats use your team's accounts. Open chats switch when they restart.${unchecked}` };
 }
 
 // ---------------------------------------------------------------- auto-sync

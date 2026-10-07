@@ -27,6 +27,7 @@ import {
   routerSettings,
   settingApply,
   status,
+  switchedAway,
   tunnelSet,
   tunnels,
   updates,
@@ -60,6 +61,7 @@ import {
   handleSettingApply,
   handleSettings,
   handleStatus,
+  handleSwitchedAway,
   handleTunnelSet,
   handleTunnels,
   handleUsage,
@@ -104,6 +106,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(providersTidy, active(handleProvidersTidy));
   server.handle(codexRouter, active(handleCodexRouter));
   server.handle(codexReroute, active(handleCodexReroute));
+  server.handle(switchedAway, active(handleSwitchedAway));
   server.handle(clis, handleClis);
   server.handle(cliUpdate, handleCliUpdate);
   server.handle(accountAction, active(handleAccountAction));

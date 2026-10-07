@@ -7,6 +7,9 @@ import { ROUTERS } from "../shared/routers/copy";
 import { providerLabel } from "../shared/routers/omniroute/parsers";
 import { dashboardTarget } from "./dashboard";
 import { openInBrowser } from "./links";
+import { hostName, withHost } from "../shared/host";
+import { currentHost, noteHost } from "./host";
+import { OfferBoundary, RoutingOffers } from "./routing";
 import { Button, Dot, Meta, Note, SPACE, TYPE, type Tone } from "./ui";
 
 /**
@@ -15,15 +18,16 @@ import { Button, Dot, Meta, Note, SPACE, TYPE, type Tone } from "./ui";
  * panel, open the router's dashboard, sync the models), so the common jobs
  * need no trip into the panel. Older apps never render these.
  */
-export type PopoverProps = { theme: PluginTheme; close(): void; openScreen(input: { screenId: string }): void };
+export type PopoverProps = { theme: PluginTheme; host?: { id: string; label: string }; close(): void; openScreen(input: { screenId: string }): void };
 export type TrailingProps = { theme: PluginTheme; openPopover?: (Content: ComponentType<PopoverProps>) => void };
 
 const POLL_MS = 60_000;
 
-/** The status answer, read now and every minute while mounted. No query client needed. */
-function useStatus(): Status | null {
+/** The status answer, read now and every minute while mounted, plus a way to read it again now. No query client needed. */
+export function useStatus(): [Status | null, () => void] {
   const call = useRpc(status);
   const [data, setData] = useState<Status | null>(null);
+  const [round, setRound] = useState(0);
   useEffect(() => {
     let live = true;
     const read = () => void call({}).then((next) => { if (live) setData(next); }).catch(() => undefined);
@@ -33,8 +37,8 @@ function useStatus(): Status | null {
       live = false;
       clearInterval(timer);
     };
-  }, [call]);
-  return data;
+  }, [call, round]);
+  return [data, () => setRound((n) => n + 1)];
 }
 
 /** The connection in a word and a tone: what the dot shows. */
@@ -53,8 +57,10 @@ function dotColor(theme: PluginTheme, tone: Tone): string {
 }
 
 export function makeQuickActions(screenId: string): ComponentType<PopoverProps> {
-  return function AiRouterQuickActions({ theme, close, openScreen }: PopoverProps) {
-    const data = useStatus();
+  return function AiRouterQuickActions({ theme, host, close, openScreen }: PopoverProps) {
+    noteHost(host);
+    const [data, reread] = useStatus();
+    const name = hostName(host?.label ?? currentHost(), data?.computer);
     const sync = useRpc(aiProvider);
     const [busy, setBusy] = useState(false);
     const [reply, setReply] = useState<{ text: string; tone: Tone } | null>(null);
@@ -71,8 +77,14 @@ export function makeQuickActions(screenId: string): ComponentType<PopoverProps> 
       <View style={{ padding: SPACE.md, gap: SPACE.row, minWidth: 260 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.sm }}>
           <Dot color={dotColor(theme, state.tone)} />
-          <Text style={{ ...TYPE.item, color: theme.colors.foreground, flexShrink: 1 }}>{`AI Router · ${state.text}`}</Text>
+          <Text style={{ ...TYPE.item, color: theme.colors.foreground, flexShrink: 1 }}>{withHost("AI Router", name)}</Text>
         </View>
+        <Meta theme={theme}>{state.text}</Meta>
+        {data && !data.problem ? (
+          <OfferBoundary>
+            <RoutingOffers theme={theme} data={data} onChanged={reread} compact />
+          </OfferBoundary>
+        ) : null}
         {reply ? <Note theme={theme} tone={reply.tone}>{reply.text}</Note> : null}
         <Button theme={theme} label="Open AI Router" icon="Route" primary onPress={() => { openScreen({ screenId }); close(); }} />
         {dashboard ? <Button theme={theme} label="Open dashboard" icon="ExternalLink" onPress={() => void openInBrowser(dashboard)} /> : null}
@@ -86,7 +98,7 @@ export function makeQuickActions(screenId: string): ComponentType<PopoverProps> 
 /** The status dot at the end of the sidebar row; pressing it opens the quick actions when the app can show a popover. */
 export function makeStatusTrailing(Quick: ComponentType<PopoverProps>): ComponentType<TrailingProps> {
   return function AiRouterStatusDot({ theme, openPopover }: TrailingProps) {
-    const state = quickState(useStatus());
+    const state = quickState(useStatus()[0]);
     const dot = <Dot color={dotColor(theme, state.tone)} />;
     if (!openPopover) return dot;
     return (

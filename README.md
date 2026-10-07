@@ -24,7 +24,7 @@ paseo plugin update ai-router      # later: review and apply a new version (--ye
 
 A local checkout works too: `paseo plugin install /absolute/path/to/paseo-plugin-ai-router:apps/paseo`
 (a directory install runs in place, so keep the copy there). Plugins must be enabled on the daemon
-(`pluginsEnabled` in its `config.json`). Requires Paseo 0.9 or later (0.20.0; 0.19.0 and older ran on 0.8); checked against Paseo 0.11.
+(`pluginsEnabled` in its `config.json`). Requires Paseo 0.9 or later (since 0.20.0; 0.19.0 and older ran on 0.8); checked against Paseo 0.11.
 
 For a fleet, give every daemon the connection through the environment and nothing else is needed:
 
@@ -43,7 +43,7 @@ place. Nothing was removed; it was folded.
 
 | Tab | What it holds |
 | --- | --- |
-| **Overview** | The status card: the state in words (working, one step left, paused, or unreachable since when), with rows for the router, the models in Paseo, what goes **through the router** (**Change →** opens Models), and **Versions** with **What's new**; the last chat (**Recent traffic →**); open the dashboard, sync models. When the router is unreachable: when it was last seen, the error, and **Check the connection**. Then **New to AI Router? How it works** (open until setup is done), and one fold-out, **Recent traffic**: the chats started here, routed or not and why, and with a read token every request the router served (filters, **Open** on each agent, and why it went where it did). At the bottom, a one-line suggestion to add Connectors, only while it isn't installed. Before a router is set up, Overview holds the three-step setup instead of the status card (the public address and SSH target sit under **Advanced**). |
+| **Overview** | The status card: the state in words (working, one step left, paused, or unreachable since when), with rows for the router, the models in Paseo and **Versions** with **What's new**; then the two routing switches, **Claude · through the router** and **Codex · through the router** (each says what on and off mean and asks first; 0.21.0); while the router is down or has paused Claude or Codex, a one-press **Use this computer's own sign-in for …** (asks first, never automatic; only when this computer has a sign-in of its own, else it says so), and **Switch back to the router** once it works again; the last chat (**Recent traffic →**); open the dashboard, sync models. When the router is unreachable: when it was last seen, the error, and **Check the connection**. Then **New to AI Router? How it works** (open until setup is done), and one fold-out, **Recent traffic**: the chats started here, routed or not and why, and with a read token every request the router served (filters, **Open** on each agent, and why it went where it did). At the bottom, a one-line suggestion to add Connectors, only while it isn't installed. Before a router is set up, Overview holds the three-step setup instead of the status card (the public address and SSH target sit under **Advanced**). |
 | **Accounts** | Each OmniRoute account: health, quota, cooldowns, sign-in expiry, and with a manage key **Check now**, **Check all**, **Refresh token** and the resets OmniRoute offers (each asks first); a paused provider gets **Resume now**. Then **Usage** for today, 7 days, 30 days or your own dates: the totals and **Who uses the most** (one row per daemon's key). Folded: **Day by day**, **Which providers and models**, **Which account answered**, **What failed**, **The last year**, **Is the router healthy?** and **This key's spending**. Without a read token: what one adds, and this key's own spending. |
 | **Models** | **Sync models to Paseo** (in step or not, and why OmniRoute lists more), then **Send chats through the router**: the AI Router provider, built-in Claude's switch (asks first) and what OmniRoute has for Codex. Folded: **Models in Paseo's picker** (each with **Test**, and a test for any model id), **Combos as agent profiles**, **Codex extras** (built-in Codex through the router; a separate "Codex via OmniRoute" provider; open when one is on), **Tidy up Paseo's provider menu**, and **Claude Code and Codex versions** (with updates; the install folder folded). Before a router is connected: one **Connect a router first** line with **Set up**, the switches shown but off-limits. |
 | **Help** | Plain questions only, each folded: *How does AI Router work?* (the guide), *How is this computer connected?* (endpoint, public address, key, Edit / Disconnect; before setup, a pointer to Overview's form), *How do I see accounts and usage?* (read token and manage key), *How do other people use this router?* (sharing through the public address), *How do I open the router's dashboard?* (address, private-network help, OmniRoute's tunnels for admins), *What does AI Router add to Paseo?* (the warning chip and the commands), *Why are long prompts shortened?* (compression), *Which router settings matter?*, *What else can OmniRoute do?*, and *Which plugins work well with AI Router?* (Connectors, Remote Editor, Tell Agent). |
@@ -51,6 +51,12 @@ place. Nothing was removed; it was folded.
 **Refresh** (0.20.0), in the page header, is the one way to check again: the router's health, Paseo's
 providers and the agent apps' latest versions. On Paseo 0.11 the window title follows the tab
 ("AI Router · Accounts").
+
+**Which computer** (0.21.0): the page header, the window title ("AI Router · team-server · Accounts")
+and the sidebar popover name the host, using Paseo's own name for it. Each computer has its own
+connection, so a computer that isn't connected says so by name ("This Mac (Localhost) isn't connected
+to a router yet"). The same switch-back offer shows in the sidebar popover, the chat's **Router down**
+chip (on Paseo 0.11 it opens a small popover) and the router-error card in a chat.
 
 **Old tab names still work.** A screen opened with `params.tab` (or a link inside the panel) may name
 any of the nine tabs before 0.18.0; each lands on its new tab with its fold-outs open: Traffic →

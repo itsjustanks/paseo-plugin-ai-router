@@ -25,6 +25,7 @@ export {
   handleSettingApply,
   handleSettings,
   handleStatus,
+  handleSwitchedAway,
   handleTunnelSet,
   handleTunnels,
   handleUsage,

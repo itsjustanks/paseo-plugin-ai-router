@@ -97,6 +97,31 @@ export function writeSyncState(state: SyncState): void {
   writeFileSync(syncStatePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
 }
 
+/**
+ * When someone moved built-in Claude or Codex to this computer's own sign-in
+ * because the router couldn't serve it: the panel then offers "Switch back
+ * to the router" once it can. Written only by that press and cleared by any
+ * switch back on. No secrets.
+ */
+export type SwitchedAway = { claude: string | null; codex: string | null };
+const switchedAwayPath = () => join(settingsDir(), "switched-away.json");
+export function readSwitchedAway(): SwitchedAway {
+  try {
+    const value = JSON.parse(readFileSync(switchedAwayPath(), "utf8")) as Partial<SwitchedAway>;
+    return { claude: typeof value.claude === "string" ? value.claude : null, codex: typeof value.codex === "string" ? value.codex : null };
+  } catch {
+    return { claude: null, codex: null };
+  }
+}
+export function writeSwitchedAway(app: keyof SwitchedAway, at: string | null): void {
+  const current = readSwitchedAway();
+  if (current[app] === at) return;
+  const next = { ...current, [app]: at };
+  if (!next.claude && !next.codex) return void rmSync(switchedAwayPath(), { force: true });
+  mkdirSync(settingsDir(), { recursive: true, mode: 0o700 });
+  writeFileSync(switchedAwayPath(), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+}
+
 /** Paseo's own thinking levels per model, as last read through its API, for the load-time sync (no Paseo handle yet). No secrets. */
 const nativeThinkingPath = () => join(settingsDir(), "native-thinking.json");
 export function readNativeThinking(): NativeThinking | null {

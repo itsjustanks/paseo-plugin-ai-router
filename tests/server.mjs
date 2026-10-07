@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -77,6 +77,9 @@ const meStatus = { apiKey: { id: "k1", name: "daemon-a" }, usage: { cost: { peri
 let routerDown = false;
 /** Flip to list OmniRoute combos in /v1/models (and describe them to a read token). */
 let withCombos = false;
+/** 0.21.0 switch tests: a slow model list (ms), and one with no Codex account. */
+let modelsDelayMs = 0;
+let withoutCodex = false;
 const COMBO_ENTRIES = [
   { id: "auto", owned_by: "combo", root: "auto" }, { id: "auto/coding", owned_by: "combo", root: "auto/coding" }, { id: "auto/fast", owned_by: "combo", root: "auto/fast" },
   { id: "team-review", owned_by: "combo", root: "team-review", display_name: "Team review", description: "Opus 5.5 first, GPT-6 Sol when Claude is busy" },
@@ -131,7 +134,9 @@ const router = createServer((req, res) => {
   const auth = req.headers.authorization ?? "";
   const send = (status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
   if (req.url === "/api/health/ping") return send(200, { status: "ok", timestamp: "t", latencyMs: 1 });
-  const listed = withCombos ? { ...catalogue, data: [...COMBO_ENTRIES, ...catalogue.data] } : catalogue;
+  const base = withoutCodex ? { ...catalogue, data: catalogue.data.filter((m) => m.owned_by !== "codex") } : catalogue;
+  const listed = withCombos ? { ...base, data: [...COMBO_ENTRIES, ...base.data] } : base;
+  if (req.url === "/v1/models" && modelsDelayMs) return void setTimeout(() => (auth === `Bearer ${KEY}` ? send(200, listed) : send(401, { error: { message: "Invalid API key" } })), modelsDelayMs);
   if (req.url === "/v1/models") return auth === `Bearer ${KEY}` ? send(200, listed) : send(401, { error: { message: "Invalid API key" } });
   // OmniRoute narrows the list itself for a plain key: only models with an active account.
   if (req.url === "/v1/models?configuredOnly=true") return auth === `Bearer ${KEY}` ? send(200, { ...listed, data: listed.data.filter((m) => m.owned_by !== "glm") }) : send(401, { error: { message: "Invalid API key" } });
@@ -786,7 +791,7 @@ try {
     t.restore();
     t.box.providers.codex = { enabled: true, order: 2 };
     const on = await t.mod.handleCodexReroute({ enabled: true }, { paseo: t.api });
-    assert.deepEqual(on, { ok: true, message: "Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart." });
+    assert.deepEqual(on, { ok: true, message: "Done: Codex now goes through the router, so new Codex chats use your team's accounts. Open chats switch when they restart." });
     const command = ["codex", "-c", "model_provider=ai-router", "-c", `model_providers.ai-router={name="AI Router",base_url="${LIVE}/v1",env_key="AI_ROUTER_API_KEY",wire_api="responses"}`];
     assert.deepEqual(t.box.patches.at(-1), { providers: { codex: { command } } }, "only the command; enabled and order stay");
     assert.deepEqual(t.box.providers.codex, { enabled: true, order: 2, command });
@@ -822,6 +827,114 @@ try {
     const patches = t.box.patches.length;
     for (const enabled of [true, false]) assert.match((await t.mod.handleCodexReroute({ enabled }, { paseo: t.api })).message, /has its own launch command/);
     assert.equal(t.box.patches.length, patches, "nothing written");
+    passed += 1;
+  }
+  {
+    // 0.21.0: The real entry shape on the main server (additionalModels, enabled) is Paseo's own, not someone else's command.
+    const t = await fresh("codex-real-shape", full);
+    t.restore();
+    t.box.providers.codex = { additionalModels: [], enabled: true };
+    const on = await t.mod.handleCodexReroute({ enabled: true }, { paseo: t.api });
+    assert.equal(on.ok, true, on.message);
+    assert.deepEqual(t.box.providers.codex.additionalModels, [], "its own fields stay");
+    assert.equal(t.box.providers.codex.enabled, true);
+    assert.equal(t.box.providers.codex.command.length, 5, "the 5-part command, as on the main server");
+    const status = await t.mod.handleStatus({}, { paseo: t.api });
+    assert.equal(status.codexReroute.state, "on", "the main server's switched-on entry reads as on, never as someone else's");
+    const off = await t.mod.handleCodexReroute({ enabled: false }, { paseo: t.api });
+    assert.equal(off.ok, true, off.message);
+    assert.match(off.message, /^Done: Codex now uses this computer's own sign-in/);
+    assert.deepEqual(t.box.providers.codex, { additionalModels: [], enabled: true }, "back exactly as it was");
+    passed += 1;
+  }
+  {
+    // A slow router never makes the switch outlast Paseo's 30 s plugin call: it answers within ~4 s and says the check was skipped.
+    const t = await fresh("codex-slow", full);
+    t.restore();
+    t.box.providers.codex = { additionalModels: [], enabled: true };
+    modelsDelayMs = 8_000;
+    const started = Date.now();
+    const on = await t.mod.handleCodexReroute({ enabled: true }, { paseo: t.api });
+    const took = Date.now() - started;
+    modelsDelayMs = 0;
+    assert.ok(took < 6_000, `answered in ${took} ms`);
+    assert.equal(on.ok, true, on.message);
+    assert.match(on.message, /slow to list its Codex accounts/);
+    assert.ok(Array.isArray(t.box.providers.codex.command), "switched anyway; the 5-minute sync checks again");
+    // A slow provider refresh in Paseo doesn't hold the answer either.
+    t.api.providers.refresh = () => new Promise((resolve) => setTimeout(resolve, 10_000));
+    const startedOff = Date.now();
+    const off = await t.mod.handleCodexReroute({ enabled: false }, { paseo: t.api });
+    assert.equal(off.ok, true);
+    assert.ok(Date.now() - startedOff < 5_000, "Paseo's refresh finishes in the background");
+    passed += 1;
+  }
+  {
+    // Failures say so plainly and change nothing.
+    const t = await fresh("codex-failures", full);
+    t.restore();
+    t.box.providers.codex = { additionalModels: [], enabled: true };
+    withoutCodex = true;
+    const none = await t.mod.handleCodexReroute({ enabled: true }, { paseo: t.api });
+    withoutCodex = false;
+    assert.deepEqual(none, { ok: false, message: "Not switched: the router has no working Codex account, so Codex would have nothing to use. Codex keeps its own sign-in." });
+    assert.equal(t.box.providers.codex.command, undefined, "nothing written");
+    const u = await fresh("codex-down", full);
+    u.restore();
+    u.box.providers.codex = { enabled: true };
+    routerDown = true;
+    const down = await u.mod.handleCodexReroute({ enabled: true }, { paseo: u.api });
+    routerDown = false;
+    assert.equal(down.ok, false);
+    assert.match(down.message, /^Not switched: the router's model list couldn't be read \(.+\)\. Codex keeps its own sign-in\.$/);
+    assert.equal(u.box.providers.codex.command, undefined, "nothing written");
+    const v = await fresh("codex-unconnected", { router: "omniroute", endpoint: null, apiKey: null, token: null });
+    v.restore();
+    assert.match((await v.mod.handleCodexReroute({ enabled: true }, { paseo: v.api })).message, /^Connect a router first: /);
+    passed += 1;
+  }
+  {
+    // Switched away because of a router problem: remembered (no secrets) until switched back.
+    const t = await fresh("switched-away", full);
+    t.restore();
+    t.box.providers.codex = { enabled: true, command: ["codex", "-c", "model_provider=ai-router", "-c", `model_providers.ai-router={name="AI Router",base_url="${LIVE}/v1",env_key="AI_ROUTER_API_KEY",wire_api="responses"}`] };
+    assert.equal((await t.mod.handleCodexReroute({ enabled: false, fallback: true }, { paseo: t.api })).ok, true);
+    await t.mod.handleSwitchedAway({ app: "claude", away: true });
+    let status = await t.mod.handleStatus({}, { paseo: t.api });
+    t.mod.StatusSchema.parse(status);
+    assert.deepEqual(status.switchedAway, { claude: true, codex: true });
+    assert.equal((await t.mod.handleCodexReroute({ enabled: true }, { paseo: t.api })).ok, true);
+    await t.mod.handleSwitchedAway({ app: "claude", away: false });
+    status = await t.mod.handleStatus({}, { paseo: t.api });
+    assert.deepEqual(status.switchedAway, { claude: false, codex: false }, "switching back clears it");
+    assert.equal(existsSync(join(t.dir, "plugin-settings", "ai-router", "switched-away.json")), false, "and leaves no file behind");
+    // A plain switch-off (not because of trouble) doesn't offer "Switch back".
+    assert.equal((await t.mod.handleCodexReroute({ enabled: false }, { paseo: t.api })).ok, true);
+    assert.equal((await t.mod.handleStatus({}, { paseo: t.api })).switchedAway.codex, false);
+    passed += 1;
+  }
+  {
+    // This computer's own sign-in, read from the files only (presence and expiry, never the secret), and its host name.
+    const claudeDir = mkdtempSync(join(tmpdir(), "ai-router-claude-"));
+    const codexDir = mkdtempSync(join(tmpdir(), "ai-router-codex-"));
+    const saved = { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CODEX_HOME: process.env.CODEX_HOME, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN };
+    Object.assign(process.env, { CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexDir });
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    const CLAUDE_SECRET = "sk-ant-oat-secret-claude";
+    const CODEX_SECRET = "codex-refresh-secret";
+    writeFileSync(join(claudeDir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: CLAUDE_SECRET, refreshToken: CLAUDE_SECRET, expiresAt: 0, refreshTokenExpiresAt: Date.now() - 3_600_000 } }));
+    writeFileSync(join(codexDir, "auth.json"), JSON.stringify({ auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: { id_token: "x", access_token: "y", refresh_token: CODEX_SECRET, account_id: "a" } }));
+    const t = await fresh("own-sign-in", full);
+    t.restore();
+    const status = await t.mod.handleStatus({}, { paseo: t.api });
+    t.mod.StatusSchema.parse(status);
+    for (const [name, value] of Object.entries(saved)) value === undefined ? delete process.env[name] : (process.env[name] = value);
+    if (process.platform !== "darwin") assert.equal(status.ownSignIn.claude.state, "expired", "a lapsed refresh token (as on the main server) is expired");
+    assert.equal(status.ownSignIn.codex.state, "ok", "a ChatGPT login Codex can renew");
+    assert.equal(JSON.stringify(status).includes(CLAUDE_SECRET) || JSON.stringify(status).includes(CODEX_SECRET), false, "no sign-in secret reaches the panel");
+    assert.equal(typeof status.computer.name, "string");
+    assert.equal(status.computer.mac, process.platform === "darwin");
     passed += 1;
   }
   {
@@ -1563,7 +1676,7 @@ try {
       const first = await t.mod.handleUpdates({});
       t.mod.UpdatesSchema.parse(first);
       assert.deepEqual([first.router.running, first.router.latest.version, first.router.state, first.router.latest.highlights], ["3.8.50", "3.8.52", "behind", ["Routing: better.", "Codex: reset credits."]], "the running version comes from the read-token health check");
-      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.20.0", "0.15.1", "ahead"]);
+      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.21.0", "0.15.1", "ahead"]);
       assert.deepEqual(github.map((u) => u.replace(/^https:\/\/api\.github\.com\/repos\//, "")).sort(), ["diegosouzapw/OmniRoute/releases?per_page=10", "itsjustanks/paseo-plugin-ai-router/releases?per_page=10"]);
       await t.mod.handleUpdates({});
       assert.equal(github.length, 2, "6 hours between checks");

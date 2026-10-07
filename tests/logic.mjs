@@ -693,6 +693,10 @@ try {
     assert.equal(T.screenTitle(undefined), "AI Router");
     assert.equal(T.screenTitle({ tab: "nonsense" }), "AI Router");
     assert.equal(T.screenTitle({ tab: "connection", open: "keys" }), "AI Router · Help", "an old tab id titles its new home");
+    // 0.21.0: the host, when known.
+    assert.equal(T.screenTitle({}, "team-server"), "AI Router · team-server");
+    assert.equal(T.screenTitle({ tab: "accounts" }, "team-server"), "AI Router · team-server · Accounts");
+    assert.equal(T.screenTitle({ tab: "models" }, null), "AI Router · Models");
     assert.deepEqual(T.resolveTarget(" Connection "), T.resolveTarget("connection"), "case and spaces from a URL don't matter");
     assert.deepEqual(T.resolveTarget("nowhere"), { tab: "overview", open: [] }, "an unknown id lands on Overview");
     assert.deepEqual(T.resolveTarget(null), { tab: "overview", open: [] });
@@ -913,6 +917,91 @@ try {
     assert.deepEqual(L.usageRequest("custom", { from: "2026-10-03", to: "2026-10-01" }, now), { error: "The end date is before the start date." });
     assert.deepEqual(L.usageRequest("custom", { from: "2026-02-30", to: "2026-03-01" }, now), { error: "Write both dates as YYYY-MM-DD." }, "no 30 February");
     assert.deepEqual(L.usageRequest("custom", { from: "1/10/2026", to: "" }, now), { error: "Write both dates as YYYY-MM-DD." });
+  });
+
+  // ------------------------------------------- 0.21.0: routing switches, own sign-in, host
+  const load = async (name) => {
+    const code = ts.transpileModule(readFileSync(new URL(`../apps/paseo/shared/${name}.ts`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+    writeFileSync(join(staging, `${name}.mjs`), code);
+    return import(join(staging, `${name}.mjs`));
+  };
+  const R = await load("routing");
+  const Ho = await load("host");
+  const NOW = Date.parse("2026-10-07T00:00:00Z");
+  const jwt = (exp) => `h.${Buffer.from(JSON.stringify({ exp })).toString("base64url")}.s`;
+
+  check("switch words: what on and off mean", () => {
+    assert.deepEqual(R.switchWords("claude", true), { title: "Claude · through the router", state: "On", meaning: "Uses your team's accounts on the router" });
+    assert.deepEqual(R.switchWords("codex", false), { title: "Codex · through the router", state: "Off", meaning: "Uses this computer's own sign-in" });
+  });
+
+  check("own sign-in: Claude", () => {
+    const at = (oauth) => R.claudeSignIn({ file: { claudeAiOauth: oauth }, keychain: false, env: {}, now: NOW });
+    // The main server, 2026-10-07: expiresAt 0 and a refresh token that lapsed 19 days earlier.
+    assert.equal(at({ accessToken: "a", refreshToken: "r", expiresAt: 0, refreshTokenExpiresAt: NOW - 455 * 3_600_000 }).state, "expired");
+    assert.equal(at({ accessToken: "a", refreshToken: "r", expiresAt: NOW - 1, refreshTokenExpiresAt: NOW + 86_400_000 }).state, "ok", "an expired access token renews by itself");
+    assert.equal(at({ accessToken: "a", refreshToken: "r" }).state, "ok", "no expiry given: trust it");
+    assert.equal(at({ accessToken: "a", expiresAt: NOW - 1 }).state, "expired", "no refresh token and run out");
+    assert.equal(R.claudeSignIn({ file: null, keychain: false, env: {}, now: NOW }).state, "missing");
+    assert.equal(R.claudeSignIn({ file: null, keychain: true, env: {}, now: NOW }).state, "ok", "a Mac keeps it in the keychain");
+    assert.equal(R.claudeSignIn({ file: null, keychain: false, env: { ANTHROPIC_API_KEY: "k" }, now: NOW }).state, "ok");
+    assert.equal(R.claudeSignIn({ file: null, keychain: false, env: { CLAUDE_CODE_OAUTH_TOKEN: "t" }, now: NOW }).state, "ok");
+    const said = JSON.stringify(at({ accessToken: "sk-ant-secret", refreshToken: "sk-ant-secret" }));
+    assert.equal(said.includes("sk-ant-secret"), false, "never repeats a secret");
+  });
+
+  check("own sign-in: Codex", () => {
+    assert.equal(R.codexSignIn({ file: { tokens: { access_token: jwt(NOW / 1000 - 60), refresh_token: "r" } }, now: NOW }).state, "ok", "a ChatGPT login it can renew");
+    assert.equal(R.codexSignIn({ file: { OPENAI_API_KEY: "sk-x" }, now: NOW }).state, "ok");
+    assert.equal(R.codexSignIn({ file: { OPENAI_API_KEY: null, tokens: { access_token: jwt(NOW / 1000 - 60) } }, now: NOW }).state, "expired");
+    assert.equal(R.codexSignIn({ file: { tokens: { access_token: jwt(NOW / 1000 + 600) } }, now: NOW }).state, "ok");
+    assert.equal(R.codexSignIn({ file: null, now: NOW }).state, "missing");
+    assert.equal(R.codexSignIn({ file: { tokens: {} }, now: NOW }).state, "missing");
+  });
+
+  check("router trouble: what to offer", () => {
+    const ok = { state: "ok", detail: "Codex's own ChatGPT login" };
+    const missing = { state: "missing", detail: "Codex isn't signed in on this computer" };
+    const expired = { state: "expired", detail: "x" };
+    const healthy = { up: true, paused: [] };
+    const down = { up: false, paused: [] };
+    const paused = { up: true, paused: ["codex"] };
+    const offer = (input) => R.routingOffer({ app: "codex", routed: true, health: healthy, signIn: ok, switchedAway: false, ...input });
+    // Router down / paused, own sign-in present: one press, asked first.
+    const own = offer({ health: down });
+    assert.equal(own.kind, "use-own");
+    assert.equal(own.label, "Use this computer's own sign-in for Codex");
+    assert.equal(own.problem, "The router isn't answering");
+    assert.match(own.question, /Codex's own ChatGPT login/);
+    assert.match(own.question, /Nothing switches back by itself/);
+    assert.equal(offer({ health: paused }).kind, "use-own");
+    assert.equal(offer({ health: paused }).problem, "The router has paused Codex");
+    assert.equal(R.routingOffer({ app: "claude", routed: true, health: paused, signIn: ok, switchedAway: false }).kind, "none", "Codex paused doesn't touch Claude");
+    // No usable sign-in here: say so, never offer a switch that would break chats.
+    assert.equal(offer({ health: down, signIn: missing }).kind, "no-own");
+    assert.match(offer({ health: down, signIn: missing }).text, /^The router isn't answering, and this computer has no Codex sign-in of its own/);
+    assert.match(offer({ health: paused, signIn: expired }).text, /Codex's own sign-in on this computer has expired/);
+    assert.equal(offer({ health: down, signIn: null }).kind, "none", "sign-in not known yet: nothing rather than a guess");
+    // Healthy: nothing, unless it was switched away for trouble.
+    assert.equal(offer({}).kind, "none");
+    assert.equal(offer({ routed: false }).kind, "none", "off by choice: no nagging");
+    const back = offer({ routed: false, switchedAway: true });
+    assert.equal(back.kind, "back");
+    assert.equal(back.label, "Switch back to the router");
+    assert.equal(offer({ routed: false, switchedAway: true, health: down }).kind, "none", "not while it's still down");
+    assert.equal(offer({ routed: false, switchedAway: true, health: paused }).kind, "none", "not while Codex is still paused");
+    assert.equal(offer({ routed: false, switchedAway: true, health: null }).kind, "none", "not before a health check");
+    assert.equal(offer({ health: null }).kind, "none", "unknown health is not a problem");
+  });
+
+  check("host naming", () => {
+    assert.equal(Ho.hostName("team-server", { name: "box-1" }), "team-server", "Paseo's name for the host first");
+    assert.equal(Ho.hostName("  ", { name: "box-1" }), "box-1");
+    assert.equal(Ho.hostName(undefined, null), null);
+    assert.equal(Ho.withHost("AI Router", "team-server"), "AI Router · team-server");
+    assert.equal(Ho.withHost("AI Router", null), "AI Router");
+    assert.match(Ho.notConnectedLine("Localhost", { mac: true }), /^This Mac \(Localhost\) isn't connected to a router yet\./);
+    assert.match(Ho.notConnectedLine(null, { mac: false }), /^This computer isn't connected to a router yet\./);
   });
 
   console.log(`logic: ${passed} checks passed`);

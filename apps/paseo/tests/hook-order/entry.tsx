@@ -14,7 +14,7 @@ import { RouterSettingsCard } from "../../client/insights";
 import { UsageTab } from "../../client/analytics";
 import { TabBar } from "../../client/navigation";
 import type { GoTarget } from "../../shared/tabs";
-import { createAlertStore, makeAlertChip, registerRouterAlerts } from "../../client/alerts";
+import { createAlertStore, makeAlertChip, makeAlertPopover, registerRouterAlerts } from "../../client/alerts";
 import { peekPendingMessage, registerRouterCommands, slashJob, takePendingMessage } from "../../client/commands";
 import { forgetRouterErrorReads, makeRouterErrorCard, registerRouterErrors, transformRouterError } from "../../client/router-errors";
 import { followAgents } from "../../client/agents";
@@ -73,7 +73,27 @@ const errorCard = (fixture: string, text: string, routed: boolean | null = true)
   return <Card {...base} layout={wide} agentId="agent-7" timestamp={new Date(2026, 9, 6, 16, 40, 0)} item={{ type: "plugin", kind: "router-error", version: 1, data: { message: text, source: "assistant" } }} />;
 };
 
+/** 0.21.0: the chat chip's popover on a 0.11 app, with the switch-back offer. */
+const alertPopover = (fixture: string) => () => {
+  setStatusFixture(fixture);
+  const store = createAlertStore();
+  store.set("agent-7", "ws-1");
+  store.setAlerts([ROUTER_DOWN]);
+  const Popover = makeAlertPopover(store, () => openedAgents.push("router:open"));
+  return <Popover {...base} layout={wide} workspaceId="ws-1" agentId="agent-7" close={() => {}} />;
+};
+
 export const mounts: Record<string, () => React.ReactElement> = {
+  // The routing switches and the switch-back offer (0.21.0)
+  "routing: down, Codex offer, Claude sign-in expired": surface("down, codex on", wide),
+  "routing: down, Codex own sign-in asks first": surface("down, codex on", wide),
+  "routing: down, Codex own sign-in confirmed": surface("down, codex on", narrow),
+  "routing: Codex paused, no own sign-in": surface("codex paused, no sign-in", wide),
+  "routing: router back, switch back": surface("router back", wide),
+  "routing: Overview Codex switch asks first": surface("routing on", wide),
+  "routing: Overview Codex switch confirmed": surface("routing on", narrow),
+  "routing: chip popover offer": alertPopover("down, codex on"),
+  "routing: error card offer (Claude paused)": errorCard("claude paused", ROUTER_ERRORS.paused),
   // Router errors in a chat (0.19.0)
   "router error card (Claude paused, manage key)": errorCard("claude paused", ROUTER_ERRORS.paused),
   "router error card (resume asks first)": errorCard("claude paused", ROUTER_ERRORS.paused),
@@ -217,10 +237,15 @@ export const presses: Record<string, string[]> = {
   "connection tab (editing)": ["Edit"],
   "models tab (testing one)": ["Test Opus 5.5"],
   "providers tab (tidy up preview)": ["Tidy up…"],
-  "providers tab (re-route Claude asks first)": ["Send Claude through the router"],
-  "providers tab (re-route Claude confirmed)": ["Send Claude through the router", "Yes, send Claude through the router"],
-  "providers tab (own sign-in asks first)": ["Send Claude through the router"],
-  "providers tab (own sign-in asks first, cancel)": ["Send Claude through the router", "Cancel"],
+  "providers tab (re-route Claude asks first)": ["Claude · through the router"],
+  "providers tab (re-route Claude confirmed)": ["Claude · through the router", "Yes, send Claude through the router"],
+  "providers tab (own sign-in asks first)": ["Claude · through the router"],
+  "providers tab (own sign-in asks first, cancel)": ["Claude · through the router", "Cancel"],
+  "routing: down, Codex own sign-in asks first": ["Use this computer's own sign-in for Codex"],
+  "routing: down, Codex own sign-in confirmed": ["Use this computer's own sign-in for Codex", "Yes, use own sign-in"],
+  "routing: router back, switch back": ["Switch back to the router", "Yes, switch back"],
+  "routing: Overview Codex switch asks first": ["Codex · through the router"],
+  "routing: Overview Codex switch confirmed": ["Codex · through the router", "Yes, send Codex through the router"],
   "settings tab (admin, apply recommended)": ["Apply recommended…", "What each engine does"],
   "usage tab (30 days, narrow)": ["Last 30 days"],
   "usage tab (24 hours)": ["Today"],
@@ -234,9 +259,9 @@ export const presses: Record<string, string[]> = {
   "overview (last agent links to Activity)": ["See every chat in Recent traffic"],
   "overview (hide the MCP card)": ["Hide the Connectors line"],
   "overview (guide opened)": ["New to AI Router? How it works"],
-  "providers tab (re-route Codex asks first)": ["Send built-in Codex through the router"],
-  "providers tab (re-route Codex confirmed)": ["Send built-in Codex through the router", "Yes, send Codex through the router"],
-  "providers tab (Codex back on own sign-in asks first)": ["Send built-in Codex through the router"],
+  "providers tab (re-route Codex asks first)": ["Codex · through the router"],
+  "providers tab (re-route Codex confirmed)": ["Codex · through the router", "Yes, send Codex through the router"],
+  "providers tab (Codex back on own sign-in asks first)": ["Codex · through the router"],
   "providers tab (agent apps asks first)": ["Update to 0.160.0"],
   "tips tab (admin, two installed, copy one)": ["Copy the Tell Agent install command"],
   "settings tab (MCP line off)": ["Hide the Connectors line", "Help", "What does AI Router add to Paseo?", "Show the Connectors suggestion on Overview again"],

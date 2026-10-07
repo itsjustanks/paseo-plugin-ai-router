@@ -47,8 +47,13 @@ export function resolveTarget(id: string | null | undefined, extra?: string | nu
 /** Anywhere the panel can send someone: a tab, or an old tab id that maps to one. */
 export type GoTarget = TabId | LegacyTabId;
 
-/** The screen's header and window title (Paseo 0.11): "AI Router" on Overview, "AI Router · Accounts" on a tab. */
-export function screenTitle(params: Record<string, string> | undefined): string {
+/**
+ * The screen's header and window title (Paseo 0.11), naming the host when
+ * known (0.21.0): "AI Router · team-server" on Overview, "AI Router ·
+ * team-server · Accounts" on a tab.
+ */
+export function screenTitle(params: Record<string, string> | undefined, host: string | null = null): string {
   const { tab } = resolveTarget(params?.tab);
-  return tab === "overview" ? "AI Router" : `AI Router · ${TAB_LABELS[tab]}`;
+  const base = host ? `AI Router · ${host}` : "AI Router";
+  return tab === "overview" ? base : `${base} · ${TAB_LABELS[tab]}`;
 }

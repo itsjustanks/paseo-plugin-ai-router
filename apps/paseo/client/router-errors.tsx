@@ -7,6 +7,7 @@ import { accountReset, chatRoute, status, type Status } from "../shared/contract
 import { resetLabel, resetQuestion } from "../shared/logic";
 import { isOurs, matchRouterError, routerErrorWords } from "../shared/router-errors";
 import { providerLabel } from "../shared/routers/omniroute/parsers";
+import { OfferBoundary, RoutingOffers } from "./routing";
 import { Disclosure, HostIcon, Link, Note, RADIUS, Row, SPACE, TYPE, tint, toneColor } from "./ui";
 
 /**
@@ -169,6 +170,11 @@ export function makeRouterErrorCard(openRouter: () => void) {
           </Row>
         )}
         {reply ? <Note theme={theme} tone={reply.ok ? "success" : "danger"}>{reply.text}</Note> : null}
+        {(error.kind === "router-down" || error.kind === "paused") && data && !data.problem ? (
+          <OfferBoundary>
+            <RoutingOffers theme={theme} data={data} compact troubleOnly onChanged={forgetRouterErrorReads} />
+          </OfferBoundary>
+        ) : null}
         <Disclosure theme={theme} quiet label="Details" openLabel="Hide details">
           <Text selectable style={{ ...TYPE.mono, color: theme.colors.foregroundMuted }}>{message}</Text>
         </Disclosure>

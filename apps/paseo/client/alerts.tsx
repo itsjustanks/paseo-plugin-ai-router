@@ -1,11 +1,14 @@
-import React, { useSyncExternalStore } from "react";
-import { Text } from "react-native";
+import React, { useSyncExternalStore, type ComponentType } from "react";
+import { Text, View } from "react-native";
+import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginClientContext, PluginComposerPillProps } from "@getpaseo/plugin/client";
 import { alerts as alertsRpc } from "../shared/contracts";
 import { alertChipFace, type AlertChipFace, type ChatAlert } from "../shared/alerts";
 import { supportsButtonPills } from "../shared/host-features";
 import { followAgents, type FollowedAgent } from "./agents";
-import { HostIcon, toneColor } from "./ui";
+import { useStatus } from "./quick";
+import { OfferBoundary, RoutingOffers } from "./routing";
+import { Button, HostIcon, SPACE, TYPE, toneColor } from "./ui";
 
 // ------------------------------------------------------------------ store
 //
@@ -75,13 +78,16 @@ const ALERT_POLL_CAP_MS = 15 * 60_000;
  * Paseo 0.8.0 stable and later take a chip as a button whose label the plugin
  * pushes; 0.8.0-beta.1 takes a React component. Chosen at runtime (0.15.1).
  */
+type ChipContentProps = { theme: PluginTheme; agentId?: string; close(): void };
+type ChipBehavior = { kind: "action"; onPress(): void } | { kind: "popover"; Content: ComponentType<ChipContentProps> };
 type ChipButtonsClient = {
   addComposerPill(contribution: {
     id: string;
     workspaceId: string;
     agentId: string;
-    button: { title: string; icon: string; label?: string; behavior: { kind: "action"; onPress(): void } };
+    button: { title: string; icon: string; label?: string; behavior: ChipBehavior };
   }): { update(patch: { label?: string; icon?: string }): void; remove(): void };
+  addScreen?: unknown;
 };
 type ChipHandle = { face: string; update(face: AlertChipFace): void; remove(): void };
 
@@ -99,6 +105,9 @@ export function registerRouterAlerts(client: PluginClientContext, store: AlertSt
   const pills = new Map<string, ChipHandle>();
   const buttons = supportsButtonPills(client);
   const ChipBody = buttons ? null : makeAlertChip(store);
+  // 0.21.0, on Paseo 0.11 apps (button popovers, found by `addScreen`): pressing the chip opens a small
+  // popover with what's wrong, the one-press way to this computer's own sign-in, and "Open AI Router".
+  const Popover = buttons && typeof (client as unknown as ChipButtonsClient).addScreen === "function" ? makeAlertPopover(store, openRouter) : null;
   let stopped = false;
   let failures = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -109,7 +118,7 @@ export function registerRouterAlerts(client: PluginClientContext, store: AlertSt
         id: CHIP_ID,
         workspaceId,
         agentId,
-        button: { title: CHIP_TITLE, icon: face.icon, label: face.label, behavior: { kind: "action", onPress: openRouter } },
+        button: { title: CHIP_TITLE, icon: face.icon, label: face.label, behavior: Popover ? { kind: "popover", Content: Popover } : { kind: "action", onPress: openRouter } },
       });
       const handle: ChipHandle = {
         face: faceKey(face),
@@ -254,6 +263,26 @@ export function makeAlertChip(store: AlertStore) {
           {face.label}
         </Text>
       </>
+    );
+  };
+}
+
+/** The chip's popover (0.21.0): the problem in a sentence, the switch-back offer when there is one, and "Open AI Router". */
+export function makeAlertPopover(store: AlertStore, openRouter: () => void) {
+  return function RouterAlertPopover({ theme, agentId, close }: ChipContentProps) {
+    const alert = useAlert(store, agentId ?? "");
+    const [data, reread] = useStatus();
+    return (
+      <View style={{ padding: SPACE.md, gap: SPACE.row, maxWidth: 380 }}>
+        <Text style={{ ...TYPE.item, color: theme.colors.foreground }}>{alert?.text ?? "AI Router"}</Text>
+        {alert ? <Text style={{ ...TYPE.secondary, color: theme.colors.foreground }}>{alert.detail}</Text> : null}
+        {data && !data.problem ? (
+          <OfferBoundary>
+            <RoutingOffers theme={theme} data={data} onChanged={reread} compact />
+          </OfferBoundary>
+        ) : null}
+        <Button theme={theme} label="Open AI Router" icon="Route" onPress={() => { close(); openRouter(); }} />
+      </View>
     );
   };
 }

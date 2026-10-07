@@ -22,6 +22,9 @@ import { AccountsTab, YourAccess } from "./insights";
 import { McpCard } from "./mcp";
 import { TabBar } from "./navigation";
 import { CodexExtras, PROVIDERS_KEY, RoutingCard, TidyUp, codexExtrasOn, useTidyCount } from "./providers";
+import { ClaudeSwitch, CodexSwitch, RoutingOffers } from "./routing";
+import { noteHost } from "./host";
+import { hostName, notConnectedLine } from "../shared/host";
 import { syncScreenTab } from "./native";
 import { STATUS_KEY, errorText, type Message } from "./setup";
 import { WhatsNew, useUpdates } from "./updates";
@@ -66,12 +69,15 @@ function accountKinds(models: Status["aiProvider"]["models"]): string[] {
  * Paseo, what goes through the router, versions), the last chat and the two
  * main buttons. The teaching lives in one "How it works" disclosure under it,
  * open until setup is done; recent traffic is one fold-out below that.
- * Sending built-in Claude or Codex through the router lives on Models, where
- * it asks first.
+ * 0.21.0: the card also holds the two routing switches (built-in Claude and
+ * Codex, each asking first; Models has the same two) and, while the router
+ * can't serve them, the one-press way back to this computer's own sign-in.
  */
 function OverviewTab({ theme, data, compact, go, say, openAgent, initialNews = false }: { theme: Theme; data: Status; compact: boolean; go: Go; say: Say; openAgent: OpenAgent; initialNews?: boolean }) {
   const settings = useSettings(routingSettings);
   const sync = useSync(say);
+  const queryClient = useQueryClient();
+  const changed = () => void queryClient.invalidateQueries({ queryKey: ["ai-router"] });
   const name = ROUTERS[data.connection.router].label;
   const news = useUpdates();
   const [showNews, setShowNews] = useState(initialNews);
@@ -87,7 +93,6 @@ function OverviewTab({ theme, data, compact, go, say, openAgent, initialNews = f
   const router = paused.length
     ? { value: `${health.label.split(" · ")[0]} · ${paused.join(", ")} paused`, tone: "danger" as const, hint: `${paused.join(" and ")} requests fail until ${name} retries`, action: data.tier === "operator" || data.tier === "admin" ? { label: "Accounts", onPress: () => go("accounts") } : null }
     : { value: health.label, tone: health.tone, hint: null, action: null };
-  const rerouted = [claude ? "Claude" : null, codex ? "Codex" : null].filter((entry): entry is string => entry !== null);
   // One primary button: the next thing to do, else the dashboard. While the router is down, the hero's Open Connection is it.
   const next = down ? null : !present ? "sync" : "dashboard";
   const last = data.lastSession;
@@ -106,20 +111,26 @@ function OverviewTab({ theme, data, compact, go, say, openAgent, initialNews = f
         {down ? (
           <>
             <Note theme={theme}>{data.health?.error ?? "No answer."}</Note>
-            <Note theme={theme}>{`Until it answers, AI Router chats can't start${claude ? ", re-routed Claude uses its own sign-in" : ""}${codex ? ", re-routed Codex can't answer" : ""}.`}</Note>
+            <Note theme={theme}>{`Until it answers, AI Router chats can't start${claude ? (data.ownSignIn && data.ownSignIn.claude.state !== "ok" ? ", and new Claude chats have no working sign-in of their own here" : ", new Claude chats use this computer's own sign-in") : ""}${codex ? ", re-routed Codex can't answer" : ""}.`}</Note>
             <Row>
               <Button theme={theme} label="Check the connection" icon="Link" primary onPress={() => go("connection")} />
             </Row>
             <Divider theme={theme} />
           </>
         ) : null}
+        <RoutingOffers theme={theme} data={data} onChanged={changed} />
         <View style={{ gap: SPACE.xs }}>
           {!down ? <StatusLine theme={theme} label="Router" value={router.value} tone={router.tone} hint={router.hint} action={router.action} /> : null}
           <StatusLine theme={theme} label="Models in Paseo" value={present ? `${modelCount} models` : "Not synced"} tone={!present ? "neutral" : drift ? "warning" : "success"} hint={drift ? `${drift} out of step with ${name}` : null} action={{ label: "Models", onPress: () => go("models") }} />
-          <StatusLine theme={theme} label="Through the router" value={rerouted.length ? `Built-in ${rerouted.join(" and ")}` : "AI Router chats"} tone={rerouted.length ? "success" : "neutral"} hint={rerouted.length ? null : "built-in Claude and Codex use their own sign-in"} action={{ label: "Change", onPress: () => go("models") }} />
           {versions ? <StatusLine theme={theme} label="Versions" value={versions.value} tone={versions.tone} hint={versions.hint} action={{ label: showNews ? "Hide" : "What's new", onPress: () => setShowNews(!showNews) }} /> : null}
         </View>
         {showNews && news.data ? <WhatsNew theme={theme} data={news.data} say={say} /> : null}
+        <Divider theme={theme} />
+        <View style={{ gap: SPACE.row }}>
+          <ClaudeSwitch theme={theme} data={data} configured onChanged={changed} />
+          <CodexSwitch theme={theme} data={data} configured onChanged={changed} />
+        </View>
+        <Divider theme={theme} />
         {last ? (
           <Pressable accessibilityRole="link" accessibilityLabel="See every chat in Recent traffic" onPress={() => go("activity")} style={{ flexDirection: "row", alignItems: "flex-start", gap: SPACE.sm }}>
             {HostIcon ? <View style={{ paddingTop: SPACE.hair }}><HostIcon name="Bot" size={16} color={toneColor(theme, last.routed ? "success" : "warning")} /></View> : null}
@@ -319,7 +330,7 @@ function ModelsTab({ theme, data, configured, go, say }: { theme: Theme; data: S
           </AccordionItem>
         ) : null}
         <AccordionItem theme={theme} id="codex-extras" icon="SquareTerminal" title="Codex extras" summary={extrasOn ? "One is on" : "Optional: built-in Codex through the router, or a second Codex"} open={extrasOn}>
-          <CodexExtras theme={theme} data={data} say={say} />
+          <CodexExtras theme={theme} data={data} configured={configured} say={say} />
         </AccordionItem>
         <AccordionItem theme={theme} id="tidy" icon="Sparkles" title="Tidy up Paseo's provider menu" summary={tidyCount ? `${tidyCount} can't run here` : "Turn off providers that can't run here"}>
           <TidyUp theme={theme} say={say} />
@@ -412,17 +423,20 @@ function useRefresh(say: Say) {
 }
 
 /** The page header: the plugin's icon and name, one line on the connection with a coloured dot, and Refresh. */
-function PageHeader({ theme, data, configured, say }: { theme: Theme; data: Status; configured: boolean; say: Say }) {
+function PageHeader({ theme, data, configured, host, say }: { theme: Theme; data: Status; configured: boolean; host: string | null; say: Say }) {
   const refresh = useRefresh(say);
   const dot = !configured ? theme.colors.foregroundMuted : data.health?.up === false ? theme.colors.statusDanger : data.health?.up ? theme.colors.statusSuccess : theme.colors.foregroundMuted;
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.row }}>
       <IconBadge theme={theme} name="Route" size={46} />
       <View style={{ flex: 1, gap: SPACE.hair }}>
-        <Text accessibilityRole="header" style={{ ...TYPE.page, color: theme.colors.foreground }}>AI Router</Text>
+        <Text accessibilityRole="header" style={{ ...TYPE.page, color: theme.colors.foreground }}>
+          AI Router
+          {host ? <Text style={{ fontWeight: "400", color: theme.colors.foregroundMuted }}>{` · ${host}`}</Text> : null}
+        </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.sm }}>
           {configured ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
-          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flexShrink: 1 }}>{configured ? `Connected to ${ROUTERS[data.connection.router].label} · ${TIER_LABELS[data.tier]}` : "Not connected yet. Routing stays off until setup is done and you turn it on."}</Text>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flexShrink: 1 }}>{configured ? `Connected to ${ROUTERS[data.connection.router].label} · ${TIER_LABELS[data.tier]}` : notConnectedLine(host, data.computer)}</Text>
         </View>
       </View>
       <Link theme={theme} label={refresh.isPending ? "Refreshing…" : "Refresh"} accessibilityLabel="Refresh AI Router" onPress={() => { if (!refresh.isPending) refresh.mutate(); }} />
@@ -438,7 +452,8 @@ type Place = { tab: TabId; open: readonly string[]; visit: number };
  * fold-outs by id. `initialTab`, `initialRange` and `initialNews` let tests and
  * the preview open a view directly; Paseo does not pass them.
  */
-export function AiRouterSurface({ theme, layout, navigation, params, initialTab, initialRange, initialNews }: PluginSurfaceProps & { params?: Record<string, string>; initialTab?: GoTarget; initialRange?: AnalyticsRangeId; initialNews?: boolean }) {
+export function AiRouterSurface({ theme, host, layout, navigation, params, initialTab, initialRange, initialNews }: PluginSurfaceProps & { params?: Record<string, string>; initialTab?: GoTarget; initialRange?: AnalyticsRangeId; initialNews?: boolean }) {
+  noteHost(host);
   const callStatus = useRpc(status);
   const [message, setMessage] = useState<Message>(null);
   const deepLink = initialTab ?? params?.tab ?? null;
@@ -491,7 +506,7 @@ export function AiRouterSurface({ theme, layout, navigation, params, initialTab,
   const openAgent: OpenAgent = navigation ? (agentId) => navigation.openAgent({ agentId }) : null;
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding: pad, paddingBottom: SPACE.section * 2, maxWidth: 980, width: "100%", alignSelf: "center" }}>
-      <PageHeader theme={theme} data={data} configured={configured} say={setMessage} />
+      <PageHeader theme={theme} data={data} configured={configured} host={hostName(host?.label, data.computer)} say={setMessage} />
       <TabBar theme={theme} compact={layout.compact} active={tab} onSelect={go} />
       {message ? <MessageBar theme={theme} tone={message.tone} text={message.text} /> : null}
       <FoldsContext.Provider value={folds}>

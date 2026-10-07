@@ -6,6 +6,7 @@ import { openMainScreen, registerMainScreen } from "./client/native";
 import { makeQuickActions, makeStatusTrailing } from "./client/quick";
 import { AiRouterSurface } from "./client/surface";
 import { ensure } from "./shared/contracts";
+import { currentHost } from "./client/host";
 import { screenTitle } from "./shared/tabs";
 
 const MAIN_SCREEN = "ai-router";
@@ -15,7 +16,8 @@ export default function contribute(client: PluginClientContext) {
   // On 0.11 the row also carries a status dot; pressing it opens quick actions (open, dashboard, sync).
   // No sidebar footer item as well: the row's dot already says whether the router works.
   // 0.20.0: the window title follows the tab ("AI Router · Accounts").
-  registerMainScreen(client, { id: MAIN_SCREEN, title: "AI Router", screenTitle, icon: "Route", Component: AiRouterSurface, Trailing: makeStatusTrailing(makeQuickActions(MAIN_SCREEN)) });
+  // 0.21.0: and names the host ("AI Router · team-server · Accounts").
+  registerMainScreen(client, { id: MAIN_SCREEN, title: "AI Router", screenTitle: (params) => screenTitle(params, currentHost()), icon: "Route", Component: AiRouterSurface, Trailing: makeStatusTrailing(makeQuickActions(MAIN_SCREEN)) });
   // The app just connected to this host: let the server check the AI Router provider now,
   // with a Paseo handle, instead of waiting until someone opens the panel or starts an agent.
   void client.rpc(ensure, {}).catch(() => undefined);

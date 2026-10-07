@@ -281,9 +281,17 @@ for (const value of Object.values(fixtures)) {
   f.codexRouter ??= { present: false, modelCount: 0 };
   f.codexReroute ??= { state: "off", baseUrl: null, current: false };
   f.plugins ??= { installed: [] };
+  f.computer ??= { name: "test-host", mac: false };
+  f.ownSignIn ??= { claude: { state: "ok", detail: "Claude Code's own login" }, codex: { state: "ok", detail: "Codex's own ChatGPT login" } };
+  f.switchedAway ??= { claude: false, codex: false };
   // The last comparison with OmniRoute, as the fleet measured it: 734 listed, the filter keeps one per model.
   if (f.aiProvider.present && f.health?.up && f.aiProvider.check === undefined) f.aiProvider.check = { at: now, ok: true, message: null, upstream: f.tier === "basic" ? 212 : 734, kept: f.aiProvider.modelCount, missing: [], extra: [] };
 }
+// 0.21.0: router trouble with Codex re-routed, and whether this computer has its own sign-in.
+const routerDown = fixtures["router down"] as Record<string, any>;
+fixtures["down, codex on"] = { ...routerDown, codexReroute: { state: "on", baseUrl: "http://10.0.0.5:20128/v1", current: true }, ownSignIn: { claude: { state: "expired", detail: "Claude Code's own login has expired; run `claude` here and sign in again" }, codex: { state: "ok", detail: "Codex's own ChatGPT login" } } };
+fixtures["codex paused, no sign-in"] = { ...(fixtures["routing on"] as Record<string, any>), health: { ...connected.health, paused: ["codex"] }, codexReroute: { state: "on", baseUrl: "http://10.0.0.5:20128/v1", current: true }, ownSignIn: { claude: { state: "ok", detail: "Claude Code's own login" }, codex: { state: "missing", detail: "Codex isn't signed in on this computer" } } };
+fixtures["router back"] = { ...(fixtures["routing on"] as Record<string, any>), switchedAway: { claude: false, codex: true } };
 // Admin re-routed built-in Codex; "drift" lacks two models OmniRoute now offers.
 (fixtures.admin as Record<string, any>).codexReroute = { state: "on", baseUrl: "http://10.0.0.5:20128/v1", current: true };
 fixtures.drift = { ...(fixtures["routing on"] as Record<string, any>) };
@@ -515,7 +523,8 @@ export function useRpc(contract: any) {
       "providers.list": () => ({ ...(providersFixtures.ok as object), codexAccounts: status.tier === "basic" ? null : codexFixture }),
       clis: () => (clisFixture === "updating" ? { ...(clisFixtures.mac as object), job: (clisFixtures.updating as { job: unknown }).job } : clisFixtures[clisFixture]),
       "clis.update": () => ({ ok: true, message: "Updating Codex…" }),
-      "codex-reroute": () => ({ ok: true, message: (input as { enabled: boolean }).enabled ? "Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart." : "Built-in Codex back on its own sign-in for new chats. Open chats switch when they restart." }),
+      "codex-reroute": () => ({ ok: true, message: (input as { enabled: boolean }).enabled ? "Done: Codex now goes through the router, so new Codex chats use your team's accounts. Open chats switch when they restart." : "Done: Codex now uses this computer's own sign-in for new chats. Open chats switch when they restart." }),
+      "switched-away": () => ({ ok: true, message: "Noted." }),
       tunnels: () => (manage ? tunnelsFixtures.ok : { state: "no-manage-key", message: "OmniRoute only shows its tunnels to a manage key.", tunnels: [] }),
       "model.test": () => ({ ok: true, message: `${(input as { model: string }).model} answered in 640 ms` }),
       activity: () => activityAnswer(status, (input ?? {}) as ActivityInput),

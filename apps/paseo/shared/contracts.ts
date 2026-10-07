@@ -21,6 +21,8 @@ export const HealthSchema = z.object({
   paused: z.array(z.string()),
 });
 
+const OwnSignInSchema = z.object({ state: z.enum(["ok", "expired", "missing"]), detail: z.string() });
+
 export const StatusSchema = z.object({
   connection: z.object({
     source: z.enum(["saved", "env", "none"]),
@@ -91,6 +93,12 @@ export const StatusSchema = z.object({
   plugins: z.object({ installed: z.array(z.string()) }),
   /** Paseo 0.11+ daemons: the router's accounts are also cards on Paseo's own Usage page. */
   nativeUsage: z.boolean().optional(),
+  /** 0.21.0: this daemon's computer, for "This Mac isn't connected to a router". */
+  computer: z.object({ name: z.string(), mac: z.boolean() }).optional(),
+  /** 0.21.0: whether this computer has its own Claude Code and Codex sign-in (never the secret itself). */
+  ownSignIn: z.object({ claude: OwnSignInSchema, codex: OwnSignInSchema }).optional(),
+  /** 0.21.0: Claude or Codex was moved to the own sign-in because the router couldn't serve it, so "Switch back to the router" is offered. */
+  switchedAway: z.object({ claude: z.boolean(), codex: z.boolean() }).optional(),
 });
 export type Status = z.infer<typeof StatusSchema>;
 
@@ -348,7 +356,12 @@ export const providersTidy = defineRpc({ name: "ai-router.providers.tidy", input
 /** Add or remove "Codex via OmniRoute". */
 export const codexRouter = defineRpc({ name: "ai-router.codex-router", input: z.object({ enabled: z.boolean() }), output: Result });
 /** Re-route built-in Codex through the router (its launch command carries the config), or put it back. */
-export const codexReroute = defineRpc({ name: "ai-router.codex-reroute", input: z.object({ enabled: z.boolean() }), output: Result });
+export const codexReroute = defineRpc({ name: "ai-router.codex-reroute", input: z.object({ enabled: z.boolean(), fallback: z.boolean().optional() }), output: Result });
+/**
+ * 0.21.0: note that Claude was moved to its own sign-in because the router couldn't serve it (`away: true`), or
+ * that it went back (`away: false`). Claude's switch itself is the routing setting, saved by the panel.
+ */
+export const switchedAway = defineRpc({ name: "ai-router.switched-away", input: z.object({ app: z.enum(["claude", "codex"]), away: z.boolean() }), output: Result });
 
 // ------------------------------------------------------------- agent apps
 

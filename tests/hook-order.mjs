@@ -48,6 +48,15 @@ const HELP_GUIDE = "How does AI Router work?";
 const SETUP = ["1. Endpoint URL", "http://10.0.0.5:20128", "2. API key", "named after it, so usage shows per daemon", "Advanced (optional): public address and SSH target", "3. Test connection & save", "Nothing is saved until it does"];
 const ADVANCED = "Combos (named groups of models), fallbacks and per-provider rules live in the OmniRoute dashboard";
 const expected = {
+  "routing: down, Codex offer, Claude sign-in expired": ["OmniRoute unreachable", "The router isn't answering, and Claude's own sign-in on this computer has expired, so switching Claude off the router would leave its chats unable to answer. Wait for the router, or sign Claude in on this computer first.", "and new Claude chats have no working sign-in of their own here", "re-routed Codex can't answer", "The router isn't answering. Codex can use this computer's own sign-in until it's back.", "Use this computer's own sign-in for Codex", "Codex · through the router", "On · Uses your team's accounts on the router"],
+  "routing: down, Codex own sign-in asks first": ["New Codex chats here will use this computer's own sign-in (Codex's own ChatGPT login) instead of the router.", "Nothing switches back by itself", "Yes, use own sign-in", "Cancel"],
+  "routing: down, Codex own sign-in confirmed": ["Done: Codex now uses this computer's own sign-in for new chats."],
+  "routing: Codex paused, no own sign-in": ["The router has paused Codex, and this computer has no Codex sign-in of its own, so switching Codex off the router would leave its chats unable to answer."],
+  "routing: router back, switch back": ["Done: Codex now goes through the router, so new Codex chats use your team's accounts."],
+  "routing: Overview Codex switch asks first": ["New Codex chats here will use your team's accounts on the router", "Yes, send Codex through the router", "Cancel"],
+  "routing: Overview Codex switch confirmed": ["Done: Codex now goes through the router"],
+  "routing: chip popover offer": ["Router down", "OmniRoute isn't answering", "The router isn't answering, and Claude's own sign-in on this computer has expired", "Use this computer's own sign-in for Codex", "Open AI Router"],
+  "routing: error card offer (Claude paused)": ["Claude is paused on the router after repeated errors", "Use this computer's own sign-in for Claude", "Details"],
   "router error card (Claude paused, manage key)": ["Claude is paused on the router after repeated errors", "OmniRoute tries Claude again by itself", "This chat won't retry", "Open AI Router", "Resume now", "Details"],
   "router error card (resume asks first)": ["OmniRoute sends Claude requests again now, instead of waiting out the pause.", "Yes, resume now", "Cancel"],
   "router error card (resume confirmed)": ["Claude is back in rotation."],
@@ -58,7 +67,7 @@ const expected = {
   "router error card (chat on its own sign-in)": ["API Error: 503 [claude/claude-fable-5-1] [429]: rate_limit_error"],
   "router error card (another gateway, not in the log)": ["proxy.example.com:8080"],
   "router error card (our gateway, log says own sign-in)": ["Claude accounts are cooling down until"],
-  "setup (not connected, opens on Connection)": ["Hide how AI Router works", "Not connected yet. Routing stays off", "Set up", "Three steps, about two minutes", "until you pick the AI Router provider", "Where this daemon reaches your OmniRoute", ...SETUP],
+  "setup (not connected, opens on Connection)": ["Hide how AI Router works", "This computer (test) isn't connected to a router yet. Each computer has its own connection", "Set up", "Three steps, about two minutes", "until you pick the AI Router provider", "Where this daemon reaches your OmniRoute", ...SETUP],
   "setup (advanced fields)": ["Hide advanced", "Your daemons use the endpoint above; people and browsers outside your network use this address.", "Public address (custom domain)", "SSH target that can reach the router"],
   "setup (env, no key, narrow)": ["Not connected yet: no API key set for http://127.0.0.1:20128", "connection refused at", "Pre-filled from this daemon's AI_ROUTER_* variables", "AI_ROUTER_TOKEN set without AI_ROUTER_URL"],
   "misconfigured (opens on Connection)": ["Not connected yet: the saved endpoint in connection.json is not a usable http(s) URL.", "The saved public address is not a usable http(s) URL; it is ignored.", "1. Endpoint URL", "Disconnect (remove saved connection)"],
@@ -68,15 +77,15 @@ const expected = {
   "connection tab (basic, narrow)": ["Read token (optional)", "Not set", "Add"],
   "connection tab (editing)": ["Edit connection", "1. Endpoint URL", "Test connection & save", "Cancel"],
   "connection tab (router down)": ["connection refused at http://10.0.0.5:20128/api/health/ping", "Edit", "Disconnect"],
-  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", "OmniRoute 3.8.51 · AI Router 0.20.0", "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Through the router", "Built-in Claude", "Change →", "Last Claude agent (", "routed through OmniRoute", "Recent traffic →", "Open OmniRoute dashboard", "Sync models"],
+  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", "OmniRoute 3.8.51 · AI Router 0.21.0", "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Claude · through the router", "On · Uses your team's accounts on the router", "Codex · through the router", "Off · Uses this computer's own sign-in", "AI Router", " · test", "Last Claude agent (", "routed through OmniRoute", "Recent traffic →", "Open OmniRoute dashboard", "Sync models"],
   "overview (guide opened)": ["Hide how AI Router works", "On your router now:", ...GUIDE],
   "overview (drift)": ["Models in Paseo", "2 out of step with OmniRoute"],
-  "overview (Codex re-routed)": ["Through the router", "Built-in Claude and Codex"],
+  "overview (Codex re-routed)": ["Codex · through the router", "On · Uses your team's accounts on the router"],
   "overview (basic)": ["Key only", "Last AI Router agent (", "routed through OmniRoute", "New to AI Router? How it works"],
   "overview (admin, tunnel)": ["Manage key", "Open OmniRoute dashboard", "via Cloudflare tunnel"],
-  "overview (routing off)": ["Connected: one step left", "Sync the models to add AI Router to Paseo's provider menu.", "AI Router chats", "built-in Claude and Codex use their own sign-in", "Not synced", "Sync models to Paseo", "Hide how AI Router works", "What is AI Router?", "Not in the menu yet? Sync models on the Models tab"],
+  "overview (routing off)": ["Connected: one step left", "Sync the models to add AI Router to Paseo's provider menu.", "Claude · through the router", "Off · Uses this computer's own sign-in", "Not synced", "Sync models to Paseo", "Hide how AI Router works", "What is AI Router?", "Not in the menu yet? Sync models on the Models tab"],
   "overview (last agent skipped)": ["used its own sign-in — the router did not answer (connection refused)"],
-  "overview (router down)": ["OmniRoute unreachable — last seen", "connection refused at http://10.0.0.5:20128/api/health/ping", "Until it answers, AI Router chats can't start, re-routed Claude uses its own sign-in.", "Check the connection", "Refresh"],
+  "overview (router down)": ["OmniRoute unreachable — last seen", "connection refused at http://10.0.0.5:20128/api/health/ping", "Until it answers, AI Router chats can't start, new Claude chats use this computer's own sign-in.", "The router isn't answering. Claude can use this computer's own sign-in until it's back.", "Use this computer's own sign-in for Claude", "Check the connection", "Refresh"],
   "overview (Claude paused)": ["Working, but Claude is paused", "OmniRoute paused Claude after errors and retries by itself.", "Up · Claude paused", "Claude requests fail until OmniRoute retries", "Accounts →", "Last AI Router agent (", "did not start — no API key set"],
   "models tab": [H.Models, "Combo · 5", "team-review", "Sync models to Paseo", "In Paseo", "in step with OmniRoute", "12 of the 734 models OmniRoute lists: one per model.", "Effort levels (Paseo's thinking control), duplicates, providers with no account and unproven variants are left out.", "runs by itself every 5 minutes and when the app connects", "Remove from Paseo", "old \"AI Router Codex\" provider", "Models in Paseo's picker", "Claude · 4", "Opus 5.5", "cc/claude-opus-5-5", "failed", "Codex · 3", "GPT-5.6 Sol", "Test", "Test another model", "Claude Code version 2.1.280 or newer is required"],
   "accounts tab (your access)": ["This key's spending", "This key", "daemon-a", "12 models on connected accounts", "Spend (monthly)", "$3.42 of $50.00", "resets 2026-10-01", "Tokens", "Claude quota", "5h: 64% left"],
@@ -84,16 +93,16 @@ const expected = {
   "models tab (testing one)": ["cc/claude-opus-5-5 answered in 640 ms"],
   "models tab (not synced)": ["Not synced", "Paseo has no AI Router provider yet", "Test a model"],
   "models tab (drift)": ["out of step with OmniRoute", "OmniRoute offers 2 models Paseo doesn't list yet: cx/gpt-6-luna, cc/claude-sonnet-5-5.", "Sync now", "14 of the 736 models OmniRoute lists"],
-  "providers tab (basic, narrow)": [H.Providers, "AI Router chats always go through OmniRoute. Built-in Claude can too; the switch asks first.", "Always through OmniRoute · 12 models", "Through OmniRoute", "Codex", "Codex is in the AI Router provider: 3 models.", "Codex extras", "Other providers", "GitHub Copilot, Gemini, OpenCode, Pi: not switched here; they keep their own sign-in.", ADVANCED, "Open dashboard", "Agent apps", "Tidy up", "3 enabled providers can't run here", "Settings → Providers turns any back on", "Tidy up…"],
-  "providers tab (re-route Claude asks first)": ["New Claude chats here will use OmniRoute's accounts, not this daemon's sign-in", "open chats switch when reopened", "Fast mode stays off: OmniRoute can't pass it on yet.", "If OmniRoute is down, they use their own sign-in.", "Yes, send Claude through the router", "Cancel"],
-  "providers tab (re-route Claude confirmed)": ["Claude now goes through the router: new Claude chats use OmniRoute."],
-  "providers tab (own sign-in asks first)": ["New Claude chats will use this daemon's own sign-in. Without one they won't answer; the AI Router provider still reaches Claude through OmniRoute.", "Use own sign-in", "Cancel"],
-  "providers tab (own sign-in asks first, cancel)": ["Through OmniRoute", "Fast mode is off for these chats"],
+  "providers tab (basic, narrow)": [H.Providers, "AI Router chats always go through OmniRoute. Built-in Claude and Codex can too; each switch asks first, and Overview has the same two.", "Always through OmniRoute · 12 models", "On · Uses your team's accounts on the router", "Codex", "Codex is in the AI Router provider: 3 models.", "Codex extras", "Other providers", "GitHub Copilot, Gemini, OpenCode, Pi: not switched here; they keep their own sign-in.", ADVANCED, "Open dashboard", "Agent apps", "Tidy up", "3 enabled providers can't run here", "Settings → Providers turns any back on", "Tidy up…"],
+  "providers tab (re-route Claude asks first)": ["New Claude chats here will use your team's accounts on the router, not this computer's own sign-in.", "Open chats switch when reopened.", "A chat that starts while the router is down uses this computer's own sign-in.", "Fast mode stays off for them", "Yes, send Claude through the router", "Cancel"],
+  "providers tab (re-route Claude confirmed)": ["Done: Claude now goes through the router, so new Claude chats use your team's accounts."],
+  "providers tab (own sign-in asks first)": ["New Claude chats here will use this computer's own sign-in. Without one they won't answer; the AI Router provider still reaches Claude through the router.", "Use own sign-in", "Cancel"],
+  "providers tab (own sign-in asks first, cancel)": ["On · Uses your team's accounts on the router", "Fast mode is off for these chats"],
   "providers tab (tidy up preview)": ["These will be turned off:", "• GitHub Copilot — never finished loading", "• OpenCode — not installed on this daemon", "• Pi — never finished loading", "Turn off 3", "Cancel", "One is on", "\"Codex via OmniRoute\" is in Paseo's menu · 3 models", "4 Codex accounts connected in OmniRoute; their 3 models are in the AI Router provider."],
   "providers tab (not connected)": ["Send chats through the router", "GitHub Copilot, Gemini, OpenCode, Pi: not switched here"],
-  "providers tab (re-route Codex asks first)": ["4 Codex accounts connected in OmniRoute; their 3 models are in the AI Router provider.", "New built-in Codex chats here will use OmniRoute's accounts, not this daemon's sign-in", "~/.codex isn't changed", "Unlike Claude there's no fallback", "Yes, send Codex through the router", "Cancel"],
-  "providers tab (re-route Codex confirmed)": ["Built-in Codex re-routed: new Codex chats use OmniRoute. Open chats switch when they restart."],
-  "providers tab (Codex back on own sign-in asks first)": ["New built-in Codex chats will use this daemon's own sign-in.", "Use own sign-in"],
+  "providers tab (re-route Codex asks first)": ["4 Codex accounts connected in OmniRoute; their 3 models are in the AI Router provider.", "New Codex chats here will use your team's accounts on the router, not this computer's own sign-in.", "~/.codex isn't changed", "While the router is down, these chats won't answer until you switch back.", "Yes, send Codex through the router", "Cancel"],
+  "providers tab (re-route Codex confirmed)": ["Done: Codex now goes through the router, so new Codex chats use your team's accounts. Open chats switch when they restart."],
+  "providers tab (Codex back on own sign-in asks first)": ["New Codex chats here will use this computer's own sign-in.", "Use own sign-in"],
   "providers tab (agent apps, Mac)": ["Agent apps", "The Claude Code and Codex this daemon runs", "Claude Code", "2.1.289", "Up to date", "Installed with Claude Code's own installer", "Codex", "0.156.1", "0.160.0 available", "Installed with npm", "Where it's installed", "Update to 0.160.0", "Latest versions come from npm, checked every hour and on Refresh."],
   "providers tab (agent apps, where installed)": ["Hide where it's installed", "/Users/me/.local/share/claude/versions/2.1.289"],
   "providers tab (agent apps asks first)": ["Runs \"npm install -g @openai/codex@latest --prefix /Users/me/.npm-global\" on this daemon, as the daemon's own user.", "running chats keep the old one until they restart", "Update Codex", "Cancel"],
@@ -160,7 +169,7 @@ const expected = {
   "help tab (press a question)": ["Recommended plugins", "Connectors", "Tell Agent"],
   "accounts tab (basic)": ["See your team's accounts and usage", "A read token shows each account", "Add a read token", "This key's spending"],
   "accounts tab (not connected)": ["Connect a router first", "Set up"],
-  "models tab (not connected)": ["Connect a router first", "Set up", "Send chats through the router", "Claude", "Own sign-in", "Other providers", "Codex extras", "Tidy up Paseo's provider menu", "Claude Code and Codex versions"],
+  "models tab (not connected)": ["Connect a router first", "Set up", "Send chats through the router", "Claude", "Off · Uses this computer's own sign-in", "Connect a router first to turn this on.", "Other providers", "Codex extras", "Tidy up Paseo's provider menu", "Claude Code and Codex versions"],
   "deep link (tab=connection)": ["Connected to OmniRoute", "More access (optional)", "Share this router", "Dashboard"],
   "deep link (tab=usage)": ["3 accounts · 3 healthy", "Requests per day", "Tokens per day, by provider", "Provider split", "By account", "Activity, last 52 weeks"],
   "deep link (tab=help, open=tips)": ["Recommended plugins", "0 of 3 installed here."],
@@ -169,14 +178,17 @@ const expected = {
 
 /** Text a state must NOT show: a hidden tier feature, or a fact that moved. */
 const absent = {
+  "routing: Codex paused, no own sign-in": ["Use this computer's own sign-in for Codex"],
+  "routing: router back, switch back": ["Switch back to the router"],
+  "routing: error card offer (Claude paused)": ["Switch back to the router"],
   "router error card (Claude paused, manage key)": ["OmniRoute has resumed"],
   "router error card (paused, read token only)": ["Resume now"],
-  "router error card (cooling down)": ["Resume now", "API Error", "Hide details"],
+  "router error card (cooling down)": ["Use this computer's own sign-in", "Resume now", "API Error", "Hide details"],
   "router error card (chat on its own sign-in)": ["Open AI Router", "cooling down", "Details"],
   "router error card (another gateway, not in the log)": ["Open AI Router", "cooling down"],
   "accounts tab (operator)": ["Paseo's Usage page", "Check now", "Check all", "Refresh token"],
   "connection tab (operator, private dashboard)": ["Starting a tunnel makes", "Check now"],
-  "overview (basic)": [LEARN_MORE, "What is AI Router?"],
+  "overview (basic)": ["Use this computer's own sign-in", "Switch back to the router", LEARN_MORE, "What is AI Router?"],
   "overview (routing off)": ["Route Claude agents through AI Router", "Turn Claude routing off", "All set", "On your router now:"],
   "providers tab (basic, narrow)": ["Agent providers on this daemon", "Enabled", "Disabled", "Not supported", "AI Router Codex", "Add a Codex provider that runs on the router's accounts", "Can't be re-routed", "Send the built-in Claude provider through the router"],
   "overview (routing on, narrow)": ["See at a glance whether the shared router is answering", "What is AI Router?", "More with a manage key", LEARN_MORE, "Pick \"AI Router\" in Paseo's provider menu"],
@@ -225,7 +237,7 @@ const expectedTabs = {
   "tab walk (operator)": {
     Overview: [H.Overview, "Up · 12 ms", "Read token"],
     Accounts: ["3 accounts · 3 healthy", "Usage", "Who uses the most", "Day by day", "Which account answered", "Is the router healthy?", H.Accounts],
-    Models: ["Sync models to Paseo", H.Models, "Through OmniRoute", "Combos as agent profiles"],
+    Models: ["Sync models to Paseo", H.Models, "On · Uses your team's accounts on the router", "Combos as agent profiles"],
     Help: [H.Connection, "Why are long prompts shortened?", "Which router settings matter?", "What else can OmniRoute do?", H.Tips, "0 of 3 installed here"],
   },
   "tab walk (admin)": {
@@ -369,7 +381,7 @@ try {
   assert.deepEqual(seen.old.opened, [["openSurface", "ai-router"]], "0.9 app: the command opens the surface");
   // A 0.11 app: a titled screen and the app's own sidebar row, highlighted while the screen is open.
   assert.deepEqual(seen.next.names, [], "0.11 app: no surface or old sidebar item");
-  assert.deepEqual(seen.next.screen, { id: "ai-router", title: ["AI Router", "AI Router · Accounts", "AI Router · Help"], sameView: true }, "0.11 app: the title follows the tab (0.20.0)");
+  assert.deepEqual(seen.next.screen, { id: "ai-router", title: ["AI Router · test", "AI Router · test · Accounts", "AI Router · test · Help"], sameView: true }, "0.11 app: the title follows the tab (0.20.0)");
   assert.deepEqual(seen.next.item, { id: "ai-router", title: "AI Router" });
   assert.deepEqual(seen.row, { open: { icon: "Route", active: true, label: undefined }, elsewhere: { active: false }, pressed: [{ screenId: "ai-router" }], trailing: true });
   assert.deepEqual(seen.next.opened, [["openScreen", { screenId: "ai-router" }]], "0.11 app: the command uses openScreen");
@@ -388,7 +400,7 @@ try {
   assert.equal(quick.label, "AI Router: Working · 12 models. Quick actions", "the dot says the state");
   assert.ok(quick.popped, "pressing the dot opens the quick actions popover");
   assert.equal(quick.plainPressables, 0, "without popovers (older 0.11 builds) it is only a dot");
-  for (const words of ["AI Router · Working · 12 models", "Open AI Router", "Open dashboard", "Sync models"]) assert.ok(quick.text.includes(words), `popover shows "${words}": ${quick.text}`);
+  for (const words of ["AI Router · test", "Working · 12 models", "Open AI Router", "Open dashboard", "Sync models"]) assert.ok(quick.text.includes(words), `popover shows "${words}": ${quick.text}`);
   assert.ok(quick.synced && quick.text.includes("ok"), "Sync models runs the sync and shows its answer");
   assert.ok(quick.opened, "Open AI Router is there to press");
   assert.deepEqual(quick.screens, [{ screenId: "ai-router" }], "Open AI Router opens the screen");

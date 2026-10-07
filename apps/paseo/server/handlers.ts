@@ -10,12 +10,15 @@ import { listClis, startCliUpdate } from "./clis";
 import { listProviders, setProviderEnabled, tidyProviders } from "./providers";
 import { adapterFor } from "./routers";
 import { usageSourceRegistered } from "./usage";
-import { clearConnection, installedPluginIds, readConnection, readProviderEntries, readRoutingSettings, readSessionLog, settingsDir, writeConnection } from "./store";
+import { ownSignIn, thisComputer } from "./signin";
+import { clearConnection, installedPluginIds, readConnection, readProviderEntries, readRoutingSettings, readSessionLog, readSwitchedAway, settingsDir, writeConnection, writeSwitchedAway } from "./store";
 
 /** The panel polls every 20s; a check younger than this is served from cache. */
 const PANEL_HEALTH_MAX_AGE_MS = 15_000;
 /** Paseo's config read is local, but the panel never waits on it longer than this. */
 const ENTRIES_TIMEOUT_MS = 2_000;
+/** The own sign-in check reads two files (and, on a Mac, asks the keychain once a minute); the panel waits this long at most. */
+const SIGN_IN_TIMEOUT_MS = 1_500;
 
 /**
  * The panel's first call, so it must answer fast whatever the router is
@@ -28,12 +31,16 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
   const router = adapterFor(connection.router);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const publicUrl = publicAddress(connection);
-  const [{ health, checking }, entries, publicCheck] = await Promise.all([
+  let signInTimer: ReturnType<typeof setTimeout> | undefined;
+  const [{ health, checking }, entries, publicCheck, signIn] = await Promise.all([
     router.healthForPanel(connection, refresh ? 0 : PANEL_HEALTH_MAX_AGE_MS),
     Promise.race([readProviderEntries(paseo).catch(() => null), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ENTRIES_TIMEOUT_MS)))]),
     router.publicForPanel(publicUrl, refresh === true),
+    Promise.race([ownSignIn().catch(() => null), new Promise<null>((resolve) => (signInTimer = setTimeout(() => resolve(null), SIGN_IN_TIMEOUT_MS)))]),
   ]);
   clearTimeout(timer);
+  clearTimeout(signInTimer);
+  const away = readSwitchedAway();
   const tunnel = router.knownTunnel(connection);
   const installed = installedPluginIds();
   return {
@@ -76,6 +83,9 @@ export async function handleStatus({ refresh }: { refresh?: boolean }, { paseo }
     settingsDir: settingsDir(),
     plugins: { installed: RECOMMENDED_PLUGINS.map((plugin) => plugin.id).filter((id) => installed.has(id)) },
     nativeUsage: usageSourceRegistered(),
+    computer: thisComputer(),
+    ...(signIn ? { ownSignIn: signIn } : {}),
+    switchedAway: { claude: away.claude !== null, codex: away.codex !== null },
   };
 }
 
@@ -175,7 +185,12 @@ export async function handleProvidersList({ refresh }: { refresh?: boolean }, { 
 export const handleProviderEnable = ({ id, enabled }: { id: string; enabled: boolean }, { paseo }: PluginHandlerContext) => setProviderEnabled(paseo, id, enabled);
 export const handleProvidersTidy = ({ ids }: { ids: string[] }, { paseo }: PluginHandlerContext) => tidyProviders(paseo, ids);
 export const handleCodexRouter = async ({ enabled }: { enabled: boolean }, { paseo }: PluginHandlerContext) => setCodexRouter(paseo, await current(), enabled);
-export const handleCodexReroute = async ({ enabled }: { enabled: boolean }, { paseo }: PluginHandlerContext) => setCodexReroute(paseo, await current(), enabled);
+export const handleCodexReroute = async ({ enabled, fallback }: { enabled: boolean; fallback?: boolean }, { paseo }: PluginHandlerContext) => setCodexReroute(paseo, await current(), enabled, fallback === true);
+/** Claude's switch is the routing setting the panel saves; this only remembers why it went off, for "Switch back to the router". */
+export const handleSwitchedAway = async ({ app, away }: { app: "claude" | "codex"; away: boolean }) => {
+  writeSwitchedAway(app, away ? new Date().toISOString() : null);
+  return { ok: true, message: away ? "Noted: switch back to the router once it works again." : "Noted." };
+};
 export const handleClis = ({ refresh }: { refresh?: boolean }) => listClis(refresh === true);
 export const handleCliUpdate = ({ id }: { id: "claude" | "codex" }) => startCliUpdate(id);
 export const handleAccountAction = async ({ action, id, name }: { action: "test" | "refresh"; id: string; name: string }) => { const c = await current(); return adapterFor(c.router).accountAction(c, action, id, name); };

@@ -1,6 +1,7 @@
 import React, { type ComponentType, type ReactNode } from "react";
 import * as HostUI from "@getpaseo/plugin/client/ui";
 import type { PluginClientContext, PluginHostProps, PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { noteHost } from "./host";
 
 /**
  * Paseo 0.11's screens and sidebar rows, when the app has them; the surface
@@ -13,7 +14,7 @@ type SidebarItemProps = PluginHostProps & {
   currentScreen: { screenId: string; params: Record<string, string> } | null;
   openScreen(input: ScreenInput): void;
   /** 0.11: anchored to the row on wide layouts, a bottom sheet on compact ones. */
-  openPopover?: (Content: ComponentType<{ theme: PluginHostProps["theme"]; close(): void; openScreen(input: ScreenInput): void }>) => void;
+  openPopover?: (Content: ComponentType<{ theme: PluginHostProps["theme"]; host?: PluginHostProps["host"]; close(): void; openScreen(input: ScreenInput): void }>) => void;
 };
 type SidebarRowProps = { icon?: string; label?: string; onPress(): void; active?: boolean; trailing?: ReactNode };
 type ScreenTitle = string | ((params: Record<string, string>) => string);
@@ -68,7 +69,8 @@ export function registerMainScreen(client: PluginClientContext, screen: MainScre
 
 function sidebarEntry(Row: ComponentType<SidebarRowProps>, screen: MainScreen): ComponentType<SidebarItemProps> {
   const Trailing = screen.Trailing;
-  return function MainScreenSidebarEntry({ theme, currentScreen, openScreen, openPopover }: SidebarItemProps) {
+  return function MainScreenSidebarEntry({ theme, host, currentScreen, openScreen, openPopover }: SidebarItemProps) {
+    noteHost(host);
     const trailing = Trailing ? <Trailing theme={theme} openPopover={typeof openPopover === "function" ? openPopover : undefined} /> : undefined;
     return <Row icon={screen.icon} active={currentScreen?.screenId === screen.id} onPress={() => openScreen({ screenId: screen.id })} trailing={trailing} />;
   };
