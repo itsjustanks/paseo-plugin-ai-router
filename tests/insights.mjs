@@ -501,6 +501,23 @@ try {
       assert.deepEqual(fallback.map((m) => m.id), ["auto/pro-coding", "auto/coding", "auto", "cc/claude-sonnet-5"], "no read token: core auto combos only (no ':' variants, no custom)");
     }
     {
+      // A provider-family auto combo (auto/kimi) goes when no active account belongs to that family (0.21.1).
+      const body = { data: [
+        { id: "cc/claude-sonnet-5", owned_by: "cc" }, { id: "cx/gpt-6-sol", owned_by: "codex" },
+        { id: "auto", owned_by: "combo" }, { id: "auto/coding", owned_by: "combo" }, { id: "auto/best-reasoning", owned_by: "combo" },
+        { id: "auto/kimi", owned_by: "combo" }, { id: "auto/minimax", owned_by: "combo" }, { id: "auto/claude", owned_by: "combo" },
+      ] };
+      const order = ["auto", "auto/coding", "auto/best-reasoning", "auto/kimi", "auto/minimax", "auto/claude"];
+      const noKimi = I.buildModelList(body, new Set(["claude", "codex", "vercel-ai-gateway"]), order).map((m) => m.id);
+      assert.deepEqual(noKimi.filter((id) => id.startsWith("auto")), ["auto", "auto/coding", "auto/best-reasoning", "auto/claude"], "auto/kimi and auto/minimax drop; capability combos and auto/claude stay");
+      const withKimi = I.buildModelList(body, new Set(["claude", "codex", "kimi-coding"]), order).map((m) => m.id);
+      assert.ok(withKimi.includes("auto/kimi"), "kept while a Kimi account is active");
+      assert.ok(!withKimi.includes("auto/minimax"));
+      const plainKey = I.buildModelList(body, null).map((m) => m.id);
+      assert.ok(!plainKey.includes("auto/kimi") && plainKey.includes("auto/claude"), "without a read token, the owners /v1/models lists decide");
+      assert.equal(I.isDeadFamilyCombo("auto/coding", new Set()), false, "a capability combo is never a family combo");
+    }
+    {
       // Effort and no-think copies are hidden when the base model is listed; orphans stay.
       const body = { data: [
         { id: "cc/claude-opus-5-5", owned_by: "cc" }, { id: "cc/claude-opus-5-5-high", owned_by: "cc" },

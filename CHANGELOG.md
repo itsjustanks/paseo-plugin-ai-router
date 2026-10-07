@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.1 — 2026-10-07
+
+- **No combos for a provider you don't have.** OmniRoute's built-in auto combos named after one provider (such as `auto/kimi`, `auto/minimax`, `auto/zai`) only route to that provider. When no active account belongs to it, OmniRoute logs "matched no connected models" and every request fails. AI Router no longer adds those combos to Paseo's model picker, nor as agent profiles, and removes them on the next sync (for example after Kimi was removed from OmniRoute). Combos for a capability (`auto/coding`, `auto/best-reasoning`) are never affected, and a family combo comes back as soon as its provider has an account again.
+
 ## 0.21.0 — 2026-10-07
 
 Routing switches that work and say so, an easy way back when the router is down, and which computer

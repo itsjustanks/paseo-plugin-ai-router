@@ -1676,7 +1676,7 @@ try {
       const first = await t.mod.handleUpdates({});
       t.mod.UpdatesSchema.parse(first);
       assert.deepEqual([first.router.running, first.router.latest.version, first.router.state, first.router.latest.highlights], ["3.8.50", "3.8.52", "behind", ["Routing: better.", "Codex: reset credits."]], "the running version comes from the read-token health check");
-      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], ["0.21.0", "0.15.1", "ahead"]);
+      assert.deepEqual([first.plugin.running, first.plugin.latest.version, first.plugin.state], [JSON.parse(readFileSync(new URL("../apps/paseo/package.json", import.meta.url), "utf8")).version, "0.15.1", "ahead"]);
       assert.deepEqual(github.map((u) => u.replace(/^https:\/\/api\.github\.com\/repos\//, "")).sort(), ["diegosouzapw/OmniRoute/releases?per_page=10", "itsjustanks/paseo-plugin-ai-router/releases?per_page=10"]);
       await t.mod.handleUpdates({});
       assert.equal(github.length, 2, "6 hours between checks");

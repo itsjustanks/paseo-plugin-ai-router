@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import assert from "node:assert/strict";
+const PLUGIN_PKG_VERSION = JSON.parse((await import("node:fs")).readFileSync(new URL("../apps/paseo/package.json", import.meta.url), "utf8")).version;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const plugin = join(here, "..", "apps", "paseo");
@@ -77,7 +78,7 @@ const expected = {
   "connection tab (basic, narrow)": ["Read token (optional)", "Not set", "Add"],
   "connection tab (editing)": ["Edit connection", "1. Endpoint URL", "Test connection & save", "Cancel"],
   "connection tab (router down)": ["connection refused at http://10.0.0.5:20128/api/health/ping", "Edit", "Disconnect"],
-  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", "OmniRoute 3.8.51 · AI Router 0.21.0", "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Claude · through the router", "On · Uses your team's accounts on the router", "Codex · through the router", "Off · Uses this computer's own sign-in", "AI Router", " · test", "Last Claude agent (", "routed through OmniRoute", "Recent traffic →", "Open OmniRoute dashboard", "Sync models"],
+  "overview (routing on, narrow)": ["New to AI Router? How it works", "All set: AI Router is working", "Pick AI Router when you start a chat.", "Versions", "Up to date", `OmniRoute 3.8.51 · AI Router ${PLUGIN_PKG_VERSION}`, "What's new →", "Connected to OmniRoute · Read token", "Router", "Up · 12 ms", "Models in Paseo", "12 models", "Models →", "Claude · through the router", "On · Uses your team's accounts on the router", "Codex · through the router", "Off · Uses this computer's own sign-in", "AI Router", " · test", "Last Claude agent (", "routed through OmniRoute", "Recent traffic →", "Open OmniRoute dashboard", "Sync models"],
   "overview (guide opened)": ["Hide how AI Router works", "On your router now:", ...GUIDE],
   "overview (drift)": ["Models in Paseo", "2 out of step with OmniRoute"],
   "overview (Codex re-routed)": ["Codex · through the router", "On · Uses your team's accounts on the router"],

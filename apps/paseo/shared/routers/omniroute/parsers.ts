@@ -614,6 +614,28 @@ const MAX_FALLBACK_COMBOS = 10;
 /** Effort and no-think copies of a model: Paseo's own thinking/effort control covers these. */
 const EFFORT_SUFFIX = /-(low|medium|high|xhigh|max|ultra)$/;
 const NO_THINK_PREFIX = /^no-think\//;
+/**
+ * Built-in auto combos named after one provider family (`auto/kimi`) only route
+ * to that family. With no active account for it, OmniRoute logs "matched no
+ * connected models" and the combo fails, so it isn't offered. Capability
+ * combos (`auto/coding`, `auto/best-reasoning`) never match here.
+ */
+const FAMILY_COMBOS: Readonly<Record<string, RegExp>> = {
+  claude: /^(claude|cc|anthropic)/,
+  codex: /^(codex|cx|openai)/,
+  kimi: /^(kimi|kmc|moonshot)/,
+  minimax: /^minimax/,
+  zai: /^(zai|glm|zhipu)/,
+  glm: /^(zai|glm|zhipu)/,
+  deepseek: /^deepseek/,
+  qwen: /^(qwen|dashscope)/,
+  gemini: /^(gemini|google)/,
+  grok: /^(grok|xai)/,
+};
+export function isDeadFamilyCombo(id: string, providers: ReadonlySet<string>): boolean {
+  const family = FAMILY_COMBOS[/^auto\/([a-z0-9-]+)$/.exec(id)?.[1] ?? ""];
+  return family !== undefined && ![...providers].some((provider) => family.test(provider));
+}
 /** Hide a variant only when its base model is listed too, so nothing becomes unreachable. */
 export function isRedundantVariant(id: string, ids: ReadonlySet<string>): boolean {
   if (NO_THINK_PREFIX.test(id)) return ids.has(id.replace(NO_THINK_PREFIX, ""));
@@ -636,7 +658,11 @@ export function buildModelList(modelsBody: unknown, active: ReadonlySet<string> 
   const seen = new Set<string>();
   const models: CatalogModel[] = [];
   const comboIds = new Set(entries.filter((entry) => str(entry.owned_by) === "combo").map((entry) => str(entry.id)).filter((id): id is string => !!id));
-  const wanted = combos ? combos.filter((id) => comboIds.has(id)) : [...comboIds].filter((id) => CORE_COMBO.test(id)).slice(0, MAX_FALLBACK_COMBOS);
+  // Accounts in use: the active providers when a read token gave them, otherwise the owners /v1/models lists.
+  const providers = active ?? new Set(entries.map((entry) => str(entry.owned_by)).filter((owner): owner is string => !!owner && owner !== "combo"));
+  const listed = combos ? combos.filter((id) => comboIds.has(id)) : [...comboIds].filter((id) => CORE_COMBO.test(id));
+  const usable = listed.filter((id) => !isDeadFamilyCombo(id, providers));
+  const wanted = combos ? usable : usable.slice(0, MAX_FALLBACK_COMBOS);
   const comboModels: CatalogModel[] = [...new Set(wanted)].map((id) => ({ id, provider: "combo", label: `Combo · ${id}`, root: null, tiers: null }));
   for (const entry of entries) {
     const id = str(entry.id);
