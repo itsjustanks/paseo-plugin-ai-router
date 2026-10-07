@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.2 — 2026-10-07
+
+- **Provider combos are judged by the models the router can serve, not only by account names.** 0.21.1 hid `auto/<family>` combos (`auto/kimi`, `auto/deepseek`) when no account had that family's name. A family can also come through another route (for example DeepSeek through an aggregator account), and those combos now stay. A family with no model on an active account is still hidden.
+
 ## 0.21.1 — 2026-10-07
 
 - **No combos for a provider you don't have.** OmniRoute's built-in auto combos named after one provider (such as `auto/kimi`, `auto/minimax`, `auto/zai`) only route to that provider. When no active account belongs to it, OmniRoute logs "matched no connected models" and every request fails. AI Router no longer adds those combos to Paseo's model picker, nor as agent profiles, and removes them on the next sync (for example after Kimi was removed from OmniRoute). Combos for a capability (`auto/coding`, `auto/best-reasoning`) are never affected, and a family combo comes back as soon as its provider has an account again.

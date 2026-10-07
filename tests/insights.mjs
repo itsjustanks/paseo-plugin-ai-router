@@ -516,6 +516,16 @@ try {
       const plainKey = I.buildModelList(body, null).map((m) => m.id);
       assert.ok(!plainKey.includes("auto/kimi") && plainKey.includes("auto/claude"), "without a read token, the owners /v1/models lists decide");
       assert.equal(I.isDeadFamilyCombo("auto/coding", new Set()), false, "a capability combo is never a family combo");
+      // 0.21.2: a family served through an aggregator account counts, by its model ids.
+      const viaAggregator = { data: [
+        { id: "cc/claude-sonnet-5", owned_by: "cc" }, { id: "dva/deepseek-v3", owned_by: "dva" },
+        { id: "auto/deepseek", owned_by: "combo" }, { id: "auto/kimi", owned_by: "combo" },
+      ] };
+      const agg = I.buildModelList(viaAggregator, new Set(["cc", "dva", "vag"]), ["auto/deepseek", "auto/kimi"]).map((m) => m.id);
+      assert.ok(agg.includes("auto/deepseek"), "DeepSeek through another route keeps auto/deepseek");
+      assert.ok(!agg.includes("auto/kimi"), "the aggregator account alone (vag, Kimi model hidden) doesn't keep auto/kimi");
+      const inactiveRoute = I.buildModelList(viaAggregator, new Set(["cc"]), ["auto/deepseek"]).map((m) => m.id);
+      assert.ok(!inactiveRoute.includes("auto/deepseek"), "a model on an inactive account doesn't count");
     }
     {
       // Effort and no-think copies are hidden when the base model is listed; orphans stay.

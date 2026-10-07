@@ -615,26 +615,29 @@ const MAX_FALLBACK_COMBOS = 10;
 const EFFORT_SUFFIX = /-(low|medium|high|xhigh|max|ultra)$/;
 const NO_THINK_PREFIX = /^no-think\//;
 /**
- * Built-in auto combos named after one provider family (`auto/kimi`) only route
- * to that family. With no active account for it, OmniRoute logs "matched no
- * connected models" and the combo fails, so it isn't offered. Capability
- * combos (`auto/coding`, `auto/best-reasoning`) never match here.
+ * Built-in auto combos named after one model family (`auto/kimi`) only route
+ * to that family's models. When no available model or account belongs to it,
+ * OmniRoute logs "matched no connected models" and the combo fails, so it
+ * isn't offered. Matched on model ids as well as provider ids, because a family
+ * can come through an aggregator account (DeepSeek via another route).
+ * Capability combos (`auto/coding`, `auto/best-reasoning`) never match here.
  */
 const FAMILY_COMBOS: Readonly<Record<string, RegExp>> = {
-  claude: /^(claude|cc|anthropic)/,
-  codex: /^(codex|cx|openai)/,
-  kimi: /^(kimi|kmc|moonshot)/,
-  minimax: /^minimax/,
-  zai: /^(zai|glm|zhipu)/,
-  glm: /^(zai|glm|zhipu)/,
-  deepseek: /^deepseek/,
-  qwen: /^(qwen|dashscope)/,
-  gemini: /^(gemini|google)/,
-  grok: /^(grok|xai)/,
+  claude: /claude|anthropic/,
+  codex: /codex|gpt-/,
+  kimi: /kimi|moonshot/,
+  minimax: /minimax/,
+  zai: /glm|zai|zhipu/,
+  glm: /glm|zai|zhipu/,
+  deepseek: /deepseek/,
+  qwen: /qwen/,
+  gemini: /gemini/,
+  grok: /grok|xai/,
 };
-export function isDeadFamilyCombo(id: string, providers: ReadonlySet<string>): boolean {
+/** `available`: provider ids and model ids the router can serve right now. */
+export function isDeadFamilyCombo(id: string, available: ReadonlySet<string>): boolean {
   const family = FAMILY_COMBOS[/^auto\/([a-z0-9-]+)$/.exec(id)?.[1] ?? ""];
-  return family !== undefined && ![...providers].some((provider) => family.test(provider));
+  return family !== undefined && ![...available].some((name) => family.test(name.toLowerCase()));
 }
 /** Hide a variant only when its base model is listed too, so nothing becomes unreachable. */
 export function isRedundantVariant(id: string, ids: ReadonlySet<string>): boolean {
@@ -658,10 +661,11 @@ export function buildModelList(modelsBody: unknown, active: ReadonlySet<string> 
   const seen = new Set<string>();
   const models: CatalogModel[] = [];
   const comboIds = new Set(entries.filter((entry) => str(entry.owned_by) === "combo").map((entry) => str(entry.id)).filter((id): id is string => !!id));
-  // Accounts in use: the active providers when a read token gave them, otherwise the owners /v1/models lists.
-  const providers = active ?? new Set(entries.map((entry) => str(entry.owned_by)).filter((owner): owner is string => !!owner && owner !== "combo"));
+  // What the router can serve now: active providers (or, without a read token, the owners /v1/models lists) and their models.
+  const served = entries.filter((entry) => { const owner = str(entry.owned_by); return !!owner && owner !== "combo" && (!active || active.has(owner)); });
+  const available = new Set([...(active ?? []), ...served.map((entry) => str(entry.owned_by)), ...served.map((entry) => str(entry.id))].filter((name): name is string => !!name));
   const listed = combos ? combos.filter((id) => comboIds.has(id)) : [...comboIds].filter((id) => CORE_COMBO.test(id));
-  const usable = listed.filter((id) => !isDeadFamilyCombo(id, providers));
+  const usable = listed.filter((id) => !isDeadFamilyCombo(id, available));
   const wanted = combos ? usable : usable.slice(0, MAX_FALLBACK_COMBOS);
   const comboModels: CatalogModel[] = [...new Set(wanted)].map((id) => ({ id, provider: "combo", label: `Combo · ${id}`, root: null, tiers: null }));
   for (const entry of entries) {
