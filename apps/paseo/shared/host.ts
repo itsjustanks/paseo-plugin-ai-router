@@ -15,8 +15,8 @@ export function withHost(title: string, host: string | null): string {
   return host ? `${title} · ${host}` : title;
 }
 
-/** The not-connected line, naming this computer: "This Mac (Localhost) isn't connected to a router yet." */
-export function notConnectedLine(host: string | null, computer?: { mac: boolean } | null): string {
+/** The not-connected line under a header that already names the host: "This Mac isn't connected to a router yet." */
+export function notConnectedLine(computer?: { mac: boolean } | null): string {
   const which = computer?.mac ? "This Mac" : "This computer";
-  return `${which}${host ? ` (${host})` : ""} isn't connected to a router yet. Each computer has its own connection, so routing stays off here until it's set up.`;
+  return `${which} isn't connected to a router yet. Each computer has its own connection, so routing stays off here until it's set up.`;
 }

@@ -33,8 +33,9 @@ switches by itself; no new dependencies.
 - **The chat chip opens a popover** on Paseo 0.11 (what's wrong, the offer, **Open AI Router**); older
   apps still open AI Router.
 - **Which computer.** The page header, the window title ("AI Router · team-server · Accounts") and the
-  sidebar popover name the host, from Paseo's own name for it. Not connected: "This Mac (Localhost)
-  isn't connected to a router yet. Each computer has its own connection…"
+  sidebar popover name the host, from Paseo's own name for it. Not connected, under that name: "This
+  Mac isn't connected to a router yet. Each computer has its own connection…" The separate "Codex via
+  OmniRoute" switch also says why it can't be turned on yet, and answers under itself too.
 - The "router down" line on Overview no longer claims re-routed Claude falls back to its own sign-in
   when this computer's own sign-in has expired.
 

@@ -436,7 +436,7 @@ function PageHeader({ theme, data, configured, host, say }: { theme: Theme; data
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: SPACE.sm }}>
           {configured ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
-          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flexShrink: 1 }}>{configured ? `Connected to ${ROUTERS[data.connection.router].label} · ${TIER_LABELS[data.tier]}` : notConnectedLine(host, data.computer)}</Text>
+          <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, flexShrink: 1 }}>{configured ? `Connected to ${ROUTERS[data.connection.router].label} · ${TIER_LABELS[data.tier]}` : notConnectedLine(data.computer)}</Text>
         </View>
       </View>
       <Link theme={theme} label={refresh.isPending ? "Refreshing…" : "Refresh"} accessibilityLabel="Refresh AI Router" onPress={() => { if (!refresh.isPending) refresh.mutate(); }} />

@@ -54,8 +54,8 @@ providers and the agent apps' latest versions. On Paseo 0.11 the window title fo
 
 **Which computer** (0.21.0): the page header, the window title ("AI Router · team-server · Accounts")
 and the sidebar popover name the host, using Paseo's own name for it. Each computer has its own
-connection, so a computer that isn't connected says so by name ("This Mac (Localhost) isn't connected
-to a router yet"). The same switch-back offer shows in the sidebar popover, the chat's **Router down**
+connection, so a computer that isn't connected says so under its name ("AI Router · MacBook Air: This
+Mac isn't connected to a router yet"). The same switch-back offer shows in the sidebar popover, the chat's **Router down**
 chip (on Paseo 0.11 it opens a small popover) and the router-error card in a chat.
 
 **Old tab names still work.** A screen opened with `params.tab` (or a link inside the panel) may name

@@ -22,22 +22,27 @@ function useRoutingChanged() {
 }
 
 /** "Codex via OmniRoute": an optional second Codex entry in Paseo's menu that always uses OmniRoute. */
-function CodexThrough({ theme, data, say }: { theme: Theme; data: Status; say: Say }) {
+function CodexThrough({ theme, data }: { theme: Theme; data: Status }) {
   const queryClient = useQueryClient();
   const call = useRpc(codexRouter);
+  // The answer shows right under the switch (0.21.0), not only at the top of the page.
+  const [reply, setReply] = useState<{ text: string; ok: boolean } | null>(null);
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => call({ enabled }),
+    onMutate: () => setReply(null),
     onSuccess: (result) => {
-      say({ text: result.message, tone: result.ok ? "success" : "danger" });
+      setReply({ text: result.message, ok: result.ok });
       void queryClient.invalidateQueries({ queryKey: ["ai-router"] });
     },
-    onError: (error) => say({ text: errorText(error), tone: "danger" }),
+    onError: (error) => setReply({ text: errorText(error), ok: false }),
   });
   const present = data.codexRouter.present;
   return (
     <View style={{ gap: SPACE.xs }}>
-      <ToggleRow theme={theme} label="Separate Codex via OmniRoute provider" text={present ? `"Codex via OmniRoute" is in Paseo's menu · ${data.codexRouter.modelCount} models` : `Separate "Codex via OmniRoute" provider: not added`} value={present} busy={toggle.isPending} disabled={data.problem !== null} onChange={(next) => toggle.mutate(next)} />
+      <ToggleRow theme={theme} label="Separate Codex via OmniRoute provider" text={present ? `"Codex via OmniRoute" is in Paseo's menu · ${data.codexRouter.modelCount} models` : `Separate "Codex via OmniRoute" provider: not added`} value={present} busy={toggle.isPending} disabled={data.problem !== null && !present} onChange={(next) => toggle.mutate(next)} />
       <Meta theme={theme}>A second Codex in the provider menu that always uses OmniRoute, for people who prefer Codex's own app to the AI Router provider.</Meta>
+      {data.problem !== null && !present ? <Meta theme={theme}>Connect a router first to turn this on.</Meta> : null}
+      {reply ? <Note theme={theme} tone={reply.ok ? "success" : "danger"}>{reply.text}</Note> : null}
     </View>
   );
 }
@@ -62,7 +67,7 @@ export function CodexExtras({ theme, data, configured, say }: { theme: Theme; da
   return (
     <>
       <CodexSwitch theme={theme} data={data} configured={configured} onChanged={changed} />
-      <CodexThrough theme={theme} data={data} say={say} />
+      <CodexThrough theme={theme} data={data} />
     </>
   );
 }
@@ -83,9 +88,9 @@ function RerouteCard({ theme, rows, data, configured, codexAccounts, say }: { th
   const codex = rows.find((row) => row.through === "codex-toggle");
   const others = rows.filter((row) => row.through === "none").map((row) => row.label);
   const changed = useRoutingChanged();
-  const line = (label: string, body: React.ReactNode) => (
+  const line = (label: string | null, body: React.ReactNode) => (
     <View style={{ gap: SPACE.sm, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: SPACE.row }}>
-      <ItemTitle theme={theme}>{label}</ItemTitle>
+      {label ? <ItemTitle theme={theme}>{label}</ItemTitle> : null}
       {body}
     </View>
   );
@@ -97,7 +102,7 @@ function RerouteCard({ theme, rows, data, configured, codexAccounts, say }: { th
           ? <Meta theme={theme}>{`Always through OmniRoute · ${data.aiProvider.modelCount} models`}</Meta>
           : <Note theme={theme}>Not in Paseo yet: Sync models, above, adds it.</Note>)
         : null}
-      {claude ? line(claude.label, <ClaudeSwitch theme={theme} data={data} configured={configured} onChanged={changed} />) : null}
+      {claude ? line(null, <ClaudeSwitch theme={theme} data={data} configured={configured} onChanged={changed} />) : null}
       {codex && configured ? line(codex.label, <CodexSection theme={theme} data={data} accounts={codexAccounts} say={say} />) : null}
       {others.length ? line("Other providers", <Meta theme={theme}>{`${others.join(", ")}: not switched here; they keep their own sign-in.`}</Meta>) : null}
     </Card>

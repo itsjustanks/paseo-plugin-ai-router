@@ -1000,8 +1000,9 @@ try {
     assert.equal(Ho.hostName(undefined, null), null);
     assert.equal(Ho.withHost("AI Router", "team-server"), "AI Router · team-server");
     assert.equal(Ho.withHost("AI Router", null), "AI Router");
-    assert.match(Ho.notConnectedLine("Localhost", { mac: true }), /^This Mac \(Localhost\) isn't connected to a router yet\./);
-    assert.match(Ho.notConnectedLine(null, { mac: false }), /^This computer isn't connected to a router yet\./);
+    assert.match(Ho.notConnectedLine({ mac: true }), /^This Mac isn't connected to a router yet\. Each computer has its own connection/);
+    assert.match(Ho.notConnectedLine({ mac: false }), /^This computer isn't connected to a router yet\./);
+    assert.match(Ho.notConnectedLine(null), /^This computer isn't/);
   });
 
   console.log(`logic: ${passed} checks passed`);
