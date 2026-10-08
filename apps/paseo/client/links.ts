@@ -1,5 +1,6 @@
 import * as pluginClient from "@getpaseo/plugin/client";
-import { Clipboard, Linking } from "react-native";
+import { Linking } from "react-native";
+import { copyToClipboard } from "./feedback";
 
 type Opener = (url: string) => Promise<void>;
 
@@ -15,19 +16,14 @@ export function hostOpener(): Opener | null {
   return typeof open === "function" ? (open as Opener) : null;
 }
 
-/** Must be called straight from a press so a browser permits the new tab. */
-export async function openInBrowser(url: string): Promise<"opened" | "copied"> {
+/** Must be called straight from a press so a browser permits the new tab. Falls back to the clipboard. */
+export async function openInBrowser(url: string): Promise<"opened" | "copied" | "failed"> {
   try {
     const open = hostOpener();
     if (open) await open(url);
     else await Linking.openURL(url);
     return "opened";
   } catch {
-    Clipboard.setString(url);
-    return "copied";
+    return (await copyToClipboard(url)) ? "copied" : "failed";
   }
-}
-
-export function copyLink(url: string): void {
-  Clipboard.setString(url);
 }

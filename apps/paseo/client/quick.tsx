@@ -6,6 +6,7 @@ import { aiProvider, status, type Status } from "../shared/contracts";
 import { ROUTERS } from "../shared/routers/copy";
 import { providerLabel } from "../shared/routers/omniroute/parsers";
 import { dashboardTarget } from "./dashboard";
+import { showToast, useHostToast } from "./feedback";
 import { openInBrowser } from "./links";
 import { hostName, withHost } from "../shared/host";
 import { currentHost, noteHost } from "./host";
@@ -63,7 +64,10 @@ export function makeQuickActions(screenId: string): ComponentType<PopoverProps> 
     const name = hostName(host?.label ?? currentHost(), data?.computer);
     const sync = useRpc(aiProvider);
     const [busy, setBusy] = useState(false);
-    const [reply, setReply] = useState<{ text: string; tone: Tone } | null>(null);
+    // 0.22.0: the sync's answer as a toast where the app has them (it outlives the popover); else under the buttons.
+    const toast = useHostToast();
+    const [reply, setShown] = useState<{ text: string; tone: Tone } | null>(null);
+    const setReply = (next: { text: string; tone: Tone }) => (toast ? showToast(toast, next) : setShown(next));
     const state = quickState(data);
     const dashboard = data ? dashboardTarget(data).url : null;
     const runSync = () => {
@@ -87,7 +91,7 @@ export function makeQuickActions(screenId: string): ComponentType<PopoverProps> 
         ) : null}
         {reply ? <Note theme={theme} tone={reply.tone}>{reply.text}</Note> : null}
         <Button theme={theme} label="Open AI Router" icon="Route" primary onPress={() => { openScreen({ screenId }); close(); }} />
-        {dashboard ? <Button theme={theme} label="Open dashboard" icon="ExternalLink" onPress={() => void openInBrowser(dashboard)} /> : null}
+        {dashboard ? <Button theme={theme} label="Open dashboard" icon="ExternalLink" onPress={() => void openInBrowser(dashboard).then((result) => { if (result !== "opened") setReply(result === "copied" ? { text: `Could not open a browser; copied ${dashboard}`, tone: "warning" } : { text: `Could not open a browser or copy the link: ${dashboard}`, tone: "danger" }); })} /> : null}
         <Button theme={theme} label="Sync models" icon="RefreshCw" busy={busy} disabled={!data || data.problem !== null || data.health?.up === false} onPress={runSync} />
         {data?.aiProvider.check?.at ? <Meta theme={theme}>{`Models last checked ${new Date(data.aiProvider.check.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}</Meta> : null}
       </View>

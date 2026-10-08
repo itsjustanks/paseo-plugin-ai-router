@@ -8,6 +8,7 @@ import { CODEX_LOGIN_PORT, privateDashboardAccess, tunnelDashboardUrl } from "..
 import { ROUTERS } from "../shared/routers/copy";
 import type { GoTarget } from "../shared/tabs";
 import { dashboardTarget, useLinks } from "./dashboard";
+import { Confirm } from "./feedback";
 import { ConnectionForm, PUBLIC_ADDRESS_WHY, STATUS_KEY, errorText, type Message } from "./setup";
 import { Button, Card, Chip, Fact, ItemTitle, Link, Meta, Note, Row, TYPE, SPACE } from "./ui";
 
@@ -82,13 +83,16 @@ function TunnelsSection({ theme, data, say }: { theme: Theme; data: Status; say:
 export function ConnectionCard({ theme, data, configured, go, say }: { theme: Theme; data: Status; configured: boolean; go: Go; say: Say }) {
   const queryClient = useQueryClient();
   const callClear = useRpc(connectionClear);
+  const links = useLinks(say);
   const [editing, setEditing] = useState(false);
+  const [asking, setAsking] = useState(false);
   const { connection, health } = data;
   const name = ROUTERS[connection.router].label;
   const clear = useMutation({
     mutationFn: () => callClear({}),
+    onSettled: () => setAsking(false),
     onSuccess: (result) => {
-      say({ text: result.message, tone: "neutral" });
+      say({ text: result.message, tone: "success" });
       void queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     },
     onError: (error) => say({ text: errorText(error), tone: "danger" }),
@@ -96,6 +100,19 @@ export function ConnectionCard({ theme, data, configured, go, say }: { theme: Th
   useEffect(() => {
     if (!configured) setEditing(false);
   }, [configured]);
+  // Disconnecting deletes the saved key, which may not be at hand again: ask first (0.22.0).
+  const disconnect = (
+    <Confirm
+      theme={theme}
+      open={asking}
+      title={`Disconnect from ${name}?`}
+      text={`This deletes the saved address and key from this computer. Routing through ${name} stops here until you connect again, and you'll need the key to do that.${connection.source === "env" ? " The AI_ROUTER_* environment variables apply again." : ""}`}
+      confirmLabel="Yes, disconnect"
+      busy={clear.isPending}
+      onConfirm={() => clear.mutate()}
+      onCancel={() => setAsking(false)}
+    />
+  );
   const warnings = data.warnings.map((warning) => <Note key={warning} theme={theme} tone="warning">{warning}</Note>);
 
   if (!configured || editing) {
@@ -109,7 +126,8 @@ export function ConnectionCard({ theme, data, configured, go, say }: { theme: Th
         ) : null}
         {health?.error ? <Note theme={theme} tone="danger">{health.error}</Note> : null}
         <ConnectionForm theme={theme} data={data} onDone={(next, saved) => { setEditing(false); if (saved) say(next); }} />
-        {!configured && connection.source === "saved" ? <Row><Button theme={theme} label="Disconnect (remove saved connection)" busy={clear.isPending} onPress={() => clear.mutate()} /></Row> : null}
+        {!configured && connection.source === "saved" ? <Row><Button theme={theme} label="Disconnect (remove saved connection)" busy={clear.isPending} disabled={asking} onPress={() => setAsking(true)} /></Row> : null}
+        {!configured && connection.source === "saved" ? disconnect : null}
       </Card>
     );
   }
@@ -117,8 +135,8 @@ export function ConnectionCard({ theme, data, configured, go, say }: { theme: Th
     <>
       <Card theme={theme} title={name} icon="Server" tone={health?.up === false ? "danger" : health?.up ? "success" : "accent"} subtitle="The shared router this computer sends its chats to">
         {warnings}
-        <Fact theme={theme} label="Endpoint" value={connection.endpoint ?? "none"} />
-        <Fact theme={theme} label="Public address" value={connection.publicUrl ?? "not set"} />
+        <Fact theme={theme} label="Endpoint" value={connection.endpoint ?? "none"} onCopy={connection.endpoint ? () => void links.copy(connection.endpoint!, "the endpoint") : undefined} />
+        <Fact theme={theme} label="Public address" value={connection.publicUrl ?? "not set"} onCopy={connection.publicUrl ? () => void links.copy(connection.publicUrl!, "the public address") : undefined} />
         {connection.publicCheck ? (
           <View style={{ gap: SPACE.xs }}>
             <Row>
@@ -134,8 +152,9 @@ export function ConnectionCard({ theme, data, configured, go, say }: { theme: Th
         {!health?.error && data.lastSeenAt && health?.up ? <Meta theme={theme}>{`Answering · last check ${when(health.checkedAt)}`}</Meta> : null}
         <Row>
           <Button theme={theme} label="Edit" icon="Pencil" onPress={() => setEditing(true)} />
-          {connection.source === "saved" ? <Button theme={theme} label="Disconnect" busy={clear.isPending} onPress={() => clear.mutate()} /> : null}
+          {connection.source === "saved" ? <Button theme={theme} label="Disconnect" busy={clear.isPending} disabled={asking} onPress={() => setAsking(true)} /> : null}
         </Row>
+        {connection.source === "saved" ? disconnect : null}
         <Meta theme={theme} selectable>{`Stored in ${data.settingsDir}`}</Meta>
       </Card>
     </>
@@ -155,7 +174,7 @@ export function DashboardCard({ theme, data, say }: { theme: Theme; data: Status
           <Fact theme={theme} label="Address" value={dashboard} />
           <Row>
             <Button theme={theme} label="Open" icon="ExternalLink" onPress={() => void links.open(dashboard)} />
-            <Button theme={theme} label="Copy link" icon="Copy" onPress={() => links.copy(dashboard, dashboard)} />
+            <Button theme={theme} label="Copy link" icon="Copy" onPress={() => void links.copy(dashboard, "the dashboard link")} />
             {via ? <Chip theme={theme} label={via} tone="success" /> : null}
           </Row>
           <Meta theme={theme}>Its login comes from your router admin.</Meta>

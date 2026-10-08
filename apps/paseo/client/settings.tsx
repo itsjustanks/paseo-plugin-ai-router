@@ -9,6 +9,7 @@ import { routingSettings } from "../shared/settings";
 import { ROUTERS } from "../shared/routers/copy";
 import type { EngineVerdict } from "../shared/routers/omniroute/copy";
 import { dashboardTarget, useLinks } from "./dashboard";
+import { Confirm, hasDialog } from "./feedback";
 import { connectorsInstalled } from "./mcp";
 import { errorText, type Message } from "./setup";
 import type { GoTarget } from "../shared/tabs";
@@ -42,7 +43,7 @@ export function CompressionCard({ theme, data, say }: { theme: Theme; data: Stat
     void queryClient.invalidateQueries({ queryKey: ["ai-router"] });
   };
   const fail = (error: unknown) => say({ text: errorText(error), tone: "danger" });
-  const apply = useMutation({ mutationFn: () => callApply({}), onSuccess: done, onError: fail });
+  const apply = useMutation({ mutationFn: () => callApply({}), onSuccess: done, onError: (error) => { setConfirming(false); fail(error); } });
   const off = useMutation({ mutationFn: () => callSetting({ id: "compression", on: false }), onSuccess: done, onError: fail });
   const copy = ROUTERS[data.connection.router];
   const now = query.data;
@@ -70,20 +71,24 @@ export function CompressionCard({ theme, data, say }: { theme: Theme; data: Stat
         {copy.recommended.why.map((line) => <Note key={line} theme={theme}>{`• ${line}`}</Note>)}
       </View>
       {now?.state === "ok" && now.canEdit ? (
-        confirming ? (
-          <>
-            <Note theme={theme} tone="warning">Turns every engine off except Lite, and excludes Codex models where this OmniRoute can. This changes the router for every daemon using it.</Note>
+        <>
+          {confirming && !hasDialog() ? null : (
             <Row>
-              <Button theme={theme} label="Confirm: Lite only" primary busy={apply.isPending} onPress={() => apply.mutate()} />
-              <Button theme={theme} label="Cancel" onPress={() => setConfirming(false)} />
+              {!now.recommended ? <Button theme={theme} label="Apply recommended…" disabled={confirming} onPress={() => setConfirming(true)} /> : null}
+              {running.length ? <Button theme={theme} label="Turn compression off" busy={off.isPending} onPress={() => off.mutate()} /> : null}
             </Row>
-          </>
-        ) : (
-          <Row>
-            {!now.recommended ? <Button theme={theme} label="Apply recommended…" onPress={() => setConfirming(true)} /> : null}
-            {running.length ? <Button theme={theme} label="Turn compression off" busy={off.isPending} onPress={() => off.mutate()} /> : null}
-          </Row>
-        )
+          )}
+          <Confirm
+            theme={theme}
+            open={confirming}
+            title="Use Lite compression only?"
+            text="Turns every engine off except Lite, and excludes Codex models where this OmniRoute can. This changes the router for every daemon using it."
+            confirmLabel="Confirm: Lite only"
+            busy={apply.isPending}
+            onConfirm={() => apply.mutate()}
+            onCancel={() => setConfirming(false)}
+          />
+        </>
       ) : null}
       <Link theme={theme} label={showEngines ? "Hide what each engine does" : "What each engine does"} onPress={() => setShowEngines(!showEngines)} />
       {showEngines

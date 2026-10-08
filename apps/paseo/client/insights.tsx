@@ -8,6 +8,7 @@ import { accountsHeadline, compactNumber as compact, healthLine, providerLabel, 
 import { CODEX_LOGIN_PORT, dashboardLink, formatUptime, formatUsd, providerDashboardPage, resetLabel, resetQuestion, type ResetKind } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
 import { dashboardTarget, useLinks } from "./dashboard";
+import { Confirm } from "./feedback";
 import { openInBrowser } from "./links";
 import type { Message } from "./setup";
 import { Accordion, AccordionItem, Banner, Button, Card, Chip, Disclosure, Fact, ItemTitle, Link, Meta, Note, Row, StaleNote, TYPE, toneColor, type Tone, SPACE } from "./ui";
@@ -120,13 +121,10 @@ type ResetAsk = { kind: ResetKind | "breaker"; provider: string; id?: string; mo
 
 /** The question a reset asks before it runs, with its confirm and cancel. */
 function ResetConfirm({ theme, ask, busy, onConfirm, onCancel }: { theme: Theme; ask: ResetAsk; busy: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const label = resetLabel(ask.kind, ask.model);
   return (
     <View style={{ gap: SPACE.sm }}>
-      <Note theme={theme} tone="warning">{resetQuestion(ask.kind, { name: ask.name, provider: providerLabel(ask.provider), model: ask.model, credits: ask.credits })}</Note>
-      <Row>
-        <Button theme={theme} label={resetLabel(ask.kind, ask.model)} primary busy={busy} onPress={onConfirm} />
-        <Button theme={theme} label="Cancel" onPress={onCancel} />
-      </Row>
+      <Confirm theme={theme} open title={`${label} · ${ask.name}?`} text={resetQuestion(ask.kind, { name: ask.name, provider: providerLabel(ask.provider), model: ask.model, credits: ask.credits })} confirmLabel={label} busy={busy} onConfirm={onConfirm} onCancel={onCancel} />
     </View>
   );
 }

@@ -17,9 +17,16 @@ export function defineSettings<T>(definition: T) { return definition; }
 /** What newer apps hand plugins beyond the 0.8 SDK; a test switches them to stand in for each Paseo version. */
 export let openExternalUrl: ((url: string) => Promise<void>) | undefined = async (_url: string) => {};
 export let SidebarRow: ((props: Record<string, unknown>) => React.ReactElement) | undefined = undefined;
-export function setHostExports(next: { openExternalUrl?: typeof openExternalUrl; SidebarRow?: typeof SidebarRow }) {
+/** 0.22.0: Paseo's toast, clipboard and dialog; absent (as on older apps) unless a test sets them. */
+export let useToast: (() => { show(message: string, options?: { variant?: string; durationMs?: number }): void; error(message: string): void }) | undefined = undefined;
+export let copyText: ((text: string) => Promise<void>) | undefined = undefined;
+export let Modal: ((props: { title: string; open: boolean; onOpenChange(open: boolean): void; children: React.ReactNode }) => React.ReactElement | null) | undefined = undefined;
+export function setHostExports(next: { openExternalUrl?: typeof openExternalUrl; SidebarRow?: typeof SidebarRow; useToast?: typeof useToast; copyText?: typeof copyText; Modal?: typeof Modal }) {
   if ("openExternalUrl" in next) openExternalUrl = next.openExternalUrl;
   if ("SidebarRow" in next) SidebarRow = next.SidebarRow;
+  if ("useToast" in next) useToast = next.useToast;
+  if ("copyText" in next) copyText = next.copyText;
+  if ("Modal" in next) Modal = next.Modal;
 }
 
 let ready = false;

@@ -34,7 +34,7 @@ function ProductNews({ theme, product, update, extra, say }: { theme: Theme; pro
       {latest?.highlights.length ? <Bullets theme={theme} items={latest.highlights} icon="Sparkles" /> : null}
       <Row>
         <Link theme={theme} label="Full changelog" accessibilityLabel={`${product.label} full changelog`} onPress={() => void links.open(latest?.url || product.changelogUrl)} />
-        {update ? <Link theme={theme} label="Copy update command" onPress={() => links.copy(update, `"${update}"`)} /> : null}
+        {update ? <Link theme={theme} label="Copy update command" onPress={() => links.copy(update, "the update command")} /> : null}
       </Row>
     </View>
   );

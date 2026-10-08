@@ -21,7 +21,7 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const { mounts, renderThroughDataArrival, routerErrorsCheck, alertRegistryCheck, alertButtonsCheck, commandsCheck, followAgentsCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck, quickActionsCheck, titleFollowsTabCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
+const { mounts, renderThroughDataArrival, routerErrorsCheck, alertRegistryCheck, alertButtonsCheck, commandsCheck, followAgentsCheck, openedAgents, tabBarWidthCheck, nativeRegistrationCheck, quickActionsCheck, titleFollowsTabCheck, hostFeedbackCheck } = await import(join(plugin, "node_modules", ".cache", "hook-order", "entry.mjs"));
 
 /** Text each state must show once data arrives, so a render that silently drops a section fails. */
 const TABS = ["Overview", "Accounts", "Models", "Help"];
@@ -397,6 +397,33 @@ try {
 }
 
 try {
+  const feedback = await hostFeedbackCheck();
+  {
+    const [ask, yes] = feedback.offer;
+    assert.ok(ask.pressed && yes.pressed, "the offer and its confirm are there to press");
+    assert.deepEqual(ask.dialogs, ["Use this computer's own sign-in for Codex?"], "on the screen, the own sign-in offer asks in Paseo's dialog");
+    assert.ok(ask.text.includes("Nothing switches back by itself"), "the dialog says what will happen");
+    assert.deepEqual(yes.dialogs, [], "confirming closes the dialog");
+    assert.ok(yes.text.includes("Done: Codex now uses this computer's own sign-in for new chats."), "the outcome stays under the switch");
+    const [copy, disconnect, cancel, again, confirm] = feedback.disconnect;
+    assert.ok(copy.pressed, "the endpoint has a Copy");
+    assert.deepEqual(feedback.copied, ["http://10.0.0.5:20128"], "Copy uses the app's clipboard");
+    assert.deepEqual(disconnect.dialogs, ["Disconnect from OmniRoute?"], "Disconnect asks first");
+    assert.ok(disconnect.text.includes("deletes the saved address and key"), "and says what it deletes");
+    assert.deepEqual(cancel.dialogs, [], "Cancel closes it");
+    assert.ok(again.pressed && confirm.pressed && confirm.dialogs.length === 0, "Yes, disconnect runs it");
+    assert.equal(feedback.failed[0].pressed, true);
+    const models = feedback.models;
+    assert.deepEqual(models[0].dialogs, ["Use this computer's own sign-in for Claude?"], "the Models switch asks in the dialog too");
+    assert.ok(models[1].pressed && models[1].text.includes("Done: Claude now uses this computer's own sign-in for new chats."), "and switches only once confirmed");
+    assert.deepEqual(feedback.toasts, [
+      { text: "Copied the endpoint", variant: "success" },
+      { text: "ok", variant: "success" },
+      { text: "Couldn't copy the endpoint. Select it and copy it instead.", variant: "error" },
+    ], "replies are toasts: copied, disconnected, a failed copy");
+    for (const step of [...feedback.offer, ...feedback.disconnect]) assert.ok(!step.text.includes("Copied the endpoint"), "no message bar while the app has toasts");
+    console.log("ok   0.22.0: toasts, the app's clipboard and ask-first dialogs where the app has them");
+  }
   const quick = await quickActionsCheck();
   assert.equal(quick.label, "AI Router: Working · 12 models. Quick actions", "the dot says the state");
   assert.ok(quick.popped, "pressing the dot opens the quick actions popover");

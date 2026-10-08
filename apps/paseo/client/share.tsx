@@ -26,7 +26,7 @@ export function ShareCard({ theme, data, say }: { theme: Theme; data: Status; sa
   const check = data.connection.publicCheck;
   return (
     <Card theme={theme} title="Share this router" icon="Share2" subtitle="How other people and apps can use this router">
-      <Fact theme={theme} label="Endpoint" value={publicUrl} />
+      <Fact theme={theme} label="Endpoint" value={publicUrl} onCopy={() => void links.copy(publicUrl, "the endpoint")} />
       <Fact theme={theme} label="API key" value="Your own, from the router admin: one per person or machine, so usage shows per key." />
       {check && check.state !== "ok" && check.state !== "checking" ? <Note theme={theme} tone="warning">{`The public address is not ready yet: ${check.label}. These work once it is.`}</Note> : null}
       {shareSnippets(publicUrl).map((snippet) => (

@@ -747,3 +747,46 @@ export function routerErrorsCheck() {
     errorItem: t({ type: "error", message: "[codex/gpt-6-sol] Unavailable (reset after 13s)" })?.items[0].data,
   };
 }
+
+/**
+ * 0.22.0, on an app with Paseo's toast, clipboard and dialog: the page's
+ * replies are toasts (no message bar), copying uses the app's clipboard and
+ * says so, and the ask-first questions on the screen open a dialog that
+ * changes nothing until confirmed. A popover still asks in place.
+ */
+export async function hostFeedbackCheck() {
+  const toasts: Array<{ text: string; variant?: string }> = [];
+  const copied: string[] = [];
+  let copyFails = false;
+  const toast = { show: (text: string, options?: { variant?: string }) => toasts.push({ text, variant: options?.variant }), error: (text: string) => toasts.push({ text, variant: "error" }) };
+  const Dialog = ({ title, open, children }: { title: string; open: boolean; onOpenChange(open: boolean): void; children: React.ReactNode }) => (open ? React.createElement("Modal", { title }, children) : null);
+  setHostExports({ useToast: () => toast, copyText: async (text: string) => { if (copyFails) throw new Error("denied"); copied.push(text); }, Modal: Dialog });
+  const run = async (name: string, labels: string[]) => {
+    setHostDataReady(true);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let renderer!: ReturnType<typeof create>;
+    await act(async () => { renderer = create(<QueryClientProvider client={queryClient}>{mounts[name]()}</QueryClientProvider>); await flush(); await flush(); });
+    for (let i = 0; i < 6; i += 1) await act(flush);
+    const steps: Array<{ label: string; pressed: boolean; dialogs: string[]; text: string }> = [];
+    for (const label of labels) {
+      const target = renderer.root.findAll((node) => node.type === "Pressable" && node.props.accessibilityLabel === label)[0];
+      if (target) await act(async () => { target.props.onPress(); await flush(); });
+      for (let i = 0; i < 4; i += 1) await act(flush);
+      steps.push({ label, pressed: !!target, dialogs: renderer.root.findAll((node) => (node.type as unknown) === "Modal").map((node) => node.props.title), text: describe(renderer.toJSON()).text });
+    }
+    await act(async () => { renderer.unmount(); });
+    queryClient.clear();
+    return steps;
+  };
+  try {
+    const offer = await run("routing: down, Codex own sign-in asks first", ["Use this computer's own sign-in for Codex", "Yes, use own sign-in"]);
+    const disconnect = await run("connection tab (operator, private dashboard)", ["Copy the endpoint", "Disconnect", "Cancel", "Disconnect", "Yes, disconnect"]);
+    copyFails = true;
+    const failed = await run("connection tab (operator, private dashboard)", ["Copy the endpoint"]);
+    copyFails = false;
+    const models = await run("providers tab (own sign-in asks first)", ["Claude · through the router", "Use own sign-in"]);
+    return { offer, disconnect, failed, models, toasts, copied };
+  } finally {
+    setHostExports({ useToast: undefined, copyText: undefined, Modal: undefined });
+  }
+}

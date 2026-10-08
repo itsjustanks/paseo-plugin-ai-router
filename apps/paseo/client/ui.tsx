@@ -307,12 +307,23 @@ export function HeroCard({ theme, tone, icon, title, lead, children }: { theme: 
 }
 
 /** A plain label and value, such as an endpoint or a masked key. The value can be selected and copied. */
-export function Fact({ theme, label, value }: { theme: Theme; label: string; value: string }) {
+/** A label and its value; `onCopy` adds a quiet "Copy" after the value. */
+export function Fact({ theme, label, value, onCopy }: { theme: Theme; label: string; value: string; onCopy?: () => void }) {
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: SPACE.row, rowGap: SPACE.hair }}>
       <Text style={{ ...TYPE.secondary, color: theme.colors.foregroundMuted, width: 140 }}>{label}</Text>
       <Text selectable style={{ ...TYPE.body, color: theme.colors.foreground, flexShrink: 1 }}>{value}</Text>
+      {onCopy ? <Link theme={theme} label="Copy" accessibilityLabel={`Copy the ${label.toLowerCase()}`} onPress={onCopy} /> : null}
     </View>
+  );
+}
+
+/** A small muted copy icon after an id, such as a model id in a long list; the text "Copy" where the app has no icons. */
+export function CopyIcon({ theme, label, onPress }: { theme: Theme; label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={SPACE.sm} onPress={onPress} style={{ padding: SPACE.hair }}>
+      {HostIcon ? <HostIcon name="Copy" size={14} color={theme.colors.foregroundMuted} /> : <Text style={{ ...TYPE.small, color: theme.colors.accent }}>Copy</Text>}
+    </Pressable>
   );
 }
 

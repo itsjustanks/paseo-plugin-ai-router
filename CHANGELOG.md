@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.22.0 — 2026-10-08
+
+Paseo's own toasts, clipboard and dialogs, where the app has them. Older apps keep exactly what 0.21
+did (the message bar, react-native's clipboard, the questions in place). `requirements.paseo` stays
+`>=0.9.0`; `ROUTING_SETTINGS_VERSION` stays 1; nothing switches by itself; no new dependencies.
+
+- **Replies are toasts.** Sync, Check, Refresh, connection tests, account checks and resets, copying,
+  update checks and the Command Center's replies now show as Paseo's toast instead of the message bar
+  under the tabs (errors stay up longer). One way, never both. The sidebar popover's Sync answer is a
+  toast too, so it outlives the popover, and "Open dashboard" there now says when no browser opened.
+  A switch's own "Done: …" or "Not switched: …" still shows right under the switch.
+- **Ask-first in a dialog.** On the AI Router screen, the routing switches (Overview and Models), the
+  "Use this computer's own sign-in" and "Switch back to the router" offers, account resets and the
+  compression change now ask in Paseo's dialog, with the same words as before. In the sidebar popover,
+  the chat chip's popover and the chat card they still ask in place.
+- **Disconnect asks first.** It deletes the saved address and key, which you need again to reconnect.
+- **Copy where you'd select.** The endpoint and public address (Connection, and Share's endpoint) have
+  a Copy, and each model in "Models in Paseo's picker" has a small copy icon for its id. Copying uses
+  Paseo's clipboard and says "Copied …" or why it couldn't.
+
 ## 0.21.2 — 2026-10-07
 
 - **Provider combos are judged by the models the router can serve, not only by account names.** 0.21.1 hid `auto/<family>` combos (`auto/kimi`, `auto/deepseek`) when no account had that family's name. A family can also come through another route (for example DeepSeek through an aggregator account), and those combos now stay. A family with no model on an active account is still hidden.

@@ -15,7 +15,7 @@ import { UsageTab } from "./analytics";
 import { AgentAppsCard, CLIS_KEY } from "./apps";
 import { checkReply, peekPendingMessage, subscribePendingMessage, takePendingMessage } from "./commands";
 import { ConnectionCard, when } from "./connection";
-import { AdvancedBanner, OpenDashboardButton } from "./dashboard";
+import { AdvancedBanner, OpenDashboardButton, useLinks } from "./dashboard";
 import { OverviewGuide } from "./guide";
 import { HelpTab } from "./help";
 import { AccountsTab, YourAccess } from "./insights";
@@ -27,8 +27,9 @@ import { noteHost } from "./host";
 import { hostName, notConnectedLine } from "../shared/host";
 import { syncScreenTab } from "./native";
 import { STATUS_KEY, errorText, type Message } from "./setup";
+import { useSay } from "./feedback";
 import { WhatsNew, useUpdates } from "./updates";
-import { Accordion, AccordionItem, Banner, Button, Card, Chip, Divider, Field, FoldsContext, HeroCard, HostIcon, IconBadge, ItemTitle, Link, MessageBar, Meta, Note, Row, SectionTitle, StatusLine, TYPE, ToggleRow, toneColor, type Tone, SPACE } from "./ui";
+import { Accordion, AccordionItem, Banner, Button, Card, Chip, CopyIcon, Divider, Field, FoldsContext, HeroCard, HostIcon, IconBadge, ItemTitle, Link, MessageBar, Meta, Note, Row, SectionTitle, StatusLine, TYPE, ToggleRow, toneColor, type Tone, SPACE } from "./ui";
 
 type Theme = PluginTheme;
 type Go = (target: GoTarget) => void;
@@ -285,6 +286,7 @@ function ModelsTab({ theme, data, configured, go, say }: { theme: Theme; data: S
     onError: (error) => say({ text: errorText(error), tone: "danger" }),
   });
   const tidyCount = useTidyCount();
+  const links = useLinks(say);
   const { tests, models } = data.aiProvider;
   const results = new Map(tests.map((entry) => [entry.model, entry]));
   const testing = test.isPending ? test.variables : null;
@@ -308,6 +310,7 @@ function ModelsTab({ theme, data, configured, go, say }: { theme: Theme; data: S
                         <View key={row.id} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: SPACE.sm, rowGap: SPACE.hair }}>
                           <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>{row.name}</Text>
                           {row.id !== row.name ? <Meta theme={theme} selectable>{row.id}</Meta> : null}
+                          <CopyIcon theme={theme} label={`Copy the model id ${row.id}`} onPress={() => void links.copy(row.id, row.id)} />
                           {result ? <Chip theme={theme} label={result.ok ? "answered" : "failed"} tone={result.ok ? "success" : "danger"} /> : null}
                           <Link theme={theme} label={testing === row.id ? "Testing…" : "Test"} accessibilityLabel={`Test ${row.name}`} onPress={() => { if (!test.isPending) test.mutate(row.id); }} />
                         </View>
@@ -455,7 +458,8 @@ type Place = { tab: TabId; open: readonly string[]; visit: number };
 export function AiRouterSurface({ theme, host, layout, navigation, params, initialTab, initialRange, initialNews }: PluginSurfaceProps & { params?: Record<string, string>; initialTab?: GoTarget; initialRange?: AnalyticsRangeId; initialNews?: boolean }) {
   noteHost(host);
   const callStatus = useRpc(status);
-  const [message, setMessage] = useState<Message>(null);
+  // 0.22.0: Paseo's toasts where the app has them; the message bar below the tabs otherwise.
+  const [message, setMessage] = useSay();
   const deepLink = initialTab ?? params?.tab ?? null;
   const [place, setPlace] = useState<Place>(() => ({ ...resolveTarget(deepLink, params?.open), visit: 0 }));
   // Opened again with other params (the screen stays mounted, 0.11): go there.

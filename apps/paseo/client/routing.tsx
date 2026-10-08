@@ -5,12 +5,15 @@ import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { codexReroute, switchedAway, type Status } from "../shared/contracts";
 import { APP_NAMES, routingOffer, switchWords, type RoutedApp } from "../shared/routing";
 import { routingSettings } from "../shared/settings";
+import { Confirm, hasDialog } from "./feedback";
 import { Button, Meta, Note, Row, SPACE, TYPE, Toggle } from "./ui";
 
 // Built-in Claude and Codex: through the router, or this computer's own
 // sign-in (0.21.0). One switch for each, the same on Overview and Models.
-// Each asks first, shows "Switching…" while it works, and says what happened
-// right under it (never only at the top of the page). Before a router is
+// Each asks first (0.22.0: in Paseo's dialog on the AI Router screen; in
+// place in a popover or chat card, or on older apps), shows "Switching…"
+// while it works, and says what happened right under it (never only at the
+// top of the page). Before a router is
 // connected, a switch that is off says why it can't be turned on.
 // The switch-back offer for router trouble lives here too: Overview, the
 // sidebar popover, the chat chip and the chat card all show the same one.
@@ -142,15 +145,15 @@ export function RoutingSwitch({ theme, app, control, blocked, note }: { theme: T
       </View>
       {cannotTurnOn ? <Meta theme={theme}>{blocked}</Meta> : null}
       {note && asking === null ? <Meta theme={theme}>{note}</Meta> : null}
-      {asking !== null ? (
-        <>
-          <Note theme={theme} tone="warning">{QUESTIONS[app][asking ? "on" : "off"]}</Note>
-          <Row>
-            <Button theme={theme} label={asking ? `Yes, send ${APP_NAMES[app]} through the router` : "Use own sign-in"} primary onPress={confirm} />
-            <Button theme={theme} label="Cancel" onPress={() => setAsking(null)} />
-          </Row>
-        </>
-      ) : null}
+      <Confirm
+        theme={theme}
+        open={asking !== null}
+        title={asking ? `Send ${APP_NAMES[app]} through the router?` : `Use this computer's own sign-in for ${APP_NAMES[app]}?`}
+        text={QUESTIONS[app][asking ? "on" : "off"]}
+        confirmLabel={asking ? `Yes, send ${APP_NAMES[app]} through the router` : "Use own sign-in"}
+        onConfirm={confirm}
+        onCancel={() => setAsking(null)}
+      />
       {outcome ? <Note theme={theme} tone={outcome.ok ? "success" : "danger"}>{outcome.text}</Note> : null}
     </View>
   );
@@ -200,19 +203,22 @@ export function RoutingOffer({ theme, data, app, control, compact, troubleOnly }
   return (
     <View style={{ gap: SPACE.sm }}>
       {!back && !compact ? <Text style={{ ...TYPE.secondary, color: theme.colors.foreground }}>{`${offer.problem}. ${APP_NAMES[app]} can use this computer's own sign-in until it's back.`}</Text> : null}
-      {asking ? (
-        <>
-          <Note theme={theme} tone="warning">{offer.question}</Note>
-          <Row>
-            <Button theme={theme} label={back ? "Yes, switch back" : "Yes, use own sign-in"} primary busy={control.busy} onPress={run} />
-            <Button theme={theme} label="Cancel" onPress={() => setAsking(false)} />
-          </Row>
-        </>
-      ) : (
+      {asking && (compact || !hasDialog()) ? null : (
         <Row>
-          <Button theme={theme} label={offer.label} icon={back ? "Route" : "KeyRound"} primary={!back} busy={control.busy} onPress={() => { setOutcome(null); setAsking(true); }} />
+          <Button theme={theme} label={offer.label} icon={back ? "Route" : "KeyRound"} primary={!back} busy={control.busy} disabled={asking} onPress={() => { setOutcome(null); setAsking(true); }} />
         </Row>
       )}
+      <Confirm
+        theme={theme}
+        open={asking}
+        inPlace={compact}
+        title={back ? `Switch ${APP_NAMES[app]} back to the router?` : `Use this computer's own sign-in for ${APP_NAMES[app]}?`}
+        text={offer.question}
+        confirmLabel={back ? "Yes, switch back" : "Yes, use own sign-in"}
+        busy={control.busy}
+        onConfirm={run}
+        onCancel={() => setAsking(false)}
+      />
     </View>
   );
 }

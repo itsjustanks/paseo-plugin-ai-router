@@ -3,22 +3,24 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { Status } from "../shared/contracts";
 import { tunnelKind } from "../shared/logic";
 import { ROUTERS } from "../shared/routers/copy";
-import { copyLink, openInBrowser } from "./links";
+import { copyToClipboard } from "./feedback";
+import { openInBrowser } from "./links";
 import type { Message } from "./setup";
 import { Button, Chip, QuietLine } from "./ui";
 
 type Theme = PluginTheme;
 type Say = (message: Message) => void;
 
-/** Opens a URL, falling back to the clipboard; shared by every tab. */
+/** Opens a URL, falling back to the clipboard; and copies, saying so. Shared by every tab. */
 export function useLinks(say: Say) {
   return {
     open: async (url: string) => {
-      if ((await openInBrowser(url)) === "copied") say({ text: `Could not open a browser; copied ${url}`, tone: "warning" });
+      const result = await openInBrowser(url);
+      if (result === "copied") say({ text: `Could not open a browser; copied ${url}`, tone: "warning" });
+      if (result === "failed") say({ text: `Could not open a browser or copy the link: ${url}`, tone: "danger" });
     },
-    copy: (value: string, label: string) => {
-      copyLink(value);
-      say({ text: `Copied ${label}`, tone: "neutral" });
+    copy: async (value: string, label: string) => {
+      say((await copyToClipboard(value)) ? { text: `Copied ${label}`, tone: "success" } : { text: `Couldn't copy ${label}. Select it and copy it instead.`, tone: "danger" });
     },
   };
 }
