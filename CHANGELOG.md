@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.22.1 — 2026-10-08
+
+A hardening patch for the credential redactor (`shared/redact.ts`). Nothing else changes; the
+plugin's own text is untouched (a test now checks every string in it).
+
+- **Quoted values are hidden whole.** `password="correct horse battery staple"` showed everything
+  after the first word. Now the whole quoted value is hidden, in single or double quotes, in JSON,
+  TOML, YAML and env files.
+- **Authorization with any scheme.** `Authorization:` (and `Proxy-Authorization:`) in any case, with
+  any scheme (`Bearer`, `Token`, `Digest …`, or none) and short values: the scheme stays, the
+  value goes.
+- **Command-line flags.** `--api-key X`, `--token X`, `--password X`, `--secret X`, `--auth X`,
+  `--bearer X`, their `--flag=X` forms, and argument arrays such as `["--api-key", "X"]` (which
+  leaked before). `FOO_TOKEN=X` stays hidden. A flag followed by another flag, a placeholder or the
+  next word of a sentence is left alone.
+- **Whole words only.** A name counts as secret only when one of its words is (`api_key`,
+  `apiKey`, `x-api-key`, `MY_SERVICE_TOKEN`), so `tokenizer`, `monkey`, `keyboard`, `author` and
+  `max_tokens` stay visible.
+
 ## 0.22.0 — 2026-10-08
 
 Paseo's own toasts, clipboard and dialogs, where the app has them. Older apps keep exactly what 0.21

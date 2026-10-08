@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "../apps/paseo/node_modules/typescript/lib/typescript.js";
@@ -1052,6 +1052,66 @@ try {
         "github:owner/repo#56bc4056630ebd766395ba3e71c6d92268e95f59",
       ];
       for (const text of keep) assert.equal(r(text), text, text);
+    });
+    // 0.22.1: the gaps a probe and the Connectors/Hosts reviews found, one test each.
+    check("a quoted value is hidden whole (JSON, TOML, YAML, env; single or double quotes)", () => {
+      assert.equal(r('password="correct horse battery staple"'), `password="${REDACTED}"`, "the probe's leak: the rest of the quoted value");
+      assert.equal(r("password='correct horse battery staple'"), `password='${REDACTED}'`);
+      assert.equal(r('{"password":"p a s s","user":"me"}'), `{"password":"${REDACTED}","user":"me"}`, "JSON");
+      assert.equal(r('api_key = "two words here"'), `api_key = "${REDACTED}"`, "TOML");
+      assert.equal(r('token: "yaml quoted value"'), `token: "${REDACTED}"`, "YAML");
+      assert.equal(r("export FOO_TOKEN='a b c'"), `export FOO_TOKEN='${REDACTED}'`, "env");
+      assert.equal(r('secret: "with \\"escaped\\" quotes"'), `secret: "${REDACTED}"`, "escaped quotes stay inside");
+      assert.equal(r('"Authorization": "Bearer xyz"'), `"Authorization": "${REDACTED}"`);
+    });
+    check("Authorization takes any scheme, any case, short values included", () => {
+      assert.equal(r("Authorization: bearer abc"), `Authorization: bearer ${REDACTED}`);
+      assert.equal(r("authorization: Token x"), `authorization: Token ${REDACTED}`);
+      assert.equal(r("AUTHORIZATION: Custom k"), `AUTHORIZATION: Custom ${REDACTED}`);
+      assert.equal(r("Proxy-Authorization: Basic Zm9v"), `Proxy-Authorization: Basic ${REDACTED}`);
+      assert.equal(r("Authorization: abc"), `Authorization: ${REDACTED}`, "no scheme");
+      assert.equal(r('Authorization: Digest username="u", response="r0"'), `Authorization: Digest ${REDACTED}`, "scheme parameters, all of them");
+      assert.equal(r("Authorization: <your key>"), "Authorization: <your key>", "a placeholder stays");
+    });
+    check("CLI flag/value pairs, in strings and arrays", () => {
+      assert.equal(r('args: ["--api-key", "short-lived-credential"]'), `args: ["--api-key", "${REDACTED}"]`, "the probe's leak: an argv array");
+      assert.equal(r("args: ['--token', 'abc def']"), `args: ['--token', '${REDACTED}']`);
+      assert.equal(r("cli --api-key short-lived-credential --verbose"), `cli --api-key ${REDACTED} --verbose`);
+      for (const flag of ["--token", "--password", "--secret", "--auth", "--bearer", "--api-key", "--client-secret", "--auth-token"]) {
+        assert.equal(r(`cli ${flag} X --verbose`), `cli ${flag} ${REDACTED} --verbose`, `${flag} X`);
+        assert.equal(r(`cli ${flag}=X`), `cli ${flag}=${REDACTED}`, `${flag}=X`);
+        assert.equal(r(`["${flag}", "X"]`), `["${flag}", "${REDACTED}"]`, `["${flag}", "X"]`);
+      }
+      assert.equal(r('cli --password "two words"'), `cli --password "${REDACTED}"`);
+      assert.equal(r("MY_SERVICE_TOKEN=X"), `MY_SERVICE_TOKEN=${REDACTED}`);
+      assert.equal(r("cli --token --verbose"), "cli --token --verbose", "a flag after a flag is not a value");
+      assert.equal(r("cli --api-key <your key> --token $TOKEN"), "cli --api-key <your key> --token $TOKEN", "placeholders stay");
+      assert.equal(r("Pass --token to the CLI, or set --api-key here."), "Pass --token to the CLI, or set --api-key here.", "a sentence about flags stays");
+    });
+    check("names match as whole words: tokenizer, monkey, keyboard and author stay", () => {
+      for (const text of ["tokenizer: cl100k_base monkey: george keyboard: us author: jo", "tokenizer=cl100k_base monkey=george keyboard=us author=jo", "cli --author jo --keyboard us --tokenizer cl100k", '["--author", "jo"]', "max_tokens=4096"]) {
+        assert.equal(r(text), text, text);
+      }
+      assert.equal(r("apiKey=X APIKey=Y x-api-key=Z"), `apiKey=${REDACTED} APIKey=${REDACTED} x-api-key=${REDACTED}`, "camelCase and dashes split into words");
+    });
+    check("the plugin's own text is never changed (every string literal in client, shared and server)", () => {
+      const root = new URL("../apps/paseo/", import.meta.url).pathname;
+      const files = [];
+      const walk = (dir) => readdirSync(dir, { withFileTypes: true }).forEach((entry) => (entry.isDirectory() ? walk(join(dir, entry.name)) : /\.tsx?$/.test(entry.name) && !entry.name.startsWith("redact.") && files.push(join(dir, entry.name))));
+      for (const dir of ["client", "shared", "server"]) walk(join(root, dir));
+      let scanned = 0;
+      const changed = [];
+      for (const file of files) {
+        for (const match of readFileSync(file, "utf8").matchAll(/"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`|'((?:[^'\\\n]|\\.)*)'/g)) {
+          // Interpolations read as placeholders, as their values (env names, URLs) are checked elsewhere.
+          const text = (match[1] ?? match[2] ?? match[3] ?? "").replace(/\$\{[^}]*\}/g, "$X");
+          if (text.length < 6) continue;
+          scanned += 1;
+          if (r(text) !== text) changed.push(`${file.slice(root.length)}: ${text.slice(0, 100)}`);
+        }
+      }
+      assert.ok(scanned > 3500, `scanned ${scanned} strings`);
+      assert.deepEqual(changed, [], "no intended changes to the plugin's own text");
     });
     check("redactNode hides strings and leaves anything else", () => {
       assert.deepEqual(redactNode(["a ", `Bearer ${JWT}`, 3]), ["a ", `Bearer ${REDACTED}`, 3]);
