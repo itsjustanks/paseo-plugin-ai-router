@@ -1,7 +1,8 @@
-import React, { useCallback, useState, type ComponentType, type ReactNode } from "react";
+import React, { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Clipboard, Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import * as HostRN from "@getpaseo/plugin/client/react-native";
+import { redactSecrets } from "../shared/redact";
 import type { Message } from "./setup";
 import { Button, Note, Row, SPACE, TYPE } from "./ui";
 
@@ -17,7 +18,12 @@ const host = HostRN as unknown as { useToast?: () => ToastApi; copyText?: (text:
 
 const isComponent = (value: unknown) => typeof value === "function" || (typeof value === "object" && value !== null);
 const hostModal = (): ModalComponent | null => (isComponent(host.Modal) ? (host.Modal as ModalComponent) : null);
-/** The app's toast, or null. An app either has it or not, so the hook order never changes within one. */
+/**
+ * The app's toast, or null. Not a conditional hook in practice: the app's
+ * exports are fixed for the life of the page, so every render of a component
+ * takes the same branch. (Read per call only so tests can stand in for each
+ * kind of app.)
+ */
 export function useHostToast(): ToastApi | null {
   const use = host.useToast;
   return typeof use === "function" ? use() : null;
@@ -26,13 +32,11 @@ export function useHostToast(): ToastApi | null {
 /** Long or failing messages stay up longer: about a second per 16 characters, 4 to 10 seconds. */
 export const toastDuration = (text: string) => Math.min(10_000, Math.max(4_000, Math.round(text.length * 60)));
 
+/** A toast in the message's tone. Credentials in the text are hidden first. */
 export function showToast(toast: ToastApi, message: NonNullable<Message>): void {
-  if (message.tone === "danger") {
-    toast.show(message.text, { variant: "error", durationMs: toastDuration(message.text) });
-    return;
-  }
-  const variant: ToastVariant = message.tone === "success" ? "success" : message.tone === "warning" ? "warning" : "default";
-  toast.show(message.text, { variant, durationMs: toastDuration(message.text) });
+  const text = redactSecrets(message.text);
+  const variant: ToastVariant = message.tone === "danger" ? "error" : message.tone === "success" ? "success" : message.tone === "warning" ? "warning" : "default";
+  toast.show(text, { variant, durationMs: toastDuration(text) });
 }
 
 /**
@@ -47,19 +51,27 @@ export function useSay(): [Message, (message: Message) => void] {
       if (next && toast) {
         showToast(toast, next);
         setMessage(null);
-      } else setMessage(next);
+      } else setMessage(next ? { ...next, text: redactSecrets(next.text) } : null);
     },
     [toast],
   );
   return [message, say];
 }
 
-/** Copies with the app's clipboard where it has one, else react-native's. False when neither could. */
+/**
+ * Copies with the app's clipboard where it has one, else react-native's.
+ * False when it couldn't: the app's copy rejects, and React Native Web's
+ * setString returns false when the browser refuses. Credentials are hidden
+ * first, so a copied message never carries one.
+ */
 export async function copyToClipboard(text: string): Promise<boolean> {
+  const safe = redactSecrets(text);
   try {
-    if (typeof host.copyText === "function") await host.copyText(text);
-    else Clipboard.setString(text);
-    return true;
+    if (typeof host.copyText === "function") {
+      await host.copyText(safe);
+      return true;
+    }
+    return (Clipboard.setString(safe) as unknown) !== false;
   } catch {
     return false;
   }
@@ -84,9 +96,21 @@ export function Confirm({ theme, open, title, text, confirmLabel, busy, inPlace,
   onConfirm(): void;
   onCancel(): void;
 }) {
+  // Single use: a second press (or a double tap) before React re-renders
+  // must not run the action again. Re-armed only when the question opens again.
+  const used = useRef(false);
+  useEffect(() => {
+    if (open) used.current = false;
+  }, [open]);
+  const confirmOnce = () => {
+    if (used.current) return;
+    used.current = true;
+    onConfirm();
+  };
+  const words = redactSecrets(text);
   const buttons = (
     <Row>
-      <Button theme={theme} label={confirmLabel} primary busy={busy} onPress={onConfirm} />
+      <Button theme={theme} label={confirmLabel} primary busy={busy} onPress={confirmOnce} />
       <Button theme={theme} label="Cancel" onPress={onCancel} />
     </Row>
   );
@@ -95,7 +119,7 @@ export function Confirm({ theme, open, title, text, confirmLabel, busy, inPlace,
     if (!open) return null;
     return (
       <>
-        <Note theme={theme} tone="warning">{text}</Note>
+        <Note theme={theme} tone="warning">{words}</Note>
         {buttons}
       </>
     );
@@ -103,7 +127,7 @@ export function Confirm({ theme, open, title, text, confirmLabel, busy, inPlace,
   const Content = HostModal.Content;
   const body = (
     <View style={{ gap: SPACE.md }}>
-      <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>{text}</Text>
+      <Text style={{ ...TYPE.body, color: theme.colors.foreground }}>{words}</Text>
       {buttons}
     </View>
   );

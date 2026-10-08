@@ -40,6 +40,8 @@ const catalogue = {
     { id: "glm/glm-5.2", owned_by: "glm", root: "glm-5.2", parent: null },
   ],
 };
+/** What "Check all" says failed; a test swaps in a provider error that quotes a (synthetic) key. */
+let batchError = "401 token expired";
 const managed = {
   "/api/providers": fixtures["/api/providers"].body,
   "/api/rate-limits": fixtures["/api/rate-limits"].body,
@@ -167,7 +169,7 @@ const router = createServer((req, res) => {
       if (/^\/api\/providers\/[^/]+\/refresh$/.test(req.url)) return send(200, { success: true, skipped: true, message: "Rotating-refresh provider: the token refreshes automatically on the next request." });
       if (req.url === "/api/providers/health-autopilot/actions") return send(200, { success: true, dryRun: false, action: JSON.parse(raw).type, target: JSON.parse(raw).target, changed: {} });
       if (req.url === "/api/usage/codex-reset-credit") return JSON.parse(raw).connectionId === "codex-2" ? send(409, { ok: false, code: "nothing_to_reset", error: "No exhausted Codex usage limit can be reset right now." }) : send(200, { ok: true, outcome: "reset" });
-      if (req.url === "/api/providers/test-batch") return send(200, { mode: "all", results: [{ connectionId: "x", connectionName: "someone@example.com", valid: false, error: "401 token expired" }, { valid: true }], summary: { total: 2, passed: 1, failed: 1 } });
+      if (req.url === "/api/providers/test-batch") return send(200, { mode: "all", results: [{ connectionId: "x", connectionName: "someone@example.com", valid: false, error: batchError }, { valid: true }], summary: { total: 2, passed: 1, failed: 1 } });
       if (req.url === "/api/tunnels/cloudflared") {
         tunnelStatus.cloudflared = { installed: true, running: true, publicUrl: "https://quiet-river-demo.trycloudflare.com", phase: "running", lastError: null };
         return send(200, { success: true, action: "enable", status: tunnelStatus.cloudflared });
@@ -1412,6 +1414,26 @@ try {
     assert.ok(statSync(join(plugin, source.icon)).size <= 64 * 1024 && /^\s*<svg(?:\s|>)/i.test(svg), "a small SVG document");
     assert.ok(!/<script(?:\s|>)|<foreignObject(?:\s|>)|<style(?:\s|>)|\son[a-z0-9_-]*\s*=|javascript\s*:|\s(?:href|xlink:href)\s*=/i.test(svg), "nothing the daemon's icon check refuses");
     assert.equal(status11.nativeUsage, true, "the Accounts tab points to Paseo's Usage page");
+
+    // 0.22.0: every RPC reply's message is redacted on the way out, so a provider error that quotes a key never reaches the panel.
+    {
+      const home = process.env.PASEO_HOME;
+      const r = await fresh("redact-replies", { ...full, manageKey: MANAGE });
+      const handlers = {};
+      contribute(r, fakeHost({ handle: (contract, fn) => { handlers[contract.name] = fn; } }).host);
+      r.restore();
+      const SYNTHETIC = "sk-synthetic-SyntheticServerKey0123456789abcdef";
+      batchError = `401 invalid x-api-key ${SYNTHETIC} (Authorization: Bearer ${SYNTHETIC})`;
+      const reply = await handlers["ai-router.accounts.check-all"]({}, { paseo: r.api });
+      batchError = "401 token expired";
+      await r.mod.checkAutoSync(r.api); // the call also started a background sync: let it finish here
+      assert.equal(reply.ok, false);
+      assert.ok(!reply.message.includes(SYNTHETIC) && !reply.message.includes("SyntheticServerKey"), `no key in the reply: ${reply.message}`);
+      assert.match(reply.message, /^1 of 2 accounts answered\. Failed: .*401 invalid x-api-key \[hidden\] \(Authorization: Bearer \[hidden\]\)/);
+      assert.equal(Object.keys(handlers).length >= 25, true, "every RPC still registered");
+      process.env.PASEO_HOME = home; // the usage checks below read the first copy's connection
+      passed += 1;
+    }
     assert.equal(t.mod.usageSourceRegistered(), true);
 
     // Operator tier: a card per account, with quota windows from provider-limits, never a raw email or a key.

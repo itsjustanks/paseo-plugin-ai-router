@@ -8,4 +8,6 @@ export const Pressable = host("Pressable");
 export const TextInput = host("TextInput");
 export const ActivityIndicator = host("ActivityIndicator");
 export const Linking = { openURL: async (_url: string) => {} };
-export const Clipboard = { setString: (_text: string) => {} };
+/** React Native Web's setString answers false when the browser refuses; a test sets what it answers. */
+export const clipboardStub: { answer: boolean | undefined; copied: string[] } = { answer: undefined, copied: [] };
+export const Clipboard = { setString: (text: string) => { clipboardStub.copied.push(text); return clipboardStub.answer; } };

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { redactSecrets } from "../shared/redact";
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -12,7 +13,8 @@ type Theme = PluginTheme;
 export type Message = { text: string; tone: Tone } | null;
 export const STATUS_KEY = ["ai-router", "status"] as const;
 export const PUBLIC_ADDRESS_WHY = "Your daemons use the endpoint above; people and browsers outside your network use this address.";
-export const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** An error in words, with any credential in it hidden. */
+export const errorText = (error: unknown) => redactSecrets(error instanceof Error ? error.message : String(error));
 
 function Step({ theme, title, why }: { theme: Theme; title: string; why: string }) {
   return (

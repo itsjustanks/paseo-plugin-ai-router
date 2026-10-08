@@ -1005,6 +1005,61 @@ try {
     assert.match(Ho.notConnectedLine(null), /^This computer isn't/);
   });
 
+  // ------------------------------------------------------------ redaction (0.22.0)
+
+  {
+    const redactSource = readFileSync(new URL("../apps/paseo/shared/redact.ts", import.meta.url), "utf8");
+    writeFileSync(join(staging, "redact.mjs"), ts.transpileModule(redactSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+    const { redactSecrets: r, redactNode, REDACTED } = await import(join(staging, "redact.mjs"));
+    // Synthetic secrets only.
+    const SK = "sk-synthetic-SyntheticTestKey0123456789abcdef";
+    const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0LXVzZXItMDEyMyJ9.Zm9vYmFyQmF6UXV4MTIzNDU2Nzg5MEFCQ0RFRg";
+    const HEX = "0123456789abcdef0123456789abcdef0123";
+    const B64 = "QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Njc4OTBBQkNERUY";
+    const leaks = (text, ...secrets) => secrets.filter((secret) => r(text).includes(secret));
+    check("bearer, sk- keys, JWTs, long hex and base64 are hidden", () => {
+      assert.deepEqual(leaks(`Claude 2 (401: invalid x-api-key ${SK})`, SK), []);
+      assert.equal(r(`Authorization: Bearer ${JWT}`), `Authorization: Bearer ${REDACTED}`);
+      assert.deepEqual(leaks(`session ${HEX} and blob ${B64}`, HEX, B64), []);
+      assert.deepEqual(leaks(`token ${JWT}`, ...JWT.split(".")), [], "every JWT segment");
+    });
+    check("key=, token=, password= pairs and JSON fields are hidden", () => {
+      assert.equal(r("password=supersecret&x=1"), `password=${REDACTED}&x=1`);
+      assert.equal(r('{"api_key":"abcd1234efgh","ok":false}'), `{"api_key":"${REDACTED}","ok":false}`);
+      assert.equal(r("GET /api?access_token=zzzzyyyy"), `GET /api?access_token=${REDACTED}`);
+      assert.equal(r("AI_ROUTER_KEY=plainvalue"), `AI_ROUTER_KEY=${REDACTED}`);
+      assert.equal(r("refresh token: r3fr3shT0kenValue"), `refresh token: ${REDACTED}`, "a secret-shaped value after a bare colon");
+      assert.equal(r(`token=${SK}`), `token=${REDACTED}`, "hidden once, not twice");
+      assert.equal(r(`{"token":"${SK}"}`), `{"token":"${REDACTED}"}`);
+    });
+    check("URLs with credentials lose them", () => {
+      assert.equal(r("https://admin:hunter2@router.example.com/x"), `https://${REDACTED}@router.example.com/x`);
+      assert.equal(r("http://tokenonly@router.example.com"), `http://${REDACTED}@router.example.com`);
+    });
+    check("placeholders, prose, ids, URLs and commands stay as they are", () => {
+      const keep = [
+        "export ANTHROPIC_AUTH_TOKEN=<your key>\nexport AI_ROUTER_KEY=<your key>",
+        'env_key = "OMNIROUTE_API_KEY"',
+        "Read token: lets AI Router see accounts. API key: Your own, from the router admin.",
+        "Key …abcd · Saved …wxyz",
+        "cc/claude-opus-5-5 cx/gpt-6.1-sol auto/best-reasoning",
+        "http://10.0.0.5:20128/api/health/ping",
+        "/dashboard/providers/anthropic-compatible-claude-code-2",
+        "ssh -N -L 20128:127.0.0.1:20128 root@router.example.com",
+        "Not connected yet: no API key set for http://127.0.0.1:20128.",
+        "token: expired",
+        "paseo plugin add owner/repo --ref 56bc4056630ebd766395ba3e71c6d92268e95f59",
+        "github:owner/repo#56bc4056630ebd766395ba3e71c6d92268e95f59",
+      ];
+      for (const text of keep) assert.equal(r(text), text, text);
+    });
+    check("redactNode hides strings and leaves anything else", () => {
+      assert.deepEqual(redactNode(["a ", `Bearer ${JWT}`, 3]), ["a ", `Bearer ${REDACTED}`, 3]);
+      const element = { type: "x" };
+      assert.equal(redactNode(element), element);
+    });
+  }
+
   console.log(`logic: ${passed} checks passed`);
 } finally {
   rmSync(staging, { recursive: true, force: true });

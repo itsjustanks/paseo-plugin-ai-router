@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { redactSecrets } from "../shared/redact";
 import { Text, View } from "react-native";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -112,7 +113,7 @@ function useRouted(agentId: string): boolean | null | undefined {
 
 /** The original text, as the chat would have shown it. */
 function Original({ theme, message }: { theme: Theme; message: string }) {
-  return <Text selectable style={{ ...TYPE.body, color: theme.colors.foreground }}>{message}</Text>;
+  return <Text selectable style={{ ...TYPE.body, color: theme.colors.foreground }}>{redactSecrets(message)}</Text>;
 }
 
 export function makeRouterErrorCard(openRouter: () => void) {
@@ -176,7 +177,7 @@ export function makeRouterErrorCard(openRouter: () => void) {
           </OfferBoundary>
         ) : null}
         <Disclosure theme={theme} quiet label="Details" openLabel="Hide details">
-          <Text selectable style={{ ...TYPE.mono, color: theme.colors.foregroundMuted }}>{message}</Text>
+          <Text selectable style={{ ...TYPE.mono, color: theme.colors.foregroundMuted }}>{redactSecrets(message)}</Text>
         </Disclosure>
       </View>
     );

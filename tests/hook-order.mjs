@@ -399,30 +399,57 @@ try {
 try {
   const feedback = await hostFeedbackCheck();
   {
-    const [ask, yes] = feedback.offer;
-    assert.ok(ask.pressed && yes.pressed, "the offer and its confirm are there to press");
-    assert.deepEqual(ask.dialogs, ["Use this computer's own sign-in for Codex?"], "on the screen, the own sign-in offer asks in Paseo's dialog");
+    const acts = (run, name) => run.rpcAfter.filter((call) => call === name).length;
+    const last = (run) => run.steps[run.steps.length - 1];
+    // The own sign-in offer: a dialog, then one switch however often Yes is pressed.
+    const [ask, yes] = feedback.offer.steps;
+    assert.ok(ask.did && yes.did, "the offer and its confirm are there to press");
+    assert.deepEqual(ask.dialogs, ["Use this computer's own sign-in for Codex?"], "on the screen, the offer asks in Paseo's dialog");
     assert.ok(ask.text.includes("Nothing switches back by itself"), "the dialog says what will happen");
-    assert.deepEqual(yes.dialogs, [], "confirming closes the dialog");
+    assert.deepEqual(ask.rpc.filter((c) => c === "codex-reroute"), [], "nothing switches before Yes");
+    assert.deepEqual(yes.dialogs, [], "Yes closes the dialog");
+    assert.equal(acts(feedback.offer, "codex-reroute"), 1, "a double press on Yes switches once");
     assert.ok(yes.text.includes("Done: Codex now uses this computer's own sign-in for new chats."), "the outcome stays under the switch");
-    const [copy, disconnect, cancel, again, confirm] = feedback.disconnect;
-    assert.ok(copy.pressed, "the endpoint has a Copy");
-    assert.deepEqual(feedback.copied, ["http://10.0.0.5:20128"], "Copy uses the app's clipboard");
-    assert.deepEqual(disconnect.dialogs, ["Disconnect from OmniRoute?"], "Disconnect asks first");
-    assert.ok(disconnect.text.includes("deletes the saved address and key"), "and says what it deletes");
-    assert.deepEqual(cancel.dialogs, [], "Cancel closes it");
-    assert.ok(again.pressed && confirm.pressed && confirm.dialogs.length === 0, "Yes, disconnect runs it");
-    assert.equal(feedback.failed[0].pressed, true);
-    const models = feedback.models;
-    assert.deepEqual(models[0].dialogs, ["Use this computer's own sign-in for Claude?"], "the Models switch asks in the dialog too");
-    assert.ok(models[1].pressed && models[1].text.includes("Done: Claude now uses this computer's own sign-in for new chats."), "and switches only once confirmed");
-    assert.deepEqual(feedback.toasts, [
-      { text: "Copied the endpoint", variant: "success" },
-      { text: "ok", variant: "success" },
-      { text: "Couldn't copy the endpoint. Select it and copy it instead.", variant: "error" },
-    ], "replies are toasts: copied, disconnected, a failed copy");
-    for (const step of [...feedback.offer, ...feedback.disconnect]) assert.ok(!step.text.includes("Copied the endpoint"), "no message bar while the app has toasts");
-    console.log("ok   0.22.0: toasts, the app's clipboard and ask-first dialogs where the app has them");
+    // The Claude switch on Models: Cancel and dismissing change nothing; it re-arms; Yes saves routeAgents once.
+    const m = feedback.models.steps;
+    assert.deepEqual(m.map((step) => step.dialogs.length), [1, 0, 1, 0, 1, 0], "opens, cancels, opens, dismisses, opens, confirms");
+    assert.deepEqual(m[0].dialogs, ["Use this computer's own sign-in for Claude?"]);
+    for (const step of m.slice(0, 5)) assert.deepEqual(step.saves, [], `${step.label}: routeAgents unchanged before Yes`);
+    assert.deepEqual(last(feedback.models).saves, [false], "a double press on Yes saves routeAgents once, as off");
+    assert.equal(feedback.models.saved, false, "the setting is now off");
+    assert.ok(last(feedback.models).text.includes("Done: Claude now uses this computer's own sign-in for new chats."));
+    // Disconnect: asks; Cancel keeps the connection; a double press clears once.
+    const d = feedback.disconnect.steps;
+    assert.deepEqual(d.map((step) => step.dialogs), [[], ["Disconnect from OmniRoute?"], [], ["Disconnect from OmniRoute?"], []]);
+    assert.ok(d[1].text.includes("deletes the saved address and key"), "it says what it deletes");
+    assert.deepEqual(d[3].rpc.filter((c) => c === "connection.clear"), [], "Cancel cleared nothing");
+    assert.equal(acts(feedback.disconnect, "connection.clear"), 1, "a double press disconnects once");
+    // Closing the screen with the question open runs nothing and logs no error.
+    assert.equal(feedback.unmountOpen.openAtUnmount, 1, "the Disconnect dialog was open at unmount");
+    assert.equal(acts(feedback.unmountOpen, "connection.clear"), 0, "unmounting with the dialog open disconnects nothing");
+    // Account reset and compression: dialogs, single use.
+    assert.deepEqual(feedback.reset.steps[0].dialogs, ["Resume now · Claude?"], "a reset asks in the dialog");
+    assert.equal(acts(feedback.reset, "accounts.reset"), 1, "a double press resets once");
+    assert.deepEqual(feedback.compression.steps[0].dialogs, ["Use Lite compression only?"], "the compression change asks in the dialog");
+    assert.equal(acts(feedback.compression, "compression.apply"), 1, "a double press applies once");
+    // Copying: the app's clipboard; a refusal (rejected, or React Native Web's false) says so.
+    assert.equal(feedback.copied[0], "http://10.0.0.5:20128", "Copy uses the app's clipboard");
+    const said = feedback.toasts.map((t) => `${t.variant}: ${t.text}`);
+    assert.deepEqual(said.filter((t) => t.includes("copy")), [
+      "error: Couldn't copy the endpoint. Select it and copy it instead.",
+      "error: Couldn't copy the endpoint. Select it and copy it instead.",
+    ], "a rejected copy and React Native Web's false both say Couldn't copy");
+    assert.equal(said.filter((t) => t === "success: Copied the endpoint").length, 2, "the app's copy and React Native's (no answer) both say Copied");
+    // Credentials never reach a toast, a copy or a dialog body.
+    const { secret, toastText, copiedLast, confirmText } = feedback.redaction;
+    for (const [where, text] of [["toast", toastText], ["copy", copiedLast], ["dialog", confirmText]]) {
+      assert.ok(!text.includes(secret) && !text.includes(secret.slice(12)), `no secret in the ${where}: ${text}`);
+      assert.ok(text.includes("[hidden]") && !text.includes("[hidden]]"), `the ${where} says [hidden] once: ${text}`);
+    }
+    assert.ok(feedback.toasts.every((t) => !t.text.includes(secret)), "no toast carries the secret");
+    assert.deepEqual(feedback.errors, [], "no React errors or warnings along the way");
+    for (const run of [feedback.offer, feedback.disconnect]) for (const step of run.steps) assert.ok(!step.text.includes("Copied the endpoint"), "no message bar while the app has toasts");
+    console.log("ok   0.22.0: toasts, the app's clipboard and single-use ask-first dialogs; Cancel and dismiss change nothing; credentials hidden");
   }
   const quick = await quickActionsCheck();
   assert.equal(quick.label, "AI Router: Working · 12 models. Quick actions", "the dot says the state");

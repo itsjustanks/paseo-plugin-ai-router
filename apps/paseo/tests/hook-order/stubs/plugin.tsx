@@ -473,7 +473,11 @@ function activityDetailAnswer(id: string) {
 
 // ------------------------------------------------------------- switches
 /** The switches a test pressed, so the next render follows them. */
-let savedSwitches: { mcpCard?: boolean } = {};
+let savedSwitches: { mcpCard?: boolean; routeAgents?: boolean } = {};
+/** What a test pressed through to the "server": RPC names in order, and each routeAgents save. */
+export const rpcLog: string[] = [];
+export const routeAgentsSaves: boolean[] = [];
+export function savedRouteAgents(): boolean | undefined { return savedSwitches.routeAgents; }
 /** What the daemon says about a chat with a router error: routed, its own sign-in (false), or not in its log (null). */
 let chatRouted: boolean | null = true;
 export function setChatRouted(value: boolean | null) { chatRouted = value; }
@@ -515,6 +519,7 @@ export function useRpc(contract: any) {
   return React.useCallback(async (input: unknown) => {
     if (!ready) await new Promise<void>((resolve) => pendingRpc.add(resolve));
     const name = contract.name.replace("ai-router.", "");
+    rpcLog.push(name);
     const status = fixtures[fixture] as Record<string, any>;
     const manage = status.connection.manageKey.present === true;
     const answers: Record<string, () => unknown> = {
@@ -546,6 +551,10 @@ export function useRpc(contract: any) {
   }, [contract]);
 }
 
+function currentRouteAgents(): boolean {
+  return savedSwitches.routeAgents ?? (fixtures[fixture] as { routeAgents?: boolean }).routeAgents !== false;
+}
+
 export function useSettings(_definition: any) {
   const [isReady, setReady] = useState(ready);
   const [, setTick] = useState(0);
@@ -554,14 +563,16 @@ export function useSettings(_definition: any) {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
   }, []);
-  const save = async (values: { comboProfiles?: boolean; mcpCard?: boolean }) => {
+  const save = async (values: { comboProfiles?: boolean; mcpCard?: boolean; routeAgents?: boolean }) => {
     if (typeof values?.comboProfiles === "boolean") savedComboProfiles = values.comboProfiles;
+    // Only a change counts as a routeAgents save, as Paseo stores whole documents.
+    if (typeof values?.routeAgents === "boolean" && values.routeAgents !== currentRouteAgents()) { savedSwitches.routeAgents = values.routeAgents; routeAgentsSaves.push(values.routeAgents); }
     for (const key of ["mcpCard"] as const) if (typeof values?.[key] === "boolean") savedSwitches[key] = values[key];
     for (const listener of listeners) listener();
     return true;
   };
   const base = { saving: false, saveError: null, save, reset: async () => true, reload: async () => {} };
-  const routeAgents = (fixtures[fixture] as { routeAgents?: boolean }).routeAgents !== false;
+  const routeAgents = currentRouteAgents();
   const values = { routeAgents, comboProfiles: profilesFixture !== "off", mcpCard: savedSwitches.mcpCard !== false };
   return isReady ? { ...base, status: "ready", values, revision: "r1" } : { ...base, status: "loading" };
 }

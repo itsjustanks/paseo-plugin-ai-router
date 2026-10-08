@@ -16,6 +16,15 @@ did (the message bar, react-native's clipboard, the questions in place). `requir
   compression change now ask in Paseo's dialog, with the same words as before. In the sidebar popover,
   the chat chip's popover and the chat card they still ask in place.
 - **Disconnect asks first.** It deletes the saved address and key, which you need again to reconnect.
+- **Credentials never shown or copied.** One shared redactor (`shared/redact.ts`) hides bearer and
+  `sk-` keys, JWTs, long hex and base64 strings, `key=`/`token=`/`password=`/`secret=` pairs and
+  credentials in URLs. Every reply's message is redacted on the daemon, and again in every toast,
+  message, note, dialog body, chat error card and copy. Placeholders such as `<your key>` stay.
+- **Each confirm acts once.** A double press (two presses before the screen updates) used to run
+  the switch, reset, compression change or Disconnect twice; each dialog now acts once and re-arms only
+  when it opens again. Cancel and closing the dialog change nothing.
+- **A refused copy says so.** React Native Web's clipboard answers false when the browser refuses;
+  that now says "Couldn't copy" instead of "Copied".
 - **Copy where you'd select.** The endpoint and public address (Connection, and Share's endpoint) have
   a Copy, and each model in "Models in Paseo's picker" has a small copy icon for its id. Copying uses
   Paseo's clipboard and says "Copied …" or why it couldn't.

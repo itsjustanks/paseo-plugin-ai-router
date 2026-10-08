@@ -22,7 +22,9 @@ import { followAgents } from "../../client/agents";
 import contributeClient from "../../index.client";
 import { hostOpener } from "../../client/links";
 import { makeQuickActions, makeStatusTrailing } from "../../client/quick";
-import { releaseRpc, setChatRouted, setHostExports, setAccessFixture, setActivityFixture, setClisFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
+import { Confirm, copyToClipboard, showToast } from "../../client/feedback";
+import { clipboardStub } from "./stubs/react-native";
+import { releaseRpc, routeAgentsSaves, rpcLog, savedRouteAgents, setChatRouted, setHostExports, setAccessFixture, setActivityFixture, setClisFixture, setCompressionFixture, setHostDataReady, setProfilesFixture, setSettingsFixture, setStatusFixture, setUsageFixture } from "./stubs/plugin";
 
 const colors = {
   surface0: "#000", surface1: "#111", surface2: "#222", border: "#333", foreground: "#fff", foregroundMuted: "#aaa",
@@ -749,44 +751,89 @@ export function routerErrorsCheck() {
 }
 
 /**
- * 0.22.0, on an app with Paseo's toast, clipboard and dialog: the page's
- * replies are toasts (no message bar), copying uses the app's clipboard and
- * says so, and the ask-first questions on the screen open a dialog that
- * changes nothing until confirmed. A popover still asks in place.
+ * 0.22.0, on an app with Paseo's toast, clipboard and dialog: replies are
+ * toasts, copying uses the app's clipboard (or React Native's, which can say
+ * no), and every ask-first question on the screen opens a dialog that changes
+ * nothing until confirmed, acts once however often it's pressed, and re-arms
+ * when it opens again. Credentials never reach a toast, dialog or copy.
  */
 export async function hostFeedbackCheck() {
   const toasts: Array<{ text: string; variant?: string }> = [];
   const copied: string[] = [];
   let copyFails = false;
   const toast = { show: (text: string, options?: { variant?: string }) => toasts.push({ text, variant: options?.variant }), error: (text: string) => toasts.push({ text, variant: "error" }) };
-  const Dialog = ({ title, open, children }: { title: string; open: boolean; onOpenChange(open: boolean): void; children: React.ReactNode }) => (open ? React.createElement("Modal", { title }, children) : null);
-  setHostExports({ useToast: () => toast, copyText: async (text: string) => { if (copyFails) throw new Error("denied"); copied.push(text); }, Modal: Dialog });
-  const run = async (name: string, labels: string[]) => {
+  // A real hook, as the app's is, so hook order is exercised.
+  const useToast = () => React.useRef(toast).current;
+  const Dialog = ({ title, open, onOpenChange, children }: { title: string; open: boolean; onOpenChange(open: boolean): void; children: React.ReactNode }) => (open ? React.createElement("Modal", { title, onOpenChange }, children) : null);
+  const copyText = async (text: string) => { if (copyFails) throw new Error("denied"); copied.push(text); };
+  setHostExports({ useToast, copyText, Modal: Dialog });
+  const errors: string[] = [];
+  const consoleError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ").slice(0, 200)); };
+  type Step = { label: string; did: boolean; dialogs: string[]; text: string; rpc: string[]; saves: boolean[] };
+  const run = async (name: string, actions: string[], options: { unmountOpen?: boolean } = {}) => {
     setHostDataReady(true);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     let renderer!: ReturnType<typeof create>;
     await act(async () => { renderer = create(<QueryClientProvider client={queryClient}>{mounts[name]()}</QueryClientProvider>); await flush(); await flush(); });
     for (let i = 0; i < 6; i += 1) await act(flush);
-    const steps: Array<{ label: string; pressed: boolean; dialogs: string[]; text: string }> = [];
-    for (const label of labels) {
-      const target = renderer.root.findAll((node) => node.type === "Pressable" && node.props.accessibilityLabel === label)[0];
-      if (target) await act(async () => { target.props.onPress(); await flush(); });
+    rpcLog.length = 0;
+    routeAgentsSaves.length = 0;
+    const steps: Step[] = [];
+    const pressable = (label: string) => renderer.root.findAll((node) => node.type === "Pressable" && node.props.accessibilityLabel === label)[0];
+    for (const action of actions) {
+      let did = false;
+      if (action === "dismiss") {
+        const dialog = renderer.root.findAll((node) => (node.type as unknown) === "Modal")[0];
+        if (dialog) { await act(async () => { dialog.props.onOpenChange(false); await flush(); }); did = true; }
+      } else if (action.startsWith("twice:")) {
+        // Both presses land before React commits the first one's state.
+        const target = pressable(action.slice(6));
+        if (target) { await act(async () => { target.props.onPress(); target.props.onPress(); await flush(); }); did = true; }
+      } else {
+        const target = pressable(action);
+        if (target) { await act(async () => { target.props.onPress(); await flush(); }); did = true; }
+      }
       for (let i = 0; i < 4; i += 1) await act(flush);
-      steps.push({ label, pressed: !!target, dialogs: renderer.root.findAll((node) => (node.type as unknown) === "Modal").map((node) => node.props.title), text: describe(renderer.toJSON()).text });
+      steps.push({ label: action, did, dialogs: renderer.root.findAll((node) => (node.type as unknown) === "Modal").map((node) => node.props.title), text: describe(renderer.toJSON()).text, rpc: [...rpcLog], saves: [...routeAgentsSaves] });
     }
+    const openAtUnmount = renderer.root.findAll((node) => (node.type as unknown) === "Modal").length;
     await act(async () => { renderer.unmount(); });
+    for (let i = 0; i < 3; i += 1) await act(flush);
     queryClient.clear();
-    return steps;
+    return { steps, openAtUnmount, rpcAfter: [...rpcLog], saved: savedRouteAgents() };
   };
   try {
-    const offer = await run("routing: down, Codex own sign-in asks first", ["Use this computer's own sign-in for Codex", "Yes, use own sign-in"]);
-    const disconnect = await run("connection tab (operator, private dashboard)", ["Copy the endpoint", "Disconnect", "Cancel", "Disconnect", "Yes, disconnect"]);
+    const offer = await run("routing: down, Codex own sign-in asks first", ["Use this computer's own sign-in for Codex", "twice:Yes, use own sign-in"]);
+    const models = await run("providers tab (own sign-in asks first)", ["Claude · through the router", "Cancel", "Claude · through the router", "dismiss", "Claude · through the router", "twice:Use own sign-in"]);
+    const disconnect = await run("connection tab (operator, private dashboard)", ["Copy the endpoint", "Disconnect", "Cancel", "Disconnect", "twice:Yes, disconnect"]);
+    const unmountOpen = await run("connection tab (operator, private dashboard)", ["Disconnect"]);
+    const reset = await run("accounts tab (Claude paused)", ["Resume now", "twice:Resume now"]);
+    const compression = await run("settings tab (admin, apply recommended)", ["Apply recommended…", "twice:Confirm: Lite only"]);
     copyFails = true;
     const failed = await run("connection tab (operator, private dashboard)", ["Copy the endpoint"]);
     copyFails = false;
-    const models = await run("providers tab (own sign-in asks first)", ["Claude · through the router", "Use own sign-in"]);
-    return { offer, disconnect, failed, models, toasts, copied };
+    // React Native's clipboard: undefined (native) is a copy; false (web, refused) is not.
+    setHostExports({ copyText: undefined });
+    clipboardStub.answer = false;
+    const rnRefused = await run("connection tab (operator, private dashboard)", ["Copy the endpoint"]);
+    clipboardStub.answer = undefined;
+    const rnCopied = await run("connection tab (operator, private dashboard)", ["Copy the endpoint"]);
+    setHostExports({ copyText });
+    // Redaction at the edges, with a synthetic secret.
+    const SECRET = "sk-synthetic-SyntheticTestKey0123456789abcdef";
+    const before = toasts.length;
+    showToast(toast, { text: `Check all: 1 of 2 answered. Failed: Claude 2 (401 invalid x-api-key ${SECRET})`, tone: "danger" });
+    const toastText = toasts.slice(before).map((t) => t.text).join(" ");
+    await copyToClipboard(`Authorization: Bearer ${SECRET}`);
+    let confirmText = "";
+    let confirm!: ReturnType<typeof create>;
+    await act(async () => { confirm = create(<Confirm theme={base.theme} open title="Q?" text={`token=${SECRET}`} confirmLabel="Yes" onConfirm={() => {}} onCancel={() => {}} />); });
+    confirmText = describe(confirm.toJSON()).text;
+    await act(async () => { confirm.unmount(); });
+    return { offer, models, disconnect, unmountOpen, reset, compression, failed, rnRefused, rnCopied, toasts, copied, redaction: { secret: SECRET, toastText, copiedLast: copied[copied.length - 1], confirmText }, errors: errors.filter((e) => !e.includes("react-test-renderer is deprecated")) };
   } finally {
+    console.error = consoleError;
     setHostExports({ useToast: undefined, copyText: undefined, Modal: undefined });
   }
 }
