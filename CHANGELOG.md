@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.22.2 — 2026-10-08
+
+- **A secret flag after another flag is hidden.** In a command such as
+  `exec server --verbose --api-key -secret`, `cmd -v --token "a b c"` or
+  `cmd --debug --secret 'y z' --port 3000`, one match took the secret flag as the previous flag's
+  value, so its own value showed. Commands are now read word by word (whitespace-separated, with
+  single and double quotes and backslash escapes respected), and the word after a secret flag is
+  always its value, even one that starts with `-` or is quoted with spaces. It is hidden in place,
+  quotes kept; `--flag=value` is handled within its word, and argument lists such as
+  `["--token","-x"]` the same way. Other flags (`--port 3000`) stay visible. A placeholder
+  (`<your key>`, `$TOKEN`) or the next word of a sentence ("pass `--token` to the CLI") is kept.
+
 ## 0.22.1 — 2026-10-08
 
 A hardening patch for the credential redactor (`shared/redact.ts`). Nothing else changes; the

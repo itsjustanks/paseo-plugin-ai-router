@@ -1084,9 +1084,23 @@ try {
       }
       assert.equal(r('cli --password "two words"'), `cli --password "${REDACTED}"`);
       assert.equal(r("MY_SERVICE_TOKEN=X"), `MY_SERVICE_TOKEN=${REDACTED}`);
-      assert.equal(r("cli --token --verbose"), "cli --token --verbose", "a flag after a flag is not a value");
+      // 0.22.2: the word after a secret flag is always its value, even one that starts with "-".
+      assert.equal(r("cli --token --verbose"), `cli --token ${REDACTED}`, "the word after a secret flag is its value");
       assert.equal(r("cli --api-key <your key> --token $TOKEN"), "cli --api-key <your key> --token $TOKEN", "placeholders stay");
       assert.equal(r("Pass --token to the CLI, or set --api-key here."), "Pass --token to the CLI, or set --api-key here.", "a sentence about flags stays");
+    });
+    check("0.22.2: a secret flag after another flag in a command string, word by word", () => {
+      assert.equal(r("exec fixture-server --verbose --api-key -fixtureSecret"), `exec fixture-server --verbose --api-key ${REDACTED}`, "probe 1: a value starting with -");
+      assert.equal(r('cmd -v --token "a b c"'), `cmd -v --token "${REDACTED}"`, "probe 2: a quoted value with spaces, quotes kept");
+      assert.equal(r("cmd --debug --secret 'y z' --port 3000"), `cmd --debug --secret '${REDACTED}' --port 3000`, "probe 3: --port 3000 stays");
+      assert.equal(r("cmd --quiet --password=-x9secret"), `cmd --quiet --password=${REDACTED}`, "probe 4: --flag=value per word");
+      assert.equal(r('["--token","-x"]'), `["--token","${REDACTED}"]`, "an array value starting with -");
+      assert.equal(r('["--verbose", "--token", "x"]'), `["--verbose", "--token", "${REDACTED}"]`, "an array: one flag never hides the next");
+      assert.equal(r('cmd --token="a b" --port 1'), `cmd --token="${REDACTED}" --port 1`, "--flag=\"quoted\"");
+      assert.equal(r("cmd --token --password x"), `cmd --token ${REDACTED} ${REDACTED}`, "a secret flag as a value is still read as a flag");
+      assert.equal(r("cmd --token \\-x\\ y --port 2"), `cmd --token ${REDACTED} --port 2`, "backslash escapes stay in one word");
+      assert.equal(r("Don't pass --token abc123 (it leaks)"), `Don't pass --token ${REDACTED} (it leaks)`, "an apostrophe is not a quote");
+      assert.equal(r("cmd --verbose --port 3000 --author jo"), "cmd --verbose --port 3000 --author jo", "other flags and their values stay");
     });
     check("names match as whole words: tokenizer, monkey, keyboard and author stay", () => {
       for (const text of ["tokenizer: cl100k_base monkey: george keyboard: us author: jo", "tokenizer=cl100k_base monkey=george keyboard=us author=jo", "cli --author jo --keyboard us --tokenizer cl100k", '["--author", "jo"]', "max_tokens=4096"]) {
