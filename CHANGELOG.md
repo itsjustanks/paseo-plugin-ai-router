@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.3 — 2026-10-10
+
+- Codex accounts with one weekly quota now show “Weekly limit”, including when OmniRoute calls it a five-hour window. The weekly quota is the account’s summary.
+- Reset and cooldown times now say tomorrow, the weekday, or the date when needed. Spend resets, sign-in expiry and chat retry times use the same format in your local time zone. Server messages include the date and UTC.
+
 ## 0.22.2 — 2026-10-08
 
 - **A secret flag after another flag is hidden.** In a command such as

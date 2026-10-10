@@ -167,7 +167,7 @@ export const AccountsSchema = z.object({
       state: z.enum(["healthy", "attention", "disabled"]),
       problem: z.string().nullable(),
       coolingUntil: z.number().nullable(),
-      quotas: z.array(z.object({ name: z.string(), remainingPct: z.number(), resetAt: z.string().nullable() })),
+      quotas: z.array(z.object({ name: z.string(), remainingPct: z.number(), resetAt: z.string().nullable(), windowSeconds: z.number().nullable().optional() })),
       authType: z.string().nullable(),
       health: z
         .object({ state: z.string(), successRatePct: z.number().nullable(), requests: z.number(), issueCount: z.number(), lastErrorAt: z.string().nullable(), failingModels: z.array(z.string()) })

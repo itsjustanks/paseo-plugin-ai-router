@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mock } from "node:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -605,7 +606,9 @@ try {
   writeFileSync(join(staging, "tabs.mjs"), ts.transpileModule(tabsSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
   const T = await import(join(staging, "tabs.mjs"));
   const reSource = readFileSync(new URL("../apps/paseo/shared/router-errors.ts", import.meta.url), "utf8");
-  writeFileSync(join(staging, "router-errors.mjs"), ts.transpileModule(reSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  // router-errors imports ./when (0.22.3): stage it beside it.
+  writeFileSync(join(staging, "when.mjs"), ts.transpileModule(readFileSync(new URL("../apps/paseo/shared/when.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  writeFileSync(join(staging, "router-errors.mjs"), ts.transpileModule(reSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace('from "./when"', 'from "./when.mjs"'));
   const RE = await import(join(staging, "router-errors.mjs"));
   const ERRORS = JSON.parse(readFileSync(new URL("./fixtures/router-errors.json", import.meta.url), "utf8"));
   const pluginsSource = readFileSync(new URL("../apps/paseo/shared/plugins.ts", import.meta.url), "utf8");
@@ -638,8 +641,12 @@ try {
     assert.deepEqual([69, 29, 7500, 0].map(RE.waitWords), ["1m 9s", "29s", "2h 5m", "0s"]);
     const label = (id) => ({ claude: "Claude", codex: "Codex" })[id] ?? id;
     const at = new Date(2026, 9, 6, 16, 40, 0);
-    const cool = RE.routerErrorWords({ kind: "cooling", provider: "claude", model: "claude-fable-5-1", status: 429, resetSeconds: 300, gateway: null }, at, label);
+    const cool = RE.routerErrorWords({ kind: "cooling", provider: "claude", model: "claude-fable-5-1", status: 429, resetSeconds: 300, gateway: null }, at, label, at);
     assert.match(cool.title, /^Claude accounts are cooling down until \d{1,2}:45/, "until = when it happened + the reset");
+    // 0.22.3: read the next day, or a reset hours away past midnight, it says the day.
+    const nextDay = new Date(2026, 9, 7, 9, 0, 0);
+    assert.match(RE.routerErrorWords({ kind: "cooling", provider: "claude", model: null, status: 429, resetSeconds: 300, gateway: null }, at, label, nextDay).title, /until yesterday \d{1,2}:45/);
+    assert.match(RE.routerErrorWords({ kind: "cooling", provider: "claude", model: null, status: 429, resetSeconds: 9 * 3600, gateway: null }, at, label, at).title, /until tomorrow 1:40/);
     assert.match(cool.retry, /This chat won't retry/);
     const paused = RE.routerErrorWords({ kind: "paused", provider: "claude", model: null, status: 503, resetSeconds: null, gateway: null }, at, label);
     assert.equal(paused.title, "Claude is paused on the router after repeated errors");
@@ -1004,6 +1011,67 @@ try {
     assert.match(Ho.notConnectedLine({ mac: false }), /^This computer isn't connected to a router yet\./);
     assert.match(Ho.notConnectedLine(null), /^This computer isn't/);
   });
+
+  // ------------------------------------------------------------ reset and "until" times (0.22.3)
+
+  {
+    const W = await import(join(staging, "when.mjs"));
+    const SYD = { timeZone: "Australia/Sydney", locale: "en-AU" };
+    const at = (iso) => Date.parse(iso);
+    check("whenWords says the day: today, tomorrow, this week, later; and the past", () => {
+      const now = at("2026-10-10T03:00:00Z"); // Sat 2:00 pm in Sydney (AEDT, +11)
+      assert.equal(W.whenWords(at("2026-10-10T03:10:00Z"), now, SYD), "2:10 pm");
+      assert.equal(W.whenWords(at("2026-10-11T03:10:00Z"), now, SYD), "tomorrow 2:10 pm");
+      assert.equal(W.whenWords(at("2026-10-16T03:10:00Z"), now, SYD), "Fri 2:10 pm (in 6 days)");
+      assert.equal(W.whenWords(at("2026-10-17T03:10:00Z"), now, SYD), "Sat 17 Oct, 2:10 pm", "the Codex weekly reset that read \"2:10 pm\"");
+      assert.equal(W.whenWords(at("2026-10-09T03:10:00Z"), now, SYD), "yesterday 2:10 pm");
+      assert.equal(W.whenWords(at("2026-10-01T03:10:00Z"), now, SYD), "Thu 1 Oct, 1:10 pm", "the past: a date, no hint (AEST then)");
+      assert.equal(W.whenWords(at("2026-10-17T03:10:00Z"), now, { timeZone: "UTC", locale: "en-AU", sayZone: true }), "Sat 17 Oct, 3:10 am UTC", "the daemon's words, in UTC");
+      assert.equal(W.whenWords(at("2026-10-16T03:10:00Z"), now, { locale: "en-AU" }), W.whenWords(at("2026-10-16T03:10:00Z"), now, SYD), "the viewer's own zone by default (TZ is Sydney here)");
+    });
+    check("whenWords uses a fake clock, local timezone and a consistent 12-hour clock", () => {
+      mock.timers.enable({ apis: ["Date"], now: at("2026-10-10T03:00:00Z") });
+      try {
+        assert.equal(W.whenWords(at("2026-10-10T03:10:00Z")), "2:10 pm");
+        assert.equal(W.whenWords(at("2026-10-10T03:10:00Z"), Date.now(), { locale: "en-GB" }), "2:10 pm");
+        assert.equal(W.whenWords(at("2026-10-10T03:10:00Z"), Date.now(), { timeZone: "UTC", sayZone: true }), "Sat 10 Oct, 3:10 am UTC", "server strings include today's date");
+        mock.timers.setTime(at("2026-10-10T12:59:00Z"));
+        assert.equal(W.whenWords(at("2026-10-10T13:01:00Z")), "tomorrow 12:01 am");
+        mock.timers.setTime(at("2026-10-10T13:01:00Z"));
+        assert.equal(W.whenWords(at("2026-10-10T13:02:00Z")), "12:02 am");
+        assert.equal(W.whenWords(NaN), "unknown time", "bad upstream timestamps do not crash rendering");
+      } finally {
+        mock.timers.reset();
+      }
+    });
+    check("whenWords around midnight: the calendar day where the viewer is, not 24-hour blocks", () => {
+      const lateNight = at("2026-10-10T12:59:00Z"); // 11:59 pm Sat in Sydney
+      assert.equal(W.whenWords(at("2026-10-10T13:01:00Z"), lateNight, SYD), "tomorrow 12:01 am", "two minutes later is tomorrow");
+      const justAfter = at("2026-10-10T13:01:00Z"); // 12:01 am Sun
+      assert.equal(W.whenWords(at("2026-10-11T12:59:00Z"), justAfter, SYD), "11:59 pm", "almost 24 hours later is still today");
+      assert.equal(W.whenWords(at("2026-10-10T12:59:00Z"), justAfter, SYD), "yesterday 11:59 pm");
+      assert.equal(W.whenWords(at("2026-10-10T13:01:00Z"), lateNight, { timeZone: "UTC", locale: "en-AU" }), "1:01 pm", "the same moment is today in UTC");
+    });
+    check("whenWords across a daylight-saving change (Sydney, Sun 4 Oct 2026, 2 am → 3 am)", () => {
+      const satNoon = at("2026-10-03T02:00:00Z"); // Sat 12:00 pm AEST (+10)
+      assert.equal(W.whenWords(at("2026-10-04T14:00:00Z"), satNoon, SYD), "Mon 1:00 am (in 2 days)", "47 hours, but two calendar days");
+      const sunEarly = at("2026-10-03T14:30:00Z"); // Sun 12:30 am AEST, before the change
+      assert.equal(W.whenWords(at("2026-10-04T12:30:00Z"), sunEarly, SYD), "11:30 pm", "a 23-hour day: still today");
+      assert.equal(W.daysFrom(at("2026-10-04T13:30:00Z"), sunEarly, "Australia/Sydney"), 1, "an hour later is Monday");
+    });
+    check("whenWords across the 25-hour daylight-saving day in Sydney", () => {
+      mock.timers.enable({ apis: ["Date"], now: at("2026-04-04T13:30:00Z") }); // Sun 12:30 am AEDT
+      try {
+        assert.equal(W.whenWords(at("2026-04-05T13:30:00Z")), "11:30 pm", "24 hours later is still Sunday");
+        assert.equal(W.whenWords(at("2026-04-05T14:30:00Z")), "tomorrow 12:30 am");
+        mock.timers.setTime(at("2026-10-03T14:30:00Z")); // Sun 12:30 am AEST before spring change
+        assert.equal(W.whenWords(at("2026-10-04T12:30:00Z")), "11:30 pm", "the 23-hour day is still Sunday");
+        assert.equal(W.whenWords(at("2026-10-04T13:30:00Z")), "tomorrow 12:30 am");
+      } finally {
+        mock.timers.reset();
+      }
+    });
+  }
 
   // ------------------------------------------------------------ redaction (0.22.0)
 

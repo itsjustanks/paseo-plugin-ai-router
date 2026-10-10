@@ -6,11 +6,15 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import assert from "node:assert/strict";
+import { mock } from "node:test";
 const PLUGIN_PKG_VERSION = JSON.parse((await import("node:fs")).readFileSync(new URL("../apps/paseo/package.json", import.meta.url), "utf8")).version;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const plugin = join(here, "..", "apps", "paseo");
 process.env.NODE_ENV = "development";
+// Times in words depend on the viewer's zone (0.22.3): check them in one fixed zone, as tests/logic.mjs does.
+process.env.TZ = "Australia/Sydney";
+mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-10T03:00:00Z") });
 
 const build = spawnSync(process.execPath, [join(plugin, "node_modules", "vite", "bin", "vite.js"), "build", "--config", join(plugin, "tests", "hook-order", "vite.config.mts")], {
   cwd: plugin,
@@ -89,7 +93,8 @@ const expected = {
   "overview (router down)": ["OmniRoute unreachable — last seen", "connection refused at http://10.0.0.5:20128/api/health/ping", "Until it answers, AI Router chats can't start, new Claude chats use this computer's own sign-in.", "The router isn't answering. Claude can use this computer's own sign-in until it's back.", "Use this computer's own sign-in for Claude", "Check the connection", "Refresh"],
   "overview (Claude paused)": ["Working, but Claude is paused", "OmniRoute paused Claude after errors and retries by itself.", "Up · Claude paused", "Claude requests fail until OmniRoute retries", "Accounts →", "Last AI Router agent (", "did not start — no API key set"],
   "models tab": [H.Models, "Combo · 5", "team-review", "Sync models to Paseo", "In Paseo", "in step with OmniRoute", "12 of the 734 models OmniRoute lists: one per model.", "Effort levels (Paseo's thinking control), duplicates, providers with no account and unproven variants are left out.", "runs by itself every 5 minutes and when the app connects", "Remove from Paseo", "old \"AI Router Codex\" provider", "Models in Paseo's picker", "Claude · 4", "Opus 5.5", "cc/claude-opus-5-5", "failed", "Codex · 3", "GPT-5.6 Sol", "Test", "Test another model", "Claude Code version 2.1.280 or newer is required"],
-  "accounts tab (your access)": ["This key's spending", "This key", "daemon-a", "12 models on connected accounts", "Spend (monthly)", "$3.42 of $50.00", "resets 2026-10-01", "Tokens", "Claude quota", "5h: 64% left"],
+  "accounts tab (weekly Codex)": ["Weekly limit", "62% left · resets Sat 17 Oct, 2:10 pm", "Cooling down until tomorrow 2:10 pm", "Sign-in expires soon (Mon 2:10 pm (in 2 days))"],
+  "accounts tab (your access)": ["This key's spending", "This key", "daemon-a", "12 models on connected accounts", "Spend (monthly)", "$3.42 of $50.00", "resets Thu 1 Oct, 10:00 am", "Tokens", "Claude quota", "5h: 64% left"],
   "models tab (basic, key hides its spend)": ["This key's spending", "12 models on connected accounts", "lacks the self:usage scope", "See your team's accounts and usage"],
   "models tab (testing one)": ["cc/claude-opus-5-5 answered in 640 ms"],
   "models tab (not synced)": ["Not synced", "Paseo has no AI Router provider yet", "Test a model"],
@@ -110,7 +115,7 @@ const expected = {
   "providers tab (agent apps updating)": ["Updating…", "Running \"npm install -g @openai/codex@latest --prefix /Users/me/.npm-global\"…", "Hide output", "changed 1 package in 6s"],
   "accounts tab (Paseo 0.11 daemon)": ["3 accounts · 3 healthy", "Also on Paseo's Usage page (Settings → Usage), where a limit can be pinned to the sidebar."],
   "accounts tab (operator)": [H.Accounts, "3 accounts · 3 healthy", "Add account", "Signing in Codex from another computer?", "1 usage-limit reset credit banked", "healthy · 96% of 128 requests answered in 24 h", "Is the router healthy?", "version 3.8.50", "running 1d 1h", "Usage", "Who uses the most"],
-  "accounts tab (admin, attention)": ["3 need attention", "Check all", "Check now", "Refresh token", "Clear cooldown", "Release cooldown", "Use a reset credit", "2 usage-limit reset credits banked", "Re-login in dashboard", "Sign-in expired (2026-09-20)", "degraded · 40% of 10 requests answered in 24 h · failing: gpt-5.6-sol"],
+  "accounts tab (admin, attention)": ["3 need attention", "Check all", "Check now", "Refresh token", "Clear cooldown", "Release cooldown", "Use a reset credit", "2 usage-limit reset credits banked", "Re-login in dashboard", "Sign-in expired (Sun 20 Sept, 10:00 am)", "degraded · 40% of 10 requests answered in 24 h · failing: gpt-5.6-sol"],
   "accounts tab (Claude paused)": ["Claude paused after errors", "Claude requests fail until OmniRoute retries in 30 s; other providers work.", "Resume now"],
   "accounts tab (token rejected)": ["Could not read accounts", "Accounts: 401 — read token rejected", "Try again"],
   "usage tab (in the surface)": [H.Usage, "Today", "7 days", "30 days", "Custom", "every 5 minutes", "Refresh", "Requests", "98.4% succeeded", "Tokens", "in ·", "Value", "at API prices · billed", "Who uses the most", "Worth = at API prices", "worth $", "Average latency", "3.8 s", "1.6% fell back to another model", "Requests per day", "Busiest day:", "Tap a day for its numbers", "Tokens per day, by provider", "Claude", "Codex", "GLM", "Provider split", "Top models", "claude-sonnet-5", "gpt-6-sol", "12% failed", "Swatch colour = the model's provider.", "daemon-a", "this daemon", "daemon-b", "By account", "so…@example.com", "Failed requests by kind", "rate limit", "upstream 5xx", "Activity, last 52 weeks", "Fewer tokens", "More", "12 days in a row with traffic", "busiest weekday: Tue"],
@@ -179,6 +184,7 @@ const expected = {
 
 /** Text a state must NOT show: a hidden tier feature, or a fact that moved. */
 const absent = {
+  "accounts tab (weekly Codex)": ["5-hour limit", "resets 2:10 pm"],
   "routing: Codex paused, no own sign-in": ["Use this computer's own sign-in for Codex"],
   "routing: router back, switch back": ["Switch back to the router"],
   "routing: error card offer (Claude paused)": ["Switch back to the router"],

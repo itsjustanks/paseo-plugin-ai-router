@@ -1468,7 +1468,8 @@ try {
     // One account, mapped: problems, details, plan, Codex pool windows.
     const R = t.mod.accountReport;
     const acct = { id: "x", provider: "claude", shortName: "Claude #1", label: null, state: "healthy", problem: null, coolingUntil: null, quotas: [{ name: "session (5h)", remainingPct: 50, resetAt: null }], authType: "apikey", health: null, expiry: null };
-    const ctx = { router: "OmniRoute", paused: false, stale: null };
+    // The clock these reports read their times against (0.22.3): 2026-10-04, 14:00 UTC.
+    const ctx = { router: "OmniRoute", paused: false, stale: null, now: Date.parse("2026-10-04T14:00:00Z") };
     const problem = (over, context = ctx) => Report.parse(R({ ...acct, ...over }, context)).problem;
     assert.deepEqual(problem({ state: "disabled" }), { kind: "no_quota", detail: "Turned off in OmniRoute, so the router does not use it." });
     assert.deepEqual(problem({ state: "attention", problem: "re-login required", expiry: { status: "expired", expiresAt: "2026-10-01T10:00:00Z", note: null } }), { kind: "expired", expiresAt: "2026-10-01T10:00:00.000Z" });
@@ -1481,8 +1482,8 @@ try {
     assert.deepEqual(busy.details, [
       { id: "plan", label: "Signs in with", value: "API key" },
       { id: "status", label: "Status", value: "Paused for a moment by OmniRoute after errors; it tries again by itself", tone: "danger" },
-      { id: "sign-in", label: "Sign-in", value: "Expires 2026-10-06", tone: "warning" },
-      { id: "stale", label: "Last read", value: "13:58 UTC: OmniRoute is not answering now (connection refused)", tone: "warning" },
+      { id: "sign-in", label: "Sign-in", value: "Expires Tue 6 Oct, 12:00 am UTC", tone: "warning" },
+      { id: "stale", label: "Last read", value: "Sun 4 Oct, 1:58 pm UTC: OmniRoute is not answering now (connection refused)", tone: "warning" },
     ]);
     const health = { state: "degraded", successRatePct: 80, requests: 10, issueCount: 1, lastErrorAt: null, failingModels: ["claude-opus-5-5"] };
     assert.deepEqual(Report.parse(R({ ...acct, coolingUntil: Date.parse("2026-10-04T14:02:00Z"), authType: null, health }, ctx)), {
@@ -1490,7 +1491,7 @@ try {
       planLabel: "Claude #1",
       windows: [{ id: "session-5h", label: "5-hour limit", shortLabel: "5h", usedPct: 50, remainingPct: 50, resetsAt: null, tone: "ok" }],
       details: [
-        { id: "status", label: "Status", value: "Cooling down until 14:02 UTC", tone: "warning" },
+        { id: "status", label: "Status", value: "Cooling down until Sun 4 Oct, 2:02 pm UTC", tone: "warning" },
         { id: "health", label: "Last 24 hours", value: "degraded · 80% of 10 requests answered in 24 h · failing: claude-opus-5-5", tone: "warning" },
       ],
     });
@@ -1501,6 +1502,16 @@ try {
       ["spark-5h", "Spark · 5-hour limit", undefined, 100, 0, null, "danger"],
       ["5h-2", "5-hour limit", "5h", 60, 40, null, "ok"],
     ], "unique window ids; an unreadable reset time is left out");
+    // 0.22.3: a Codex plan with only its weekly window, as either OmniRoute field reports it, is one "Weekly limit" card window,
+    // the card's summary, with the same id both ways; the cooling time says its day.
+    const weekOut = "2026-10-11T03:10:00Z";
+    for (const quota of [{ name: "Weekly", remainingPct: 62, resetAt: weekOut, windowSeconds: 604800 }, { name: "weekly", remainingPct: 62, resetAt: weekOut, windowSeconds: 604800 }, { name: "session", remainingPct: 62, resetAt: weekOut, windowSeconds: 604800 }, { name: "Weekly", remainingPct: 62, resetAt: weekOut }]) {
+      const weekly = Report.parse(R({ ...acct, provider: "codex", authType: "oauth", quotas: [quota], coolingUntil: Date.parse("2026-10-05T02:30:00Z") }, ctx));
+      assert.deepEqual(weekly.windows, [{ id: "weekly-limit", label: "Weekly limit", shortLabel: "wk", summary: true, usedPct: 38, remainingPct: 62, resetsAt: "2026-10-11T03:10:00.000Z", tone: "ok" }], quota.name);
+      assert.deepEqual(weekly.details.find((d) => d.id === "status"), { id: "status", label: "Status", value: "Cooling down until Mon 5 Oct, 2:30 am UTC", tone: "warning" });
+    }
+    const later = Report.parse(R({ ...acct, coolingUntil: Date.parse("2026-10-11T03:10:00Z") }, ctx));
+    assert.equal(later.details.find((d) => d.id === "status").value, "Cooling down until Sun 11 Oct, 3:10 am UTC");
 
     // The SDK's helpers, copied: the same answers as @getpaseo/plugin 0.11.0-beta.3's server/usage.js.
     assert.deepEqual([undefined, null, 0, 69.9, 70, 90, 90.1].map((pct) => t.mod.toneFromUsedPct(pct)), ["default", "default", "ok", "ok", "warning", "warning", "danger"]);

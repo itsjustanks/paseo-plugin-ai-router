@@ -1,4 +1,5 @@
 import React from "react";
+import { whenWords } from "../shared/when";
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -15,7 +16,7 @@ import { Accordion, AccordionItem, Banner, Button, Card, Chip, Disclosure, Fact,
 
 type Theme = PluginTheme;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const time = (ms: number) => whenWords(ms, Date.now());
 /** A positive amount in dollars, or null when there is nothing to show. */
 export const money = (n: number | null) => (n === null || n <= 0 ? null : formatUsd(n));
 const tone = (pct: number): Tone => (pct <= 10 ? "danger" : pct <= 30 ? "warning" : "success");
@@ -79,7 +80,7 @@ export function YourAccess({ theme, data }: { theme: Theme; data: Status }) {
         <Fact
           theme={theme}
           label={`Spend (${mine.spend.period})`}
-          value={mine.spend.limitUsd !== null ? `${formatUsd(mine.spend.usedUsd)} of ${formatUsd(mine.spend.limitUsd)}${mine.spend.resetAt ? ` · resets ${mine.spend.resetAt.slice(0, 10)}` : ""}` : `${formatUsd(mine.spend.usedUsd)} · no limit set`}
+          value={mine.spend.limitUsd !== null ? `${formatUsd(mine.spend.usedUsd)} of ${formatUsd(mine.spend.limitUsd)}${mine.spend.resetAt && Number.isFinite(Date.parse(mine.spend.resetAt)) ? ` · resets ${time(Date.parse(mine.spend.resetAt))}` : ""}` : `${formatUsd(mine.spend.usedUsd)} · no limit set`}
         />
       ) : null}
       {mine.tokens !== null ? <Fact theme={theme} label="Tokens" value={`${Math.round(mine.tokens).toLocaleString()} this period`} /> : null}
@@ -209,12 +210,12 @@ export function AccountsTab({ theme, data: status, say, children, folds }: { the
               </Row>
               {account.problem ? <Note theme={theme} tone={account.state === "disabled" ? "neutral" : "warning"}>{account.problem.charAt(0).toUpperCase() + account.problem.slice(1)}</Note> : null}
               {account.coolingUntil ? <Note theme={theme} tone="warning">{`Cooling down until ${time(account.coolingUntil)}`}</Note> : null}
-              {expiry ? <Note theme={theme} tone={account.expiry!.status === "expired" ? "danger" : "warning"}>{`${expiry}${account.expiry!.expiresAt ? ` (${account.expiry!.expiresAt.slice(0, 10)})` : ""}${account.expiry!.note ? `: ${account.expiry!.note}` : ""}`}</Note> : null}
+              {expiry ? <Note theme={theme} tone={account.expiry!.status === "expired" ? "danger" : "warning"}>{`${expiry}${account.expiry!.expiresAt && Number.isFinite(Date.parse(account.expiry!.expiresAt)) ? ` (${time(Date.parse(account.expiry!.expiresAt))})` : ""}${account.expiry!.note ? `: ${account.expiry!.note}` : ""}`}</Note> : null}
               {account.quotas.map((quota) => (
                 <View key={quota.name} style={{ gap: SPACE.hair }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", gap: SPACE.sm }}>
-                    <Text style={{ ...TYPE.secondary, color: theme.colors.foreground, flexShrink: 1 }}>{quotaName(quota.name)}</Text>
-                    <Text style={{ ...TYPE.secondary, color: tone(quota.remainingPct) === "success" ? theme.colors.foregroundMuted : toneColor(theme, tone(quota.remainingPct)) }}>{`${quota.remainingPct}% left${quota.resetAt ? ` · resets ${time(Date.parse(quota.resetAt))}` : ""}`}</Text>
+                    <Text style={{ ...TYPE.secondary, color: theme.colors.foreground, flexShrink: 1 }}>{quotaName(quota.name, quota)}</Text>
+                    <Text style={{ ...TYPE.secondary, color: tone(quota.remainingPct) === "success" ? theme.colors.foregroundMuted : toneColor(theme, tone(quota.remainingPct)), flexShrink: 1, textAlign: "right" }}>{`${quota.remainingPct}% left${quota.resetAt && Number.isFinite(Date.parse(quota.resetAt)) ? ` · resets ${time(Date.parse(quota.resetAt))}` : ""}`}</Text>
                   </View>
                   <Bar theme={theme} pct={quota.remainingPct} color={toneColor(theme, tone(quota.remainingPct))} />
                 </View>

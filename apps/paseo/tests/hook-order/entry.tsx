@@ -154,6 +154,7 @@ export const mounts: Record<string, () => React.ReactElement> = {
   // Models
   "models tab": surface("connected", wide, { tab: "models" }),
   "models tab (basic, key hides its spend)": surface("basic", narrow, { tab: "accounts", access: "hidden", params: { open: "your-access" } }),
+  "accounts tab (weekly Codex)": surface("connected", narrow, { tab: "accounts", accounts: "weekly" }),
   "accounts tab (your access)": surface("connected", wide, { tab: "accounts", params: { open: "your-access" } }),
   "models tab (testing one)": surface("routing on", narrow, { tab: "models" }),
   "models tab (not synced)": surface("routing off", wide, { tab: "models" }),

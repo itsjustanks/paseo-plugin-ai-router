@@ -5,6 +5,7 @@ import type { Accounts } from "../shared/contracts";
 import { accessTier, connectionProblem, type Connection } from "../shared/logic";
 import { healthLine, quotaName, quotaShortLabel, type Account } from "../shared/routers/omniroute/parsers";
 import { ROUTERS } from "../shared/routers/copy";
+import { whenWords } from "../shared/when";
 import { routedRuntime, sessionAccounts, sessionTagFromEnv, usageScope, type UsageScope } from "../shared/usage-scope";
 import { routedModels } from "./provider";
 import { adapterFor } from "./routers";
@@ -105,14 +106,14 @@ const iso = (value: string | null | undefined): string | null => {
   const ms = value ? Date.parse(value) : NaN;
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 };
-/** "14:02 UTC": the daemon's clock and the reader's may be in different places. */
-const utcTime = (ms: number) => `${new Date(ms).toISOString().slice(11, 16)} UTC`;
+/** The daemon cannot know the viewer's zone, so always include the UTC date. */
+const utcTime = (ms: number, now: number) => whenWords(ms, now, { timeZone: "UTC", sayZone: true });
 const sentence = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? "" : "."}`;
 
 /** Stable per router account: the same account keeps its card (and any pinned limit) across restarts and key changes. */
 export const accountKey = (connection: Pick<Connection, "router">, accountId: string) => hashAccountKey(`${connection.router}:${accountId}`);
 
-/** Window ids from quota names: "session (5h)" → "session-5h"; unique within the card. */
+/** Window ids: "session (5h)" → "session-5h", "Weekly limit" → "weekly-limit"; unique within the card. */
 function windowIds(names: readonly string[]): string[] {
   const seen = new Map<string, number>();
   return names.map((name) => {
@@ -140,25 +141,30 @@ function signInKind(authType: string | null): string | null {
  * "Claude #1" (numbered by OmniRoute priority), and the header reads
  * "AI Router · Claude #1". How it signs in becomes a detail line.
  */
-export function accountReport(account: Account, context: { router: string; paused: boolean; stale: { reason: string; checkedAt: string | null } | null }): UsageReport {
+export function accountReport(account: Account, context: { router: string; paused: boolean; stale: { reason: string; checkedAt: string | null } | null; now?: number }): UsageReport {
   const { router } = context;
+  const now = context.now ?? Date.now();
   if (account.state === "disabled") return unavailable({ kind: "no_quota", detail: `Turned off in ${router}, so the router does not use it.` });
   const expiredAt = account.expiry?.status === "expired" ? iso(account.expiry.expiresAt) : null;
   if (expiredAt) return unavailable({ kind: "expired", expiresAt: expiredAt });
   if (account.problem === "re-login required" || account.expiry?.status === "expired") return unavailable({ kind: "no_quota", detail: `Its sign-in has expired. Sign in to it again on ${router}'s dashboard.` });
   if (account.problem?.startsWith("banned")) return unavailable({ kind: "no_quota", detail: sentence(account.problem) });
 
-  const ids = windowIds(account.quotas.map((quota) => quota.name));
+  const labels = account.quotas.map((quota) => quotaName(quota.name, quota));
+  // A weekly-only Codex plan keeps the same id from provider-limits and the pool fallback.
+  // Other ids stay unchanged so existing pinned limits keep working.
+  const weeklyOnly = account.provider === "codex" && labels.length === 1 && labels[0] === "Weekly limit";
+  const ids = windowIds(account.quotas.map((quota, index) => weeklyOnly ? labels[index] : quota.name));
   const windows = account.quotas.map((quota, index) => {
     const used = Math.max(0, Math.min(100, 100 - quota.remainingPct));
-    return windowFromUsedPct({ id: ids[index], label: quotaName(quota.name), shortLabel: quotaShortLabel(quota.name) ?? undefined, utilizationPct: used, resetsAt: iso(quota.resetAt), tone: toneFromUsedPct(used) });
+    return windowFromUsedPct({ id: ids[index], label: labels[index], shortLabel: quotaShortLabel(quota.name, quota) ?? undefined, summary: weeklyOnly || undefined, utilizationPct: used, resetsAt: iso(quota.resetAt), tone: toneFromUsedPct(used) });
   });
   const status: UsageDetail | null = context.paused
     ? { id: "status", label: "Status", value: `Paused for a moment by ${router} after errors; it tries again by itself`, tone: "danger" }
     : account.problem
       ? { id: "status", label: "Status", value: sentence(account.problem), tone: "warning" }
       : account.coolingUntil
-        ? { id: "status", label: "Status", value: `Cooling down until ${utcTime(account.coolingUntil)}`, tone: "warning" }
+        ? { id: "status", label: "Status", value: `Cooling down until ${utcTime(account.coolingUntil, now)}`, tone: "warning" }
         : null;
   if (!windows.length) return unavailable({ kind: "no_quota", detail: status ? sentence(status.value) : `${router} has not reported this account's limits yet.` });
 
@@ -167,11 +173,11 @@ export function accountReport(account: Account, context: { router: string; pause
   const kind = signInKind(account.authType);
   if (kind) details.push({ id: "plan", label: "Signs in with", value: kind });
   if (status) details.push(status);
-  if (account.expiry?.status === "expiring_soon") details.push({ id: "sign-in", label: "Sign-in", value: account.expiry.expiresAt ? `Expires ${account.expiry.expiresAt.slice(0, 10)}` : "Expires soon", tone: "warning" });
+  if (account.expiry?.status === "expiring_soon") details.push({ id: "sign-in", label: "Sign-in", value: iso(account.expiry.expiresAt) ? `Expires ${utcTime(Date.parse(account.expiry.expiresAt!), now)}` : "Expires soon", tone: "warning" });
   if (account.health) details.push({ id: "health", label: "Last 24 hours", value: healthLine(account.health), tone: account.health.state === "healthy" ? "default" : "warning" });
   if (context.stale) {
     const at = iso(context.stale.checkedAt);
-    details.push({ id: "stale", label: "Last read", value: `${at ? utcTime(Date.parse(at)) : "Earlier"}: ${router} is not answering now (${context.stale.reason})`, tone: "warning" });
+    details.push({ id: "stale", label: "Last read", value: `${at ? utcTime(Date.parse(at), now) : "Earlier"}: ${router} is not answering now (${context.stale.reason})`, tone: "warning" });
   }
   return { status: "available", planLabel: account.shortName, windows, details };
 }

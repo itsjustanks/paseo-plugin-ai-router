@@ -264,6 +264,11 @@ Object.assign(fixtures, {
   "manage key": { ...connected, connection: { ...connected.connection, manageKey: { present: true, last4: "89ab" } }, aiProvider: { ...connected.aiProvider, legacyCodex: false, tests: [] } },
 });
 Object.assign(accountFixtures, {
+  weekly: {
+    ...insight,
+    router: (accountFixtures.ok as { router: unknown }).router,
+    accounts: [{ id: "weekly-codex", provider: "codex", shortName: "Codex #1", label: null, state: "attention", problem: null, coolingUntil: Date.parse("2026-10-11T03:10:00Z"), authType: "oauth", expiry: { status: "expiring_soon", expiresAt: "2026-10-12T03:10:00Z", note: null }, quotas: [{ name: "Weekly", remainingPct: 62, resetAt: "2026-10-17T03:10:00Z", windowSeconds: 604800 }] }],
+  },
   healthy: {
     ...insight,
     accounts: [

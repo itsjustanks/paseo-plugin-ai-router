@@ -19,7 +19,8 @@ const check = (name, fn) => {
 const clone = (value) => JSON.parse(JSON.stringify(value));
 try {
   const source = readFileSync(new URL("../apps/paseo/shared/routers/omniroute/parsers.ts", import.meta.url), "utf8");
-  writeFileSync(join(staging, "insights.mjs"), ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  writeFileSync(join(staging, "when.mjs"), ts.transpileModule(readFileSync(new URL("../apps/paseo/shared/when.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
+  writeFileSync(join(staging, "insights.mjs"), ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace('from "../../when"', 'from "./when.mjs"'));
   const I = await import(join(staging, "insights.mjs"));
   const copySource = readFileSync(new URL("../apps/paseo/shared/routers/omniroute/copy.ts", import.meta.url), "utf8");
   writeFileSync(join(staging, "copy.mjs"), ts.transpileModule(copySource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText);
@@ -95,11 +96,49 @@ try {
     providers.connections[2].codexAccountPool.children[1].quota.windows = { "5h": { usedPercentage: 100, resetAt: null } };
     const [claude, codex1, codex2] = I.parseAccounts({ providers, limits, now: NOW });
     assert.deepEqual(claude.quotas, [
-      { name: "session (5h)", remainingPct: 60, resetAt: "2026-09-23T05:00:00.000Z" },
-      { name: "weekly (7d)", remainingPct: 3, resetAt: null },
+      { name: "session (5h)", remainingPct: 60, resetAt: "2026-09-23T05:00:00.000Z", windowSeconds: null },
+      { name: "weekly (7d)", remainingPct: 3, resetAt: null, windowSeconds: null },
     ]);
     assert.deepEqual(codex1.quotas.map((q) => [q.name, q.remainingPct]), [["session", 75], ["weekly", 10]], "unlimited windows are skipped");
     assert.deepEqual(codex2.quotas.map((q) => [q.name, q.remainingPct]), [["5h", 70], ["spark 5h", 0]]);
+  });
+  check("0.22.3: windows by their real length — Codex's weekly-only plans, as OmniRoute reports them", () => {
+    // provider-limits (October 2026): one quota, key "session", displayName "Weekly", windowSeconds 604800, reset 7 days out.
+    const now = Date.parse("2026-10-10T03:00:00Z");
+    const weekOut = "2026-10-17T03:10:00Z";
+    const limits = { caches: { [CODEX1]: { quotas: { session: { used: 38, total: 100, remainingPercentage: 62, resetAt: weekOut, windowSeconds: 604800, displayName: "Weekly" } } } } };
+    const providers = body("/api/providers");
+    // The pool child mislabels the same window: key "5h", that same reset, "7d" null.
+    providers.connections[2].codexAccountPool.children[0].quota.windows = { "5h": { usedPercentage: 38, resetAt: weekOut }, "7d": null };
+    providers.connections[2].codexAccountPool.children[1].quota.windows = { "5h": { usedPercentage: 10, resetAt: "2026-10-10T12:00:00Z" } };
+    const [, codex1, codex2] = I.parseAccounts({ providers, limits, now });
+    assert.deepEqual(codex1.quotas, [{ name: "Weekly", remainingPct: 62, resetAt: weekOut, windowSeconds: 604800 }], "provider-limits: its windowSeconds is kept");
+    assert.equal(I.quotaName(codex1.quotas[0].name, codex1.quotas[0]), "Weekly limit");
+    assert.equal(I.quotaShortLabel(codex1.quotas[0].name, codex1.quotas[0]), "wk");
+    // Without a displayName the key "session" would read as 5 hours; the length wins.
+    assert.equal(I.quotaName("session", { windowSeconds: 604800 }), "Weekly limit");
+    assert.equal(I.quotaShortLabel("session", { windowSeconds: 604800 }), "wk");
+    assert.equal(I.quotaName("session", { windowSeconds: 18000 }), "5-hour limit");
+    assert.equal(I.quotaName("session", { windowSeconds: 86400 }), "24-hour limit", "another length says its length");
+    assert.equal(I.quotaName("session", { windowSeconds: 2592000 }), "30-day limit");
+    // Pool fallback: "5h" resetting 7 days out is the weekly window; "spark 5h" resetting in 9 hours is just a limit.
+    assert.deepEqual(codex2.quotas.map((q) => [q.name, q.windowSeconds, I.quotaName(q.name, q), I.quotaShortLabel(q.name, q)]), [
+      ["weekly", 604800, "Weekly limit", "wk"],
+      ["spark limit", null, "spark limit", null],
+    ]);
+    // A real 5-hour window (reset within 5h20m) stays one; so does one with no reset.
+    const pool = (windows) => { const p = body("/api/providers"); p.connections[2].codexAccountPool.children = [{ key: { scope: "codex" }, quota: { windows } }]; return I.parseAccounts({ providers: p, now })[2].quotas; };
+    assert.deepEqual(pool({ "5h": { usedPercentage: 10, resetAt: "2026-10-10T08:15:00Z" } }).map((q) => I.quotaName(q.name, q)), ["5-hour limit"], "5h15m out");
+    assert.deepEqual(pool({ "5h": { usedPercentage: 10, resetAt: null } }).map((q) => I.quotaName(q.name, q)), ["5-hour limit"], "no reset to judge by");
+    assert.deepEqual(pool({ "5h": { usedPercentage: 10, resetAt: weekOut, windowSeconds: 604800 } }).map((q) => I.quotaName(q.name, q)), ["Weekly limit"], "a pool window's own windowSeconds");
+    assert.deepEqual(pool({ "5h": { usedPercentage: 10, resetAt: "2026-10-10T04:00:00Z", windowSeconds: 604800 } }).map((q) => I.quotaName(q.name, q)), ["Weekly limit"], "explicit length wins even close to reset");
+    assert.deepEqual(I.parseQuotas({ quotas: { session: { remainingPercentage: 50, resetAt: weekOut, windowSeconds: "604800" } } }, now).map((q) => [I.quotaName(q.name, q), q.windowSeconds]), [["Weekly limit", 604800]], "provider-limits without a displayName");
+    for (const windowSeconds of [null, 0, -1, "bad"]) {
+      assert.deepEqual(pool({ "5h": { usedPercentage: 10, resetAt: weekOut, windowSeconds } }).map((q) => I.quotaName(q.name, q)), ["Weekly limit"], "invalid length falls back to reset distance");
+    }
+    // Never "5-hour limit" with a multi-day reset, from either field.
+    const multiDay = I.parseAccounts({ providers, limits: { caches: { [CODEX1]: { quotas: { "5h": { remainingPercentage: 50, resetAt: weekOut } } } } }, now })[1].quotas;
+    assert.deepEqual(multiDay.map((q) => I.quotaName(q.name, q)), ["Weekly limit"]);
   });
 
   check("masking and labels", () => {
@@ -455,6 +494,8 @@ try {
     assert.deepEqual([batch.ok, batch.message], [false, "2 of 3 accounts answered. Failed: so…@example.com (401)."]);
     assert.equal(I.describeBatchTest({ summary: { total: 0 }, results: [] }).message, "No active accounts to check.");
     assert.match(I.describeRefresh({ success: true, skipped: true, message: "Rotating-refresh provider: the token refreshes automatically on the next request." }, "Codex #1").message, /^Codex #1: Rotating-refresh provider/);
+    assert.deepEqual(I.describeRefresh({ success: true, expiresAt: "2026-10-17T03:10:00Z" }, "Claude #1", NOW), { ok: true, message: "Claude #1: token refreshed, valid until Sat 17 Oct, 3:10 am UTC." });
+    assert.deepEqual(I.describeRefresh({ success: true, expiresAt: "not a date" }, "Claude #1", NOW), { ok: true, message: "Claude #1: token refreshed." });
     assert.deepEqual(I.describeRefresh({ error: "Only OAuth connections support manual token refresh" }, "GLM #1"), { ok: false, message: "GLM #1: Only OAuth connections support manual token refresh." });
   });
 

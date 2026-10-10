@@ -1,5 +1,5 @@
 // Router errors in a chat (0.19.0): which chat messages are OmniRoute's errors,
-// and what to say about each in plain words. Pure and import-free, so the
+// and what to say about each in plain words. Pure, so the
 // tests can check it against real error text without the app.
 //
 // Where they come from (Paseo 0.11.0-beta.5, read from its daemon code):
@@ -15,6 +15,8 @@
 // "Provider claude circuit breaker is open",
 // "No active credentials for provider: claude",
 // "[claude] All accounts rate limited".
+
+import { whenWords } from "./when";
 
 export type RouterErrorKind = "paused" | "cooling" | "no-account" | "signed-out" | "outdated" | "unsupported" | "unavailable" | "router-down" | "other";
 
@@ -97,9 +99,6 @@ export function matchRouterError(text: string, source: "assistant" | "error"): R
   return { kind, provider, model, status, resetSeconds, gateway };
 }
 
-/** "16:45", in the viewer's own clock. */
-const clock = (date: Date) => date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
 /** "1m 9s", "2h 5m", "40s". */
 export function waitWords(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -115,7 +114,7 @@ export type RouterErrorWords = { title: string; retry: string; tone: "warning" |
  * when the error happened (the timeline item's time), so "until 16:45" stays
  * true however late the chat is read. `label` turns a provider id into a name.
  */
-export function routerErrorWords(error: RouterError, at: Date, label: (provider: string) => string): RouterErrorWords {
+export function routerErrorWords(error: RouterError, at: Date, label: (provider: string) => string, now: Date = new Date()): RouterErrorWords {
   const name = error.provider ? label(error.provider) : "This provider";
   const accounts = error.provider ? `${label(error.provider)} accounts` : "The router's accounts";
   const until = error.resetSeconds !== null ? new Date(at.getTime() + error.resetSeconds * 1000) : null;
@@ -131,7 +130,7 @@ export function routerErrorWords(error: RouterError, at: Date, label: (provider:
       };
     case "cooling":
       return {
-        title: until ? `${accounts} are cooling down until ${clock(until)}` : `${accounts} have hit their usage limit`,
+        title: until ? `${accounts} are cooling down until ${whenWords(until.getTime(), now.getTime())}` : `${accounts} have hit their usage limit`,
         retry: `The router moves to another account by itself when one has room. This chat won't retry: send your message again ${again}, or pick another model.`,
         tone: "warning",
         icon: "Timer",

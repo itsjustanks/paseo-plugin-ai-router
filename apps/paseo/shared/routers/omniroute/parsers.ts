@@ -2,8 +2,10 @@
  * Pure readers for OmniRoute's management API: accounts, usage, router health
  * and the model catalogue. OmniRoute already counts everything; these only
  * pick fields out defensively. A missing or renamed field yields null or an
- * empty list so the panel hides that part instead of crashing. No imports.
+ * empty list so the panel hides that part instead of crashing.
  */
+
+import { whenWords } from "../../when";
 
 type Rec = Record<string, unknown>;
 const rec = (value: unknown): Rec => (value && typeof value === "object" && !Array.isArray(value) ? (value as Rec) : {});
@@ -65,7 +67,8 @@ export function describeConsoleLock(url: string, path: string): string {
 
 // --------------------------------------------------------------- accounts
 
-export type Quota = { name: string; remainingPct: number; resetAt: string | null };
+/** `windowSeconds`: the window's real length, from the router or inferred from its reset (0.22.3); null when unknown. */
+export type Quota = { name: string; remainingPct: number; resetAt: string | null; windowSeconds?: number | null };
 export type Account = {
   id: string;
   provider: string;
@@ -107,50 +110,98 @@ function quotaLeft(entry: Rec): number | null {
 }
 
 /** Quotas from `/api/usage/provider-limits` → `caches[connectionId].quotas`. */
-export function parseQuotas(cacheEntry: unknown): Quota[] {
+export function parseQuotas(cacheEntry: unknown, now: number = Date.now()): Quota[] {
   const quotas: Quota[] = [];
   for (const [key, value] of Object.entries(rec(rec(cacheEntry).quotas))) {
     const entry = rec(value);
     const left = quotaLeft(entry);
     if (left === null) continue;
-    quotas.push({ name: str(entry.displayName) ?? key.replace(/_/g, " "), remainingPct: Math.round(left), resetAt: str(entry.resetAt) });
+    quotas.push(settleWindow({ name: str(entry.displayName) ?? key.replace(/_/g, " "), remainingPct: Math.round(left), resetAt: str(entry.resetAt), windowSeconds: seconds(entry.windowSeconds) }, now));
   }
   return quotas;
 }
 
-/** Codex fallback: `/api/providers` → `codexAccountPool.children[].quota.windows` when OmniRoute has observed them. */
-function codexPoolQuotas(pool: unknown): Quota[] {
+/**
+ * Codex fallback: `/api/providers` → `codexAccountPool.children[].quota.windows`
+ * when OmniRoute has observed them. The window's key can be wrong: in
+ * October 2026 Codex plans with only a weekly limit came back as `5h` with a
+ * reset seven days out (and `7d` null). So each window is labelled by its
+ * real length: `windowSeconds` when given, else what its reset time allows.
+ */
+function codexPoolQuotas(pool: unknown, now: number): Quota[] {
   const quotas: Quota[] = [];
   for (const child of list(rec(pool).children)) {
     const scope = str(rec(rec(child).key).scope) ?? "codex";
     for (const [window, value] of Object.entries(rec(rec(rec(child).quota).windows))) {
       const used = num(rec(value).usedPercentage);
       if (used === null) continue;
-      quotas.push({ name: `${scope === "codex" ? "" : `${scope} `}${window}`, remainingPct: Math.round(clampPct(100 - used)), resetAt: str(rec(value).resetAt) });
+      quotas.push(settleWindow({ name: `${scope === "codex" ? "" : `${scope} `}${window}`, remainingPct: Math.round(clampPct(100 - used)), resetAt: str(rec(value).resetAt), windowSeconds: seconds(rec(value).windowSeconds) }, now));
     }
   }
   return quotas;
 }
 
-/** A quota's window, from OmniRoute's names: "session (5h)", "weekly (7d)", Codex's "5h" and "spark 5h". */
-function quotaWindow(name: string): { window: "5-hour limit" | "weekly limit" | null; extra: string } {
-  const lower = name.toLowerCase();
-  const window = /5h|session/.test(lower) ? "5-hour limit" : /7d|weekly/.test(lower) ? "weekly limit" : null;
-  return { window, extra: window ? lower.replace(/session|weekly|\(?5h\)?|\(?7d\)?/g, "").trim() : "" };
+const HOUR_S = 3600;
+const FIVE_HOURS_S = 5 * HOUR_S;
+const WEEK_S = 7 * 24 * HOUR_S;
+/** A 5-hour window resets within 5 hours; 20 minutes of slack for clocks and rounding. */
+const FIVE_HOUR_SLACK_MS = (FIVE_HOURS_S + 20 * 60) * 1000;
+const seconds = (value: unknown) => {
+  const n = num(value);
+  return n !== null && n > 0 ? n : null;
+};
+
+/**
+ * Never a "5-hour limit" that resets days away. A window named 5h (or
+ * "session") with no length of its own, whose reset is more than 5h20m out,
+ * isn't one: more than a day out it's the weekly window; otherwise it's just
+ * a limit.
+ */
+function settleWindow(quota: Quota, now: number): Quota {
+  if (quota.windowSeconds) return quota;
+  const { window, extra } = quotaWindow(quota.name);
+  const reset = quota.resetAt ? Date.parse(quota.resetAt) : NaN;
+  if (window !== "5-hour limit" || !Number.isFinite(reset) || reset - now <= FIVE_HOUR_SLACK_MS) return { ...quota, windowSeconds: quota.windowSeconds ?? null };
+  if (reset - now > 24 * HOUR_S * 1000) return { ...quota, name: extra ? `${extra} weekly` : "weekly", windowSeconds: WEEK_S };
+  return { ...quota, name: extra ? `${extra} limit` : "Usage limit", windowSeconds: null };
 }
 
-/** "session (5h)" → "5-hour limit", "spark 5h" → "Spark · 5-hour limit". Anything else is returned as is. */
-export function quotaName(name: string): string {
-  const { window, extra } = quotaWindow(name);
+/** A known window length from `{ windowSeconds }`; anything else (an array index from `.map(quotaName)`, say) is no length. */
+const lengthOf = (known: unknown) => (known && typeof known === "object" ? seconds((known as { windowSeconds?: unknown }).windowSeconds) : null);
+
+/** "5-hour limit", "weekly limit", or "36-hour limit" / "30-day limit" for any other length. */
+function lengthWindow(windowSeconds: number): string {
+  if (Math.abs(windowSeconds - FIVE_HOURS_S) <= 30 * 60) return "5-hour limit";
+  if (Math.abs(windowSeconds - WEEK_S) <= 12 * HOUR_S) return "weekly limit";
+  const hours = windowSeconds / HOUR_S;
+  return hours < 48 ? `${Math.round(hours)}-hour limit` : `${Math.round(hours / 24)}-day limit`;
+}
+
+/**
+ * A quota's window: its real length when known (0.22.3), else OmniRoute's
+ * names: "session (5h)", "weekly (7d)", Codex's "5h" and "spark 5h".
+ * `extra` is what the name says besides the window ("spark").
+ */
+function quotaWindow(name: string, windowSeconds?: number | null): { window: string | null; extra: string } {
+  const lower = name.toLowerCase();
+  const rest = () => lower.replace(/session|weekly|\(?5h\)?|\(?7d\)?/g, "").trim();
+  if (windowSeconds) return { window: lengthWindow(windowSeconds), extra: rest() };
+  const window = /5h|session/.test(lower) ? "5-hour limit" : /7d|weekly/.test(lower) ? "weekly limit" : null;
+  return { window, extra: window ? rest() : "" };
+}
+
+/** "session (5h)" → "5-hour limit", "spark 5h" → "Spark · 5-hour limit", a 604800 s "session" → "Weekly limit". Anything else is returned as is. */
+export function quotaName(name: string, known?: { windowSeconds?: number | null }): string {
+  const { window, extra } = quotaWindow(name, lengthOf(known));
   if (!window) return name;
   const text = extra ? `${extra} · ${window}` : window;
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** "5h" or "wk" where space is tight; null for any other quota, which then shows its full name. */
-export function quotaShortLabel(name: string): string | null {
-  const { window, extra } = quotaWindow(name);
-  if (!window || extra) return null;
+export function quotaShortLabel(name: string, known?: { windowSeconds?: number | null }): string | null {
+  const { window, extra } = quotaWindow(name, lengthOf(known));
+  if (extra || (window !== "5-hour limit" && window !== "weekly limit")) return null;
   return window === "5-hour limit" ? "5h" : "wk";
 }
 
@@ -280,7 +331,7 @@ export function parseAccounts(input: { providers: unknown; rateLimits?: unknown;
         return cooldown.active === true ? epochMs(cooldown.rateLimitedUntil) : null;
       }),
     ].filter((ms): ms is number => ms !== null && ms > input.now);
-    const quotas = parseQuotas(caches[id]);
+    const quotas = parseQuotas(caches[id], input.now);
     const banked = num(rec(caches[id]).bankedResetCredits);
     const disabled = connection.isActive === false;
     const problem = disabled ? "disabled in OmniRoute" : problemFor(connection);
@@ -292,7 +343,7 @@ export function parseAccounts(input: { providers: unknown; rateLimits?: unknown;
       state: disabled ? "disabled" : problem || ends.length ? "attention" : "healthy",
       problem,
       coolingUntil: ends.length ? Math.max(...ends) : null,
-      quotas: quotas.length ? quotas : codexPoolQuotas(connection.codexAccountPool),
+      quotas: quotas.length ? quotas : codexPoolQuotas(connection.codexAccountPool, input.now),
       authType: str(connection.authType),
       health: null,
       expiry: null,
@@ -381,10 +432,11 @@ export function describeBatchTest(body: unknown): { ok: boolean; message: string
 }
 
 /** `POST /api/providers/{id}/refresh` → one line. Codex answers "skipped" on purpose. */
-export function describeRefresh(body: unknown, name: string): { ok: boolean; message: string } {
+export function describeRefresh(body: unknown, name: string, now: number = Date.now()): { ok: boolean; message: string } {
   const record = rec(body);
   if (record.skipped === true) return { ok: true, message: `${name}: ${str(record.message) ?? "refresh skipped; it refreshes on the next request."}` };
-  if (record.success === true) return { ok: true, message: `${name}: token refreshed${str(record.expiresAt) ? `, valid until ${record.expiresAt}` : ""}.` };
+  const expiresAt = epochMs(record.expiresAt);
+  if (record.success === true) return { ok: true, message: `${name}: token refreshed${expiresAt !== null ? `, valid until ${whenWords(expiresAt, now, { timeZone: "UTC", sayZone: true })}` : ""}.` };
   return { ok: false, message: `${name}: ${str(rec(record.error).message) ?? str(record.error) ?? "refresh failed"}.` };
 }
 
